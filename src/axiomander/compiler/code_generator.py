@@ -54,6 +54,11 @@ class CodeGenerator:
             lines.append('"""')
             lines.append("")
         
+        # Add contract checking infrastructure
+        if self.config.include_contracts:
+            lines.extend(self._generate_contract_infrastructure())
+            lines.append("")
+        
         # Generate imports
         import_lines = self._generate_imports(component, mapping, all_mappings, all_components)
         lines.extend(import_lines)
@@ -61,10 +66,11 @@ class CodeGenerator:
         if import_lines:
             lines.append("")
         
-        # Load and add implementation code
+        # Load and process implementation code with contract decorators
         impl_code = self._load_component_file(component.uid, "implementation.py")
         if impl_code:
-            lines.append(impl_code)
+            processed_code = self._add_contract_decorators(impl_code, component, mapping)
+            lines.append(processed_code)
         
         return "\n".join(lines)
     
