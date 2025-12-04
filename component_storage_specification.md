@@ -320,7 +320,3 @@ Edges in the graph can represent:
 
 This specification is designed to support future enhancements:
 - Multi-language support (TypeScript, Rust, etc.)
-- Versioning of components
-- Component templates and generators
-- Distributed component repositories
-- Component testing and validation frameworks
