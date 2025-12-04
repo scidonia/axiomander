@@ -201,8 +201,6 @@ class CodeGenerator:
                 import_path = f".{mapping.uniquified_name}"
             
             # Import main symbols from the component
-            # This is a simplified approach - in practice you'd parse the implementation
-            # to determine what to import
             imports.append(f"from {import_path} import *")
             exports.append(f'"{component.name}"')
         
@@ -214,6 +212,16 @@ class CodeGenerator:
         for export in exports:
             lines.append(f"    {export},")
         lines.append("]")
+        lines.append("")
+        
+        # Add a main function that can be called from main.py
+        entry_mapping = mappings[entry_point_uid]
+        lines.append("def main():")
+        lines.append(f'    """Main entry point for the {module_name} module."""')
+        lines.append(f"    # Example usage of {components[entry_point_uid].name}")
+        lines.append(f"    result = {components[entry_point_uid].name}(5)")
+        lines.append("    print(f'Result: {result}')")
+        lines.append("    return result")
         
         return "\n".join(lines)
     
@@ -241,28 +249,17 @@ class CodeGenerator:
         lines.append(f'"""Main entry point for {entry_component.name}"""')
         lines.append("")
         
-        # Generate imports for the entry point
-        import_lines = self._generate_imports(
-            entry_component, entry_mapping, all_mappings, all_components
-        )
-        lines.extend(import_lines)
-        lines.append("")
-        
-        # Import the entry point component
-        if entry_mapping.path:
-            path_parts = entry_mapping.path.split("/")
-            import_path = "." + ".".join(path_parts) + f".{entry_mapping.uniquified_name}"
-        else:
-            import_path = f".{entry_mapping.uniquified_name}"
-        
-        lines.append(f"from {import_path} import *")
+        # Import the entry point component using absolute import
+        # This allows the main.py to be run directly
+        lines.append(f"from {entry_mapping.uniquified_name} import *")
         lines.append("")
         
         # Generate main function if appropriate
         lines.append("def main():")
         lines.append(f'    """Main entry point for {entry_component.name}."""')
-        lines.append("    # TODO: Add main logic here")
-        lines.append("    pass")
+        lines.append(f"    # Call the main function from {entry_component.name}")
+        lines.append(f"    result = {entry_component.name}(5)  # Example call")
+        lines.append("    print(f'Result: {result}')")
         lines.append("")
         lines.append("")
         lines.append('if __name__ == "__main__":')
