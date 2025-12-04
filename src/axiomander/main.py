@@ -7,6 +7,14 @@ from rich.table import Table
 from .storage.manager import ComponentStorageManager
 from .storage.models import Component, ComponentType, AxiomanderConfig
 
+# Import compiler modules - these will be created
+try:
+    from .compiler.models import CompilerConfig, CompilerMode
+    from .compiler.compiler import ComponentCompiler
+    COMPILER_AVAILABLE = True
+except ImportError:
+    COMPILER_AVAILABLE = False
+
 console = Console()
 error_console = Console(stderr=True)
 
