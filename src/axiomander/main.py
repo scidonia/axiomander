@@ -21,6 +21,48 @@ error_console = Console(stderr=True)
 app = typer.Typer(help="Axiomander - Design-by-Contract Agent System")
 
 
+def resolve_entry_point_uid(entry_point: str, storage_manager: ComponentStorageManager) -> Optional[str]:
+    """Resolve entry point name or UID to a component UID.
+    
+    Args:
+        entry_point: Component name or UID
+        storage_manager: Storage manager to load components
+        
+    Returns:
+        Component UID if found and unique, None otherwise
+    """
+    # If it looks like a UID (contains hyphens), try to use it directly
+    if "-" in entry_point:
+        component = storage_manager.load_component(entry_point)
+        if component:
+            return entry_point
+        else:
+            error_console.print(f"[red]Component with UID '{entry_point}' not found[/red]")
+            return None
+    
+    # Otherwise, treat it as a component name and find matching components
+    component_uids = storage_manager.list_components()
+    matching_components = []
+    
+    for uid in component_uids:
+        component = storage_manager.load_component(uid)
+        if component and component.name == entry_point:
+            matching_components.append((uid, component))
+    
+    if len(matching_components) == 0:
+        error_console.print(f"[red]No component found with name '{entry_point}'[/red]")
+        return None
+    elif len(matching_components) == 1:
+        return matching_components[0][0]
+    else:
+        error_console.print(f"[red]Multiple components found with name '{entry_point}':[/red]")
+        for uid, component in matching_components:
+            path_info = f" (path: {component.path})" if component.path else ""
+            error_console.print(f"  • {uid}{path_info}")
+        error_console.print("[red]Please specify the full UID instead[/red]")
+        return None
+
+
 @app.command("init")
 def init_storage(
     project_root: Path = typer.Option(
@@ -97,7 +139,7 @@ def list_components(
             component = manager.load_component(uid)
             if component:
                 table.add_row(
-                    uid[:8] + "...",  # Truncate UID for display
+                    uid,  # Show full UID
                     component.name,
                     component.component_type.value,
                     component.path or "",
@@ -183,6 +225,13 @@ def compile_components(
     try:
         storage_manager = ComponentStorageManager(project_root)
         
+        # Resolve entry point if provided
+        resolved_entry_point = None
+        if entry_point:
+            resolved_entry_point = resolve_entry_point_uid(entry_point, storage_manager)
+            if resolved_entry_point is None:
+                raise typer.Exit(1)
+        
         # Convert string mode to enum
         try:
             compiler_mode = CompilerMode(mode)
@@ -200,7 +249,7 @@ def compile_components(
         )
         
         compiler = ComponentCompiler(storage_manager, config)
-        result = compiler.compile_components(component_uids, module_name, entry_point)
+        result = compiler.compile_components(component_uids, module_name, resolved_entry_point)
         
         if result.success:
             console.print(f"[green]✓[/green] Successfully compiled {len(result.compiled_components)} components")
