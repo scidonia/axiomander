@@ -344,8 +344,13 @@ class CodeGenerator:
         for line in lines:
             stripped = line.strip()
             
-            # Convert relative imports like "from .logical import ..." to absolute
-            if stripped.startswith('from .') and ' import ' in stripped:
+            # Remove imports from .logical entirely - these are handled automatically
+            if stripped.startswith('from .logical import') or stripped.startswith('from .logical '):
+                # Skip this line entirely - logical imports are handled by the compiler
+                continue
+            
+            # Convert other relative imports like "from .other_module import ..." to absolute
+            elif stripped.startswith('from .') and ' import ' in stripped:
                 # Extract the module and imports
                 parts = stripped.split(' import ', 1)
                 if len(parts) == 2:
@@ -355,14 +360,8 @@ class CodeGenerator:
                     # Remove the "from ." prefix
                     module_name = module_part[5:]  # Remove "from ."
                     
-                    # Convert to absolute import
-                    if module_name == 'logical':
-                        # Special case for logical imports
-                        new_line = line.replace(f'from .{module_name}', f'from {mapping.uniquified_name}_logical')
-                    else:
-                        # General case for other relative imports
-                        new_line = line.replace(f'from .{module_name}', f'from {module_name}')
-                    
+                    # Convert to absolute import (not logical)
+                    new_line = line.replace(f'from .{module_name}', f'from {module_name}')
                     processed_lines.append(new_line)
                     continue
             
