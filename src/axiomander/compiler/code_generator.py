@@ -264,6 +264,117 @@ class CodeGenerator:
         
         return "\n".join(lines)
     
+    def _generate_contract_infrastructure(self) -> List[str]:
+        """Generate the contract checking infrastructure."""
+        lines = []
+        
+        lines.append("import os")
+        lines.append("import functools")
+        lines.append("from typing import Callable, Any")
+        lines.append("")
+        lines.append("# Contract checking can be disabled by setting AXIOMANDER_DISABLE_CONTRACTS=1")
+        lines.append("CONTRACTS_ENABLED = os.getenv('AXIOMANDER_DISABLE_CONTRACTS', '0') != '1'")
+        lines.append("")
+        lines.append("def precondition(contract_text: str, check_func: Callable):")
+        lines.append('    """Decorator for precondition contracts."""')
+        lines.append("    def decorator(func: Callable) -> Callable:")
+        lines.append("        if not CONTRACTS_ENABLED:")
+        lines.append("            return func")
+        lines.append("        ")
+        lines.append("        @functools.wraps(func)")
+        lines.append("        def wrapper(*args, **kwargs):")
+        lines.append("            if not check_func(*args, **kwargs):")
+        lines.append("                raise AssertionError(f'Precondition failed for {func.__name__}: {contract_text}')")
+        lines.append("            return func(*args, **kwargs)")
+        lines.append("        ")
+        lines.append("        # Add contract text as attribute for introspection")
+        lines.append("        wrapper.__precondition__ = contract_text")
+        lines.append("        return wrapper")
+        lines.append("    return decorator")
+        lines.append("")
+        lines.append("def postcondition(contract_text: str, check_func: Callable):")
+        lines.append('    """Decorator for postcondition contracts."""')
+        lines.append("    def decorator(func: Callable) -> Callable:")
+        lines.append("        if not CONTRACTS_ENABLED:")
+        lines.append("            return func")
+        lines.append("        ")
+        lines.append("        @functools.wraps(func)")
+        lines.append("        def wrapper(*args, **kwargs):")
+        lines.append("            result = func(*args, **kwargs)")
+        lines.append("            if not check_func(result, *args, **kwargs):")
+        lines.append("                raise AssertionError(f'Postcondition failed for {func.__name__}: {contract_text}')")
+        lines.append("            return result")
+        lines.append("        ")
+        lines.append("        # Add contract text as attribute for introspection")
+        lines.append("        wrapper.__postcondition__ = contract_text")
+        lines.append("        return wrapper")
+        lines.append("    return decorator")
+        
+        return lines
+    
+    def _add_contract_decorators(self, impl_code: str, component: Component, mapping: ComponentMapping) -> str:
+        """Add contract decorators to function definitions in implementation code.
+        
+        Args:
+            impl_code: Original implementation code
+            component: Component with contract information
+            mapping: Component mapping
+            
+        Returns:
+            Implementation code with contract decorators added
+        """
+        if not self.config.include_contracts:
+            return impl_code
+        
+        lines = impl_code.split('\n')
+        processed_lines = []
+        
+        for i, line in enumerate(lines):
+            # Look for function definitions
+            if line.strip().startswith('def ') and ':' in line:
+                # Extract function name
+                func_def = line.strip()
+                func_name_start = func_def.find('def ') + 4
+                func_name_end = func_def.find('(')
+                if func_name_end > func_name_start:
+                    func_name = func_def[func_name_start:func_name_end].strip()
+                    
+                    # Add contract decorators before function definition
+                    indent = len(line) - len(line.lstrip())
+                    decorator_lines = self._generate_contract_decorator(component, func_name)
+                    if decorator_lines:
+                        for decorator_line in decorator_lines.split('\n'):
+                            if decorator_line.strip():
+                                processed_lines.append(' ' * indent + decorator_line)
+            
+            processed_lines.append(line)
+        
+        return '\n'.join(processed_lines)
+    
+    def _generate_contract_decorator(self, component: Component, func_name: str) -> str:
+        """Generate contract decorators for a specific function.
+        
+        Args:
+            component: Component with contract information
+            func_name: Name of the function to decorate
+            
+        Returns:
+            Contract decorator strings (may be multiple lines)
+        """
+        decorators = []
+        
+        # Add precondition decorator if present
+        if component.precondition and component.pre_contract:
+            pre_text = component.pre_contract.replace('"', '\\"')  # Escape quotes
+            decorators.append(f'@precondition("{pre_text}", {component.precondition})')
+        
+        # Add postcondition decorator if present  
+        if component.postcondition and component.post_contract:
+            post_text = component.post_contract.replace('"', '\\"')  # Escape quotes
+            decorators.append(f'@postcondition("{post_text}", {component.postcondition})')
+        
+        return '\n'.join(decorators) if decorators else ""
+    
     def _generate_imports(
         self,
         component: Component,
