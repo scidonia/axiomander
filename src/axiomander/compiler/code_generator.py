@@ -1,0 +1,368 @@
+"""Code generation for compiled components."""
+
+import re
+from pathlib import Path
+from typing import Dict, List, Optional, Set
+
+from ..storage.models import Component
+from .models import CompilerConfig, ComponentMapping
+
+
+class CodeGenerator:
+    """Generates Python code files from components."""
+    
+    def __init__(self, config: CompilerConfig, storage_manager=None):
+        """Initialize with compiler configuration.
+        
+        Args:
+            config: Compiler configuration settings
+            storage_manager: Optional storage manager for loading component files
+        """
+        self.config = config
+        self.storage_manager = storage_manager
+    
+    def generate_implementation_file(
+        self,
+        component: Component,
+        mapping: ComponentMapping,
+        all_mappings: Dict[str, ComponentMapping],
+        all_components: Dict[str, Component]
+    ) -> str:
+        """Generate the implementation Python file for a component.
+        
+        Args:
+            component: Component to generate code for
+            mapping: Component mapping with uniquified name
+            all_mappings: All component mappings for import resolution
+            all_components: All components for dependency lookup
+            
+        Returns:
+            Generated Python code as string
+        """
+        lines = []
+        
+        # Add UID tracking comment
+        lines.append(f"# axiomander:component:{component.uid}")
+        lines.append("")
+        
+        # Add module docstring if in development mode
+        if self.config.mode.value == "development" and self.config.preserve_metadata:
+            lines.append(f'"""Component: {component.name}')
+            if component.description:
+                lines.append(f"{component.description}")
+            lines.append(f"Original UID: {component.uid}")
+            lines.append('"""')
+            lines.append("")
+        
+        # Generate imports
+        import_lines = self._generate_imports(component, mapping, all_mappings, all_components)
+        lines.extend(import_lines)
+        
+        if import_lines:
+            lines.append("")
+        
+        # Load and add implementation code
+        impl_code = self._load_component_file(component.uid, "implementation.py")
+        if impl_code:
+            lines.append(impl_code)
+        
+        return "\n".join(lines)
+    
+    def generate_logical_file(self, component: Component, mapping: ComponentMapping) -> str:
+        """Generate the logical contracts file for a component.
+        
+        Args:
+            component: Component to generate code for
+            mapping: Component mapping with uniquified name
+            
+        Returns:
+            Generated Python code as string
+        """
+        lines = []
+        
+        # Add UID tracking comment
+        lines.append(f"# axiomander:component:{component.uid}")
+        lines.append("")
+        
+        # Add module docstring if in development mode
+        if self.config.mode.value == "development" and self.config.preserve_metadata:
+            lines.append(f'"""Logical contracts for component: {component.name}')
+            if component.description:
+                lines.append(f"{component.description}")
+            lines.append(f"Original UID: {component.uid}")
+            lines.append('"""')
+            lines.append("")
+        
+        # Load and add logical code
+        logical_code = self._load_component_file(component.uid, "logical.py")
+        if logical_code:
+            lines.append(logical_code)
+        
+        return "\n".join(lines)
+    
+    def generate_test_file(
+        self, 
+        component: Component, 
+        mapping: ComponentMapping, 
+        module_name: str
+    ) -> str:
+        """Generate the test file for a component.
+        
+        Args:
+            component: Component to generate code for
+            mapping: Component mapping with uniquified name
+            module_name: Name of the compiled module
+            
+        Returns:
+            Generated Python code as string
+        """
+        lines = []
+        
+        # Add UID tracking comment
+        lines.append(f"# axiomander:component:{component.uid}")
+        lines.append("")
+        
+        # Add module docstring
+        lines.append(f'"""Tests for component: {component.name}"""')
+        lines.append("")
+        
+        # Generate test imports
+        path_prefix = ""
+        if mapping.path:
+            path_parts = mapping.path.split("/")
+            path_prefix = "." + ".".join(path_parts) + "."
+        else:
+            path_prefix = "."
+        
+        lines.append(f"from src.{module_name}{path_prefix}{mapping.uniquified_name} import *")
+        lines.append(f"from src.{module_name}{path_prefix}{mapping.uniquified_name}_logical import *")
+        lines.append("")
+        
+        # Standard test imports
+        lines.append("import pytest")
+        lines.append("import unittest")
+        lines.append("from hypothesis import given, strategies as st")
+        lines.append("")
+        
+        # Load and add test code
+        test_code = self._load_component_file(component.uid, "test.py")
+        if test_code:
+            lines.append(test_code)
+        
+        return "\n".join(lines)
+    
+    def generate_module_init(
+        self,
+        components: Dict[str, Component],
+        mappings: Dict[str, ComponentMapping],
+        module_name: str,
+        entry_point_uid: str
+    ) -> str:
+        """Generate the module __init__.py file.
+        
+        Args:
+            components: All components in the module
+            mappings: Component mappings
+            module_name: Name of the module
+            entry_point_uid: UID of the entry point component
+            
+        Returns:
+            Generated Python code as string
+        """
+        lines = []
+        
+        # Module docstring
+        lines.append(f'"""Generated module: {module_name}')
+        lines.append("")
+        lines.append("This module was automatically generated by Axiomander.")
+        if self.config.preserve_metadata:
+            lines.append(f"Entry point: {components[entry_point_uid].name}")
+            lines.append(f"Components: {len(components)}")
+        lines.append('"""')
+        lines.append("")
+        
+        # Import all public components
+        imports = []
+        exports = []
+        
+        for uid, component in components.items():
+            mapping = mappings[uid]
+            
+            if mapping.path:
+                path_parts = mapping.path.split("/")
+                import_path = "." + ".".join(path_parts) + f".{mapping.uniquified_name}"
+            else:
+                import_path = f".{mapping.uniquified_name}"
+            
+            # Import main symbols from the component
+            # This is a simplified approach - in practice you'd parse the implementation
+            # to determine what to import
+            imports.append(f"from {import_path} import *")
+            exports.append(f'"{component.name}"')
+        
+        lines.extend(imports)
+        lines.append("")
+        
+        # __all__ export list
+        lines.append("__all__ = [")
+        for export in exports:
+            lines.append(f"    {export},")
+        lines.append("]")
+        
+        return "\n".join(lines)
+    
+    def generate_main_file(
+        self,
+        entry_component: Component,
+        entry_mapping: ComponentMapping,
+        all_mappings: Dict[str, ComponentMapping],
+        all_components: Dict[str, Component]
+    ) -> str:
+        """Generate the main.py file for the module.
+        
+        Args:
+            entry_component: Entry point component
+            entry_mapping: Entry point component mapping
+            all_mappings: All component mappings
+            all_components: All components
+            
+        Returns:
+            Generated Python code as string
+        """
+        lines = []
+        
+        # Module docstring
+        lines.append(f'"""Main entry point for {entry_component.name}"""')
+        lines.append("")
+        
+        # Generate imports for the entry point
+        import_lines = self._generate_imports(
+            entry_component, entry_mapping, all_mappings, all_components
+        )
+        lines.extend(import_lines)
+        lines.append("")
+        
+        # Import the entry point component
+        if entry_mapping.path:
+            path_parts = entry_mapping.path.split("/")
+            import_path = "." + ".".join(path_parts) + f".{entry_mapping.uniquified_name}"
+        else:
+            import_path = f".{entry_mapping.uniquified_name}"
+        
+        lines.append(f"from {import_path} import *")
+        lines.append("")
+        
+        # Generate main function if appropriate
+        lines.append("def main():")
+        lines.append(f'    """Main entry point for {entry_component.name}."""')
+        lines.append("    # TODO: Add main logic here")
+        lines.append("    pass")
+        lines.append("")
+        lines.append("")
+        lines.append('if __name__ == "__main__":')
+        lines.append("    main()")
+        
+        return "\n".join(lines)
+    
+    def _generate_imports(
+        self,
+        component: Component,
+        mapping: ComponentMapping,
+        all_mappings: Dict[str, ComponentMapping],
+        all_components: Dict[str, Component]
+    ) -> List[str]:
+        """Generate import statements for a component.
+        
+        Args:
+            component: Component to generate imports for
+            mapping: Component mapping
+            all_mappings: All component mappings for dependency resolution
+            all_components: All components
+            
+        Returns:
+            List of import statement lines
+        """
+        lines = []
+        
+        # Always import the logical file first
+        lines.append(f"from .{mapping.uniquified_name}_logical import *")
+        
+        # Generate imports for dependencies
+        for dep_uid in component.dependencies:
+            if dep_uid not in all_mappings:
+                continue
+            
+            dep_mapping = all_mappings[dep_uid]
+            dep_component = all_components[dep_uid]
+            
+            # Determine relative import path
+            current_path = mapping.path or ""
+            dep_path = dep_mapping.path or ""
+            
+            if current_path == dep_path:
+                # Same directory - use simple relative import
+                import_path = f".{dep_mapping.uniquified_name}"
+            else:
+                # Different directories - calculate relative path
+                if not current_path and dep_path:
+                    # Current is root, dependency is in subdirectory
+                    path_parts = dep_path.split("/")
+                    import_path = "." + ".".join(path_parts) + f".{dep_mapping.uniquified_name}"
+                elif current_path and not dep_path:
+                    # Current is in subdirectory, dependency is in root
+                    current_parts = current_path.split("/")
+                    import_path = "." + ".." * len(current_parts) + f".{dep_mapping.uniquified_name}"
+                else:
+                    # Both in different subdirectories
+                    current_parts = current_path.split("/")
+                    dep_parts = dep_path.split("/")
+                    
+                    # Find common prefix
+                    common_len = 0
+                    for i, (c, d) in enumerate(zip(current_parts, dep_parts)):
+                        if c == d:
+                            common_len = i + 1
+                        else:
+                            break
+                    
+                    # Calculate relative path
+                    up_levels = len(current_parts) - common_len
+                    down_path = dep_parts[common_len:]
+                    
+                    if up_levels == 0 and not down_path:
+                        import_path = f".{dep_mapping.uniquified_name}"
+                    else:
+                        import_path = "." + ".." * up_levels
+                        if down_path:
+                            import_path += "." + ".".join(down_path)
+                        import_path += f".{dep_mapping.uniquified_name}"
+            
+            # Add import statement
+            lines.append(f"from {import_path} import *")
+        
+        return lines
+    
+    def _load_component_file(self, component_uid: str, filename: str) -> Optional[str]:
+        """Load a component file from storage.
+        
+        Args:
+            component_uid: UID of the component
+            filename: Name of the file to load
+            
+        Returns:
+            File contents or None if not found
+        """
+        try:
+            if self.storage_manager:
+                component_dir = self.storage_manager.axiomander_dir / "components" / component_uid
+            else:
+                component_dir = Path(".axiomander/components") / component_uid
+            
+            file_path = component_dir / filename
+            
+            if file_path.exists():
+                return file_path.read_text(encoding="utf-8")
+            else:
+                return f"# {filename} not found for component {component_uid}"
+        except Exception as e:
+            return f"# Error loading {filename} for component {component_uid}: {str(e)}"
