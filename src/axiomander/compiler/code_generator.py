@@ -196,12 +196,12 @@ class CodeGenerator:
             
             if mapping.path:
                 path_parts = mapping.path.split("/")
-                import_path = "." + ".".join(path_parts) + f".{mapping.uniquified_name}"
+                import_path = ".".join(path_parts) + f".{mapping.uniquified_name}"
             else:
-                import_path = f".{mapping.uniquified_name}"
+                import_path = f"{mapping.uniquified_name}"
             
             # Import main symbols from the component
-            imports.append(f"from {import_path} import *")
+            imports.append(f"from .{import_path} import *")
             exports.append(f'"{component.name}"')
         
         lines.extend(imports)
@@ -436,7 +436,7 @@ class CodeGenerator:
         lines = []
         
         # Always import the logical file first
-        lines.append(f"from .{mapping.uniquified_name}_logical import *")
+        lines.append(f"from {mapping.uniquified_name}_logical import *")
         
         # Generate imports for dependencies
         for dep_uid in component.dependencies:
@@ -451,42 +451,15 @@ class CodeGenerator:
             dep_path = dep_mapping.path or ""
             
             if current_path == dep_path:
-                # Same directory - use simple relative import
-                import_path = f".{dep_mapping.uniquified_name}"
+                # Same directory - use simple import
+                import_path = f"{dep_mapping.uniquified_name}"
             else:
-                # Different directories - calculate relative path
-                if not current_path and dep_path:
-                    # Current is root, dependency is in subdirectory
+                # Different directories - use absolute path within module
+                if dep_path:
                     path_parts = dep_path.split("/")
-                    import_path = "." + ".".join(path_parts) + f".{dep_mapping.uniquified_name}"
-                elif current_path and not dep_path:
-                    # Current is in subdirectory, dependency is in root
-                    current_parts = current_path.split("/")
-                    import_path = "." + ".." * len(current_parts) + f".{dep_mapping.uniquified_name}"
+                    import_path = ".".join(path_parts) + f".{dep_mapping.uniquified_name}"
                 else:
-                    # Both in different subdirectories
-                    current_parts = current_path.split("/")
-                    dep_parts = dep_path.split("/")
-                    
-                    # Find common prefix
-                    common_len = 0
-                    for i, (c, d) in enumerate(zip(current_parts, dep_parts)):
-                        if c == d:
-                            common_len = i + 1
-                        else:
-                            break
-                    
-                    # Calculate relative path
-                    up_levels = len(current_parts) - common_len
-                    down_path = dep_parts[common_len:]
-                    
-                    if up_levels == 0 and not down_path:
-                        import_path = f".{dep_mapping.uniquified_name}"
-                    else:
-                        import_path = "." + ".." * up_levels
-                        if down_path:
-                            import_path += "." + ".".join(down_path)
-                        import_path += f".{dep_mapping.uniquified_name}"
+                    import_path = f"{dep_mapping.uniquified_name}"
             
             # Add import statement
             lines.append(f"from {import_path} import *")
