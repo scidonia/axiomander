@@ -124,15 +124,30 @@ class Component(BaseModel):
         None,
         description="String representation of the precondition contract meaning"
     )
-
+    
+    pre_contract_name: Optional[str] = Field(
+        None,
+        description="Name of the precondition function/decorator in the logical file"
+    )
+    
     post_contract: Optional[str] = Field(
         None,
         description="String representation of the postcondition contract meaning"
     )
-
+    
+    post_contract_name: Optional[str] = Field(
+        None,
+        description="Name of the postcondition function/decorator in the logical file"
+    )
+    
     invariant_contract: Optional[str] = Field(
         None,
         description="String representation of the invariant contract meaning (for classes)"
+    )
+    
+    invariant_contract_name: Optional[str] = Field(
+        None,
+        description="Name of the invariant function/decorator in the logical file"
     )
 
     # Dependencies
