@@ -14,11 +14,13 @@ Components are individual objects that represent functions, classes, or modules 
 │   ├── {component_uid_1}/
 │   │   ├── component.json
 │   │   ├── logical.py
-│   │   └── implementation.py
+│   │   ├── implementation.py
+│   │   └── test.py
 │   ├── {component_uid_2}/
 │   │   ├── component.json
 │   │   ├── logical.py
-│   │   └── implementation.py
+│   │   ├── implementation.py
+│   │   └── test.py
 │   └── ...
 ├── graph.json
 └── config.json
@@ -187,6 +189,11 @@ class Component(BaseModel):
         "implementation.py",
         description="Filename for the implementation file"
     )
+    
+    test_file: str = Field(
+        "test.py",
+        description="Filename for the test file that validates contracts against implementation"
+    )
 
 class ComponentGraph(BaseModel):
     """
@@ -248,6 +255,7 @@ Each component is stored in `.axiomander/components/{uid}/` containing:
 1. **component.json**: Serialized Component model containing all metadata
 2. **logical.py**: Contains the logical specification and contracts
 3. **implementation.py**: Contains the actual implementation code
+4. **test.py**: Contains tests that validate the implementation against contracts
 
 ### Logical File Format
 
@@ -264,6 +272,15 @@ The `implementation.py` file contains:
 - Implementation of the contracts
 - Any helper functions or classes
 - Import statements for dependencies
+
+### Test File Format
+
+The `test.py` file contains:
+- Test functions that validate the implementation against its contracts
+- Property-based tests using preconditions and postconditions
+- Invariant validation tests for classes
+- Edge case tests derived from contract specifications
+- Integration tests for component dependencies
 
 ### Dependency Resolution
 
@@ -293,12 +310,12 @@ Edges in the graph can represent:
 1. Generate new UID
 2. Create component directory
 3. Write component.json with metadata
-4. Create logical.py and implementation.py stubs
+4. Create logical.py, implementation.py, and test.py stubs
 5. Update global graph
 
 ### Component Updates
 1. Update component metadata in component.json
-2. Update logical.py and/or implementation.py files
+2. Update logical.py, implementation.py, and/or test.py files
 3. Update graph if dependencies changed
 4. Update timestamps
 
@@ -313,8 +330,9 @@ Edges in the graph can represent:
 1. **UID Uniqueness**: All component UIDs must be unique within the project
 2. **Dependency Validity**: All dependency UIDs must reference existing components
 3. **Circular Dependencies**: No circular dependency chains allowed
-4. **File Consistency**: logical.py and implementation.py must be valid Python files
+4. **File Consistency**: logical.py, implementation.py, and test.py must be valid Python files
 5. **Contract Consistency**: Contract status must match actual contract decorators in files
+6. **Test Coverage**: Tests must validate all defined contracts (preconditions, postconditions, invariants)
 
 ## Future Extensions
 
