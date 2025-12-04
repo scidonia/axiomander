@@ -1,0 +1,70 @@
+"""Tests for absolute_value function."""
+
+import pytest
+from .implementation import absolute_value
+from .logical import is_real_number, is_absolute_value
+
+class TestAbsoluteValue:
+    """Test cases for the absolute_value function."""
+    
+    def test_positive_numbers(self):
+        """Test absolute value of positive numbers."""
+        assert absolute_value(5) == 5
+        assert absolute_value(3.14) == 3.14
+        assert absolute_value(1) == 1
+    
+    def test_negative_numbers(self):
+        """Test absolute value of negative numbers."""
+        assert absolute_value(-5) == 5
+        assert absolute_value(-3.14) == 3.14
+        assert absolute_value(-1) == 1
+    
+    def test_zero(self):
+        """Test absolute value of zero."""
+        assert absolute_value(0) == 0
+        assert absolute_value(0.0) == 0.0
+    
+    def test_contract_precondition(self):
+        """Test that precondition is enforced."""
+        # Valid inputs should pass precondition
+        assert is_real_number(5)
+        assert is_real_number(-3.14)
+        assert is_real_number(0)
+        
+        # Invalid inputs should fail precondition
+        assert not is_real_number("5")
+        assert not is_real_number(None)
+        assert not is_real_number(True)  # bool is not considered a real number
+        assert not is_real_number([1, 2, 3])
+    
+    def test_contract_postcondition(self):
+        """Test that postcondition is satisfied."""
+        test_cases = [5, -3, 0, 2.5, -1.7]
+        
+        for x in test_cases:
+            result = absolute_value(x)
+            assert is_absolute_value(x, result), f"Postcondition failed for input {x}"
+    
+    def test_invalid_input_types(self):
+        """Test that invalid input types raise TypeError."""
+        invalid_inputs = ["5", None, True, [1, 2, 3], {"x": 5}]
+        
+        for invalid_input in invalid_inputs:
+            with pytest.raises(TypeError):
+                absolute_value(invalid_input)
+    
+    def test_mathematical_properties(self):
+        """Test mathematical properties of absolute value."""
+        # |x| >= 0 for all x
+        test_values = [5, -3, 0, 2.5, -1.7]
+        for x in test_values:
+            result = absolute_value(x)
+            assert result >= 0, f"Absolute value should be non-negative, got {result}"
+        
+        # |x| = |-x| for all x
+        for x in [5, 3.14, 1, 2.5]:
+            assert absolute_value(x) == absolute_value(-x)
+        
+        # |x| = x if x >= 0
+        for x in [5, 3.14, 0, 2.5]:
+            assert absolute_value(x) == x

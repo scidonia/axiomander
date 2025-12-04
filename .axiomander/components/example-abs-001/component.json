@@ -1,0 +1,27 @@
+{
+  "uid": "example-abs-001",
+  "name": "absolute_value",
+  "component_type": "function",
+  "language": "python",
+  "language_suffix": ".py",
+  "contract_status": {
+    "has_preconditions": true,
+    "has_postconditions": true,
+    "has_invariants": false
+  },
+  "pre_contract": "Input must be a real number",
+  "precondition": "is_real_number",
+  "post_contract": "Result is non-negative and has same magnitude as input",
+  "postcondition": "is_absolute_value",
+  "invariant_contract": null,
+  "invariant": null,
+  "dependencies": [],
+  "description": "Calculate the absolute value of a number",
+  "tags": [],
+  "created_at": "2024-12-04T10:30:00.000000",
+  "updated_at": "2024-12-04T10:30:00.000000",
+  "path": null,
+  "logical_file": "logical.py",
+  "implementation_file": "implementation.py",
+  "test_file": "test.py"
+}
