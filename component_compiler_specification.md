@@ -20,7 +20,13 @@ src/
     ├── __init__.py
     ├── main.py
     ├── {uniquified_component_name_1}.py
+    ├── {uniquified_component_name_1}_logical.py
     ├── {uniquified_component_name_2}.py
+    ├── {uniquified_component_name_2}_logical.py
+    ├── {path_1}/
+    │   ├── __init__.py
+    │   ├── {uniquified_component_name_3}.py
+    │   └── {uniquified_component_name_3}_logical.py
     └── ...
 ```
 
@@ -40,11 +46,24 @@ src/
 - Includes a `main()` function if the entry point is a function
 - Includes `if __name__ == "__main__":` block for CLI execution
 
-#### `src/{module_name}/{uniquified_component_name}.py`
+#### `src/{module_name}/{path}/{uniquified_component_name}.py`
+- Begins with a comment containing the original component UID for tracking
 - Contains the implementation code from the component's `implementation.py`
+- Automatically imports the corresponding logical file at the beginning
 - Imports all dependencies with proper symbol resolution
-- Includes the logical contracts from `logical.py` as decorators/assertions
 - Contains component metadata as module-level constants
+
+#### `src/{module_name}/{path}/{uniquified_component_name}_logical.py`
+- Begins with a comment containing the original component UID for tracking
+- Contains the logical contracts from the component's `logical.py`
+- Includes contract decorators, specifications, and validation logic
+- Contains type hints and interface definitions
+
+#### Path-based Directory Structure
+- Components with a `path` designation are placed in subdirectories
+- Each subdirectory contains its own `__init__.py` for proper Python module structure
+- Path hierarchies create nested directory structures (e.g., `path/subpath/`)
+- Root-level components (no path) are placed directly in the module directory
 
 ### 2. Name Uniquification
 
@@ -72,13 +91,26 @@ Components with conflicting names must be uniquified to prevent import collision
 For each component, generate imports based on its dependencies:
 
 ```python
+# Component UID tracking comment
+# axiomander:component:{component_uid}
+
+# Automatic logical import
+from .{uniquified_component_name}_logical import *
+
 # Internal dependencies (within the same compiled module)
 from .{uniquified_dependency_name} import {import_name}
+from ..{path}.{uniquified_dependency_name} import {import_name}  # Cross-path dependencies
 
 # External dependencies (from other modules or standard library)
 import {external_module}
 from {external_module} import {symbol}
 ```
+
+#### Path-based Import Resolution
+- Components in the same path import using relative imports (`.`)
+- Components in different paths use relative imports with path navigation (`..path.module`)
+- Root-level components import path-based components using relative imports (`.path.module`)
+- Each path directory's `__init__.py` exports relevant symbols for easier importing
 
 ### 4. Contract Integration
 
@@ -177,12 +209,21 @@ class CompilerConfig(BaseModel):
 - Validate component consistency before compilation
 - Use the component graph for dependency resolution
 - Handle missing or corrupted component files gracefully
+- Respect component `path` designations for directory placement
 
 ### Incremental Compilation
 - Track component modification timestamps
 - Only recompile changed components and their dependents
 - Maintain compilation cache for unchanged components
 - Support partial recompilation for large component sets
+
+### Resync from Compiled Files
+- Parse UID tracking comments to identify source components
+- Extract implementation code from compiled files back to component storage
+- Extract logical contracts from `_logical.py` files back to component storage
+- Update component metadata and timestamps during resync
+- Validate that changes don't break component dependencies
+- Support selective resync of individual components or entire modules
 
 ## CLI Interface
 
@@ -199,6 +240,15 @@ axiomander compile {component_uid} --module-name {module_name} --mode production
 
 # Compile all components in the project
 axiomander compile-all --output-dir dist/
+
+# Resync changes from compiled files back to component storage
+axiomander resync --module-name {module_name}
+
+# Resync specific components only
+axiomander resync {component_uid1} {component_uid2}
+
+# Resync with validation and conflict resolution
+axiomander resync --module-name {module_name} --validate --resolve-conflicts
 ```
 
 ### Compilation Options
@@ -209,6 +259,13 @@ axiomander compile-all --output-dir dist/
 - `--no-contracts`: Exclude contract validation from output
 - `--optimize`: Enable import optimization and code minimization
 - `--type-stubs`: Generate type stub files alongside code
+
+### Resync Options
+- `--validate`: Validate changes before applying to component storage
+- `--resolve-conflicts`: Automatically resolve simple conflicts during resync
+- `--dry-run`: Show what would be resynced without making changes
+- `--force`: Force resync even if validation fails
+- `--backup`: Create backup of component storage before resync
 
 ## Output Validation
 

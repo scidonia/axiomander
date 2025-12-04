@@ -81,6 +81,7 @@ def list_components(
         table.add_column("UID", style="cyan")
         table.add_column("Name", style="green")
         table.add_column("Type", style="yellow")
+        table.add_column("Path", style="magenta")
         table.add_column("Language", style="blue")
         
         for uid in component_uids:
@@ -90,6 +91,7 @@ def list_components(
                     uid[:8] + "...",  # Truncate UID for display
                     component.name,
                     component.component_type.value,
+                    component.path or "",
                     component.language.value
                 )
         
@@ -115,6 +117,11 @@ def create_component(
         "-d", 
         help="Description of the component"
     ),
+    path: str = typer.Option(
+        None,
+        "--path",
+        help="Optional path designation for organizing component in subdirectories"
+    ),
     project_root: Path = typer.Option(
         Path.cwd(),
         "--project-root",
@@ -129,7 +136,8 @@ def create_component(
         component = Component(
             name=name,
             component_type=component_type,
-            description=description
+            description=description,
+            path=path
         )
         
         manager.create_component(component)

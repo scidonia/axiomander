@@ -154,17 +154,23 @@ class Component(BaseModel):
         description="ISO timestamp when the component was last updated"
     )
     
+    # Path designation for hierarchical organization
+    path: Optional[str] = Field(
+        None,
+        description="Optional path designation for organizing components in subdirectories"
+    )
+
     # File paths (relative to component directory)
     logical_file: str = Field(
         "logical.py",
         description="Filename for the logical specification file"
     )
-    
+
     implementation_file: str = Field(
         "implementation.py",
         description="Filename for the implementation file"
     )
-    
+
     test_file: str = Field(
         "test.py",
         description="Filename for the test file that validates contracts against implementation"
