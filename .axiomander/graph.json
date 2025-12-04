@@ -1,8 +1,4 @@
 {
-  "nodes": {},
-  "edges": [],
-  "updated_at": "2025-12-04T23:03:08.783439"
-}{
   "nodes": {
     "example-abs-001": "absolute_value"
   },
