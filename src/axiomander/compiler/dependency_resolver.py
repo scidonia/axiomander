@@ -40,26 +40,16 @@ class DependencyResolver:
             return []
         
         # Build adjacency list from graph
+        # ComponentGraph.nodes is Dict[str, str] mapping UID to component name
         adjacency = {}
         
-        # Handle dictionary format: {"uid": ComponentGraphNode}
-        if hasattr(graph.nodes, 'items'):
-            for uid, node in graph.nodes.items():
-                component = self.storage_manager.load_component(uid)
-                if component:
-                    adjacency[uid] = list(component.dependencies)
-                else:
-                    result.warnings.append(f"Component {uid} in graph but not found in storage")
-                    adjacency[uid] = []
-        else:
-            # Fallback for other formats
-            for node in graph.nodes:
-                component = self.storage_manager.load_component(node.uid)
-                if component:
-                    adjacency[node.uid] = list(component.dependencies)
-                else:
-                    result.warnings.append(f"Component {node.uid} in graph but not found in storage")
-                    adjacency[node.uid] = []
+        for uid, name in graph.nodes.items():
+            component = self.storage_manager.load_component(uid)
+            if component:
+                adjacency[uid] = list(component.dependencies)
+            else:
+                result.warnings.append(f"Component {uid} in graph but not found in storage")
+                adjacency[uid] = []
         
         # Collect all dependencies using BFS
         all_components = set()
