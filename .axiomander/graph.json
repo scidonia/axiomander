@@ -1,10 +1,10 @@
 {
-  "nodes": [
-    {
+  "nodes": {
+    "example-abs-001": {
       "uid": "example-abs-001",
       "name": "absolute_value"
     }
-  ],
+  },
   "edges": [],
   "updated_at": "2024-12-04T10:30:00.000000"
 }
