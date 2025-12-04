@@ -5,8 +5,10 @@ __version__ = "0.1.0"
 # Import main modules
 from . import storage
 from . import compiler
+from . import exceptions
 
 __all__ = [
     "storage",
-    "compiler",
+    "compiler", 
+    "exceptions",
 ]
