@@ -69,7 +69,10 @@ class CodeGenerator:
         # Load and process implementation code with contract decorators
         impl_code = self._load_component_file(component.uid, "implementation.py")
         if impl_code:
-            processed_code = self._add_contract_decorators(impl_code, component, mapping)
+            # Convert relative imports to absolute imports
+            processed_code = self._convert_relative_imports(impl_code, mapping)
+            # Add contract decorators
+            processed_code = self._add_contract_decorators(processed_code, component, mapping)
             lines.append(processed_code)
         
         return "\n".join(lines)
@@ -321,6 +324,56 @@ class CodeGenerator:
                             if decorator_line.strip():
                                 processed_lines.append(' ' * indent + decorator_line)
             
+            processed_lines.append(line)
+        
+        return '\n'.join(processed_lines)
+    
+    def _convert_relative_imports(self, code: str, mapping: ComponentMapping) -> str:
+        """Convert relative imports in component code to absolute imports.
+        
+        Args:
+            code: Original component code
+            mapping: Component mapping information
+            
+        Returns:
+            Code with relative imports converted to absolute imports
+        """
+        lines = code.split('\n')
+        processed_lines = []
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            # Convert relative imports like "from .logical import ..." to absolute
+            if stripped.startswith('from .') and ' import ' in stripped:
+                # Extract the module and imports
+                parts = stripped.split(' import ', 1)
+                if len(parts) == 2:
+                    module_part = parts[0]
+                    import_part = parts[1]
+                    
+                    # Remove the "from ." prefix
+                    module_name = module_part[5:]  # Remove "from ."
+                    
+                    # Convert to absolute import
+                    if module_name == 'logical':
+                        # Special case for logical imports
+                        new_line = line.replace(f'from .{module_name}', f'from {mapping.uniquified_name}_logical')
+                    else:
+                        # General case for other relative imports
+                        new_line = line.replace(f'from .{module_name}', f'from {module_name}')
+                    
+                    processed_lines.append(new_line)
+                    continue
+            
+            # Convert relative imports like "import .module" (less common)
+            elif stripped.startswith('import .'):
+                module_name = stripped[8:]  # Remove "import ."
+                new_line = line.replace(f'import .{module_name}', f'import {module_name}')
+                processed_lines.append(new_line)
+                continue
+            
+            # Keep the line as-is
             processed_lines.append(line)
         
         return '\n'.join(processed_lines)
