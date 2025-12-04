@@ -9,6 +9,7 @@ from .models import (
     ComponentGraph,
     AxiomanderConfig,
 )
+from .manager import ComponentStorageManager
 
 __all__ = [
     "Component",
@@ -18,4 +19,5 @@ __all__ = [
     "ContractStatus",
     "ComponentGraph",
     "AxiomanderConfig",
+    "ComponentStorageManager",
 ]
