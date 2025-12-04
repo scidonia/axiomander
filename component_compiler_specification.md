@@ -28,6 +28,13 @@ src/
     │   ├── {uniquified_component_name_3}.py
     │   └── {uniquified_component_name_3}_logical.py
     └── ...
+
+tests/
+├── test_{uniquified_component_name_1}.py
+├── test_{uniquified_component_name_2}.py
+├── {path_1}/
+│   └── test_{uniquified_component_name_3}.py
+└── ...
 ```
 
 ## File Generation Rules
@@ -59,11 +66,19 @@ src/
 - Includes contract decorators, specifications, and validation logic
 - Contains type hints and interface definitions
 
+#### `tests/{path}/test_{uniquified_component_name}.py`
+- Begins with a comment containing the original component UID for tracking
+- Contains the test code from the component's `test.py`
+- Imports the corresponding implementation and logical files from the source module
+- Includes contract validation tests and property-based testing
+- Contains integration tests for component dependencies
+
 #### Path-based Directory Structure
 - Components with a `path` designation are placed in subdirectories
 - Each subdirectory contains its own `__init__.py` for proper Python module structure
 - Path hierarchies create nested directory structures (e.g., `path/subpath/`)
 - Root-level components (no path) are placed directly in the module directory
+- Test files follow the same path structure in the `tests/` directory
 
 ### 2. Name Uniquification
 
@@ -104,6 +119,26 @@ from ..{path}.{uniquified_dependency_name} import {import_name}  # Cross-path de
 # External dependencies (from other modules or standard library)
 import {external_module}
 from {external_module} import {symbol}
+```
+
+#### Test Import Generation
+For each test file, generate imports to access the implementation and contracts:
+
+```python
+# Component UID tracking comment
+# axiomander:component:{component_uid}
+
+# Import implementation from source module
+from src.{module_name}.{path}.{uniquified_component_name} import {component_name}
+from src.{module_name}.{path}.{uniquified_component_name}_logical import *
+
+# Test framework imports
+import pytest
+import unittest
+from hypothesis import given, strategies as st
+
+# Dependency imports for integration testing
+from src.{module_name}.{dependency_path}.{dependency_name} import {dependency_import_name}
 ```
 
 #### Path-based Import Resolution
@@ -221,6 +256,7 @@ class CompilerConfig(BaseModel):
 - Parse UID tracking comments to identify source components
 - Extract implementation code from compiled files back to component storage
 - Extract logical contracts from `_logical.py` files back to component storage
+- Extract test code from `test_*.py` files back to component storage
 - Update component metadata and timestamps during resync
 - Validate that changes don't break component dependencies
 - Support selective resync of individual components or entire modules
@@ -255,10 +291,12 @@ axiomander resync --module-name {module_name} --validate --resolve-conflicts
 - `--module-name`: Target module name for compilation
 - `--mode`: Compilation mode (development, production, library)
 - `--output-dir`: Override default output directory
-- `--include-tests`: Include test code in compilation
+- `--include-tests`: Include test code in compilation (default: true)
+- `--no-tests`: Exclude test files from compilation
 - `--no-contracts`: Exclude contract validation from output
 - `--optimize`: Enable import optimization and code minimization
 - `--type-stubs`: Generate type stub files alongside code
+- `--test-framework`: Specify test framework (pytest, unittest, hypothesis)
 
 ### Resync Options
 - `--validate`: Validate changes before applying to component storage
@@ -274,12 +312,15 @@ axiomander resync --module-name {module_name} --validate --resolve-conflicts
 2. **Import Validation**: Verify all import statements resolve correctly
 3. **Contract Validation**: Ensure contract decorators are properly applied
 4. **Type Validation**: Check type annotations and compatibility (if enabled)
+5. **Test Validation**: Ensure test files can import and execute against compiled modules
 
 ### Runtime Testing
 - Generate basic smoke tests for compiled modules
 - Validate that all exported symbols are accessible
 - Test contract enforcement in development mode
 - Verify dependency injection and resolution
+- Execute compiled test suites to validate component behavior
+- Ensure test imports resolve correctly across path hierarchies
 
 ## Future Extensions
 
