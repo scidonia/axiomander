@@ -201,9 +201,9 @@ def create_component(
 
 @app.command("compile")
 def compile_components(
-    component_uids: List[str] = typer.Argument(..., help="Component UIDs to compile"),
     module_name: str = typer.Option(..., "--module-name", "-m", help="Name of the target module"),
-    entry_point: Optional[str] = typer.Option(None, "--entry-point", "-e", help="Entry point component UID"),
+    entry_point: str = typer.Option(..., "--entry-point", "-e", help="Entry point component UID or name"),
+    component_uids: Optional[List[str]] = typer.Option(None, "--components", "-c", help="Additional component UIDs to include (optional)"),
     mode: str = typer.Option("development", "--mode", help="Compilation mode (development, production, library)"),
     target_dir: Path = typer.Option(Path("src"), "--target-dir", "-t", help="Target directory for generated code"),
     no_tests: bool = typer.Option(False, "--no-tests", help="Exclude test files from compilation"),
@@ -217,7 +217,7 @@ def compile_components(
         help="Root directory of the project"
     )
 ) -> None:
-    """Compile components into a Python module."""
+    """Compile components into a Python module using entry point to determine dependencies."""
     if not COMPILER_AVAILABLE:
         error_console.print("[red]Compiler module not available. Please ensure compiler files are created.[/red]")
         raise typer.Exit(1)
@@ -225,12 +225,21 @@ def compile_components(
     try:
         storage_manager = ComponentStorageManager(project_root)
         
-        # Resolve entry point if provided
-        resolved_entry_point = None
-        if entry_point:
-            resolved_entry_point = resolve_entry_point_uid(entry_point, storage_manager)
-            if resolved_entry_point is None:
-                raise typer.Exit(1)
+        # Resolve entry point (required)
+        resolved_entry_point = resolve_entry_point_uid(entry_point, storage_manager)
+        if resolved_entry_point is None:
+            raise typer.Exit(1)
+        
+        # Start with entry point, add any additional components specified
+        root_components = [resolved_entry_point]
+        if component_uids:
+            # Resolve any additional component names to UIDs
+            for uid_or_name in component_uids:
+                resolved_uid = resolve_entry_point_uid(uid_or_name, storage_manager)
+                if resolved_uid is None:
+                    raise typer.Exit(1)
+                if resolved_uid not in root_components:
+                    root_components.append(resolved_uid)
         
         # Convert string mode to enum
         try:
@@ -249,7 +258,7 @@ def compile_components(
         )
         
         compiler = ComponentCompiler(storage_manager, config)
-        result = compiler.compile_components(component_uids, module_name, resolved_entry_point)
+        result = compiler.compile_components(root_components, module_name, resolved_entry_point)
         
         if result.success:
             console.print(f"[green]✓[/green] Successfully compiled {len(result.compiled_components)} components")
