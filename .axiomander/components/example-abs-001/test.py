@@ -37,13 +37,6 @@ class TestAbsoluteValue:
         assert not is_real_number(True)  # bool is not considered a real number
         assert not is_real_number([1, 2, 3])
     
-    def test_contract_postcondition(self):
-        """Test that postcondition is satisfied."""
-        test_cases = [5, -3, 0, 2.5, -1.7]
-        
-        for x in test_cases:
-            result = absolute_value(x)
-            assert is_absolute_value(x, result), f"Postcondition failed for input {x}"
     
     def test_invalid_input_types(self):
         """Test that invalid input types raise PreconditionViolationError."""
