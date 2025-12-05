@@ -12,14 +12,15 @@
 
 Create an *interactive design-by-contract programming environment* where:
 
-- Contracts are first‑class: preconditions, postconditions, invariants, and cross‑module specs.
+- Components are first‑class: stored in `.axiomander/components/` with structured metadata for preconditions, postconditions, invariants, and cross‑component dependencies.
 - An **agentic graph** (LLM-powered) helps the developer:
-  - Understand and navigate contracts.
-  - Propose and implement code that satisfies those contracts.
-  - Maintain a global map of functions, files, and specifications.
+  - Understand and navigate component relationships and contracts.
+  - Propose and implement components that satisfy contract specifications.
+  - Maintain a global component graph with dependency tracking.
 - The system integrates seamlessly with **VSCode** via:
-  - Language Server Protocol (LSP) for analysis, navigation, and diagnostics.
+  - Language Server Protocol (LSP) for analysis of compiled modules, navigation, and diagnostics.
   - A VSCode extension for UI, commands, and agent chat.
+  - Component compilation workflow that generates executable Python modules.
 - Access to the AI is gated via **API key / subscription** to support a SaaS model.
 
 ### 1.2 Objectives
