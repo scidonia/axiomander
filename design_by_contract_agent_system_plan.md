@@ -375,31 +375,33 @@ Create an *interactive design-by-contract programming environment* where:
 
 ### 4.2 LSP Server
 
-- [x] LSP scaffolding (initialize, configuration).
-- [x] File change handling and incremental re-indexing.
-- [x] Diagnostics for contracts:
-  - [x] Missing contracts.
-  - [x] Incomplete contracts (preconditions without postconditions).
-- [x] Hover provider (function → contract summary).
-- [x] Code actions:
-  - [x] Generate contract stubs.
-- [x] Custom commands for agent graph.
+- [ ] LSP scaffolding (initialize, configuration).
+- [ ] File change handling and incremental re-indexing.
+- [ ] Diagnostics for components:
+  - [ ] Missing components.
+  - [ ] Incomplete components (preconditions without postconditions).
+- [ ] Hover provider (component → contract summary).
+- [ ] Code actions:
+  - [ ] Generate component stubs.
+  - [ ] Compile components to modules.
+  - [ ] Resync changes from compiled modules.
+- [ ] Custom commands for agent graph.
 - [ ] Integration tests with sample project.
 
 ### 4.3 Agent Graph Backend
 
-- [x] Backend scaffolding and endpoints.
+- [ ] Backend scaffolding and endpoints.
 - [ ] Model provider integration.
-- [x] Implement mode-specific flows:
-  - [x] Specification Mode: Contract generation and refinement.
-  - [x] Refinement Mode: Function decomposition and architecture.
-  - [x] Implementation Mode: Code synthesis from contracts.
+- [ ] Implement mode-specific flows:
+  - [ ] Specification Mode: Component contract generation and refinement.
+  - [ ] Refinement Mode: Component decomposition and architecture.
+  - [ ] Implementation Mode: Code synthesis from component contracts.
   - [ ] Verification Mode: Test generation and validation.
-  - [x] Refactor Mode: Structure improvement with contract preservation.
-- [x] Context loader for contract graph + source.
-- [x] Mode transition logic and workflow guidance.
-- [x] Auth middleware: API keys and quotas.
-- [x] Logging, metrics, and error handling.
+  - [ ] Refactor Mode: Component restructuring with contract preservation.
+- [ ] Context loader for component graph + source.
+- [ ] Mode transition logic and workflow guidance.
+- [ ] Auth middleware: API keys and quotas.
+- [ ] Logging, metrics, and error handling.
 
 ### 4.4 VSCode Extension
 
