@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Axiomander LSP server will provide language server protocol support for component development, enabling rich IDE integration with VSCode and other LSP-compatible editors. The server will understand the component model and provide component-aware diagnostics, hover information, and code actions. **Crucially, all real-time interactions will use Server-Sent Events (SSE) for progress updates, streaming LLM responses, and incremental updates.**
+The Axiomander LSP server will provide language server protocol support for component development, enabling rich IDE integration with VSCode and other LSP-compatible editors. The server will understand the component model and provide component-aware diagnostics, hover information, and code actions.
 
 ## Architecture
 
@@ -12,19 +12,16 @@ The Axiomander LSP server will provide language server protocol support for comp
    - Built on `pygls` (Python LSP framework)
    - Handles standard LSP lifecycle (initialize, shutdown, etc.)
    - Manages workspace and document state
-   - **SSE Integration**: Establishes SSE connections for real-time updates
 
 2. **Component Index** (`src/axiomander/lsp/index.py`)
    - Maintains in-memory index of all components
    - Tracks component file changes and dependencies
    - Provides fast lookup for component metadata
-   - **SSE Updates**: Streams index changes to connected clients
 
 3. **Diagnostics Engine** (`src/axiomander/lsp/diagnostics.py`)
    - Analyzes components for completeness and correctness
    - Generates LSP diagnostics for missing/incomplete components
    - Validates contract consistency
-   - **SSE Progress**: Streams diagnostic progress for large projects
 
 4. **Hover Provider** (`src/axiomander/lsp/hover.py`)
    - Shows component metadata on hover
@@ -36,23 +33,14 @@ The Axiomander LSP server will provide language server protocol support for comp
    - "Generate missing files" (logical.py, implementation.py, test.py)
    - "Compile Components" action
    - "Resync from compiled output" action
-   - **SSE Progress**: Streams action execution progress
 
 6. **Custom Commands** (`src/axiomander/lsp/commands.py`)
    - Agent integration endpoints
    - Component management commands
    - Compilation and validation commands
-   - **SSE Orchestration**: Manages SSE streams for long-running operations
-
-7. **SSE Manager** (`src/axiomander/lsp/sse.py`)
-   - Manages Server-Sent Event connections
-   - Handles client subscription/unsubscription
-   - Routes events to appropriate clients
-   - Manages connection lifecycle and error recovery
 
 8. **Agent Integration** (`src/axiomander/lsp/agent.py`)
    - Handles communication with agent backend
-   - **SSE Streaming**: Real-time LLM response streaming
    - Progress updates for decomposition and analysis
    - Session state management with live updates
 
@@ -61,15 +49,15 @@ The Axiomander LSP server will provide language server protocol support for comp
 ```
 src/axiomander/lsp/
 ├── __init__.py
-├── server.py          # Main LSP server with SSE integration
-├── index.py           # Component indexing with SSE updates
+├── server.py          # Main LSP server
+├── index.py           # Component indexing
 ├── diagnostics.py     # Diagnostic generation with progress streaming
 ├── hover.py           # Hover information
 ├── actions.py         # Code actions with progress updates
-├── commands.py        # Custom LSP commands with SSE orchestration
+├── commands.py        # Custom LSP commands
 ├── sse.py             # Server-Sent Events manager
 ├── agent.py           # Agent backend integration with streaming
-├── models.py          # LSP-specific data models including SSE events
+├── models.py          # LSP-specific data models
 └── utils.py           # Utility functions
 ```
 
@@ -133,32 +121,12 @@ src/axiomander/lsp/
 - Custom commands for component operations
 - Comprehensive diagnostic coverage
 
-### Phase 4: SSE Integration (Week 4)
-
-**Goal:** Real-time communication with VSCode extension via Server-Sent Events
-
-**Tasks:**
-1. Implement SSE manager for client connection handling
-2. Add SSE endpoints for:
-   - Component index updates
-   - Diagnostic progress streaming
-   - Compilation progress
-   - Agent interaction streaming
-3. Integrate SSE with existing LSP commands
-4. Client connection lifecycle management
-5. Error handling and reconnection logic
-
-**Deliverables:**
-- SSE manager with client connection handling
-- Real-time updates for all major operations
-- Robust connection management
-
-### Phase 5: Agent Integration with Streaming (Week 5)
+### Phase 4: Agent Integration with Streaming (Week 4)
 
 **Goal:** LSP server ready for agent backend integration with real-time streaming
 
 **Tasks:**
-1. Add agent integration commands with SSE streaming:
+1. Add agent integration commands:
    - `axiomander/analyzeProject` - project analysis with progress
    - `axiomander/generateContracts` - contract generation with LLM streaming
    - `axiomander/startDecomposition` - interactive decomposition with real-time updates
@@ -174,67 +142,6 @@ src/axiomander/lsp/
 - Comprehensive progress reporting
 
 ## Technical Specifications
-
-### SSE Event Types
-
-```python
-class SSEEventType(str, Enum):
-    # Component operations
-    COMPONENT_CREATED = "component.created"
-    COMPONENT_UPDATED = "component.updated"
-    COMPONENT_DELETED = "component.deleted"
-    
-    # Compilation events
-    COMPILATION_STARTED = "compilation.started"
-    COMPILATION_PROGRESS = "compilation.progress"
-    COMPILATION_COMPLETED = "compilation.completed"
-    COMPILATION_FAILED = "compilation.failed"
-    
-    # Diagnostic events
-    DIAGNOSTICS_STARTED = "diagnostics.started"
-    DIAGNOSTICS_PROGRESS = "diagnostics.progress"
-    DIAGNOSTICS_COMPLETED = "diagnostics.completed"
-    
-    # Agent interaction events
-    AGENT_THINKING = "agent.thinking"
-    AGENT_RESPONSE_CHUNK = "agent.response.chunk"
-    AGENT_RESPONSE_COMPLETED = "agent.response.completed"
-    AGENT_ERROR = "agent.error"
-    
-    # Decomposition events
-    DECOMPOSITION_STARTED = "decomposition.started"
-    DECOMPOSITION_PROPOSAL = "decomposition.proposal"
-    DECOMPOSITION_FEEDBACK_REQUEST = "decomposition.feedback_request"
-    DECOMPOSITION_COMPLETED = "decomposition.completed"
-    
-    # Session events
-    SESSION_STARTED = "session.started"
-    SESSION_ENDED = "session.ended"
-    CONNECTION_STATUS = "connection.status"
-```
-
-### SSE Architecture
-
-```
-┌─────────────────┐    SSE     ┌─────────────────┐    HTTP    ┌─────────────────┐
-│   VSCode Ext    │◄──────────►│   LSP Server    │◄──────────►│  Agent Backend  │
-│                 │            │                 │            │                 │
-│ - Event Handler │            │ - SSE Manager   │            │ - LLM Streaming │
-│ - UI Updates    │            │ - Event Router  │            │ - Progress API  │
-│ - Progress Bars │            │ - Client Mgmt   │            │ - Session Mgmt  │
-└─────────────────┘            └─────────────────┘            └─────────────────┘
-```
-
-### Dependencies
-
-```toml
-# Add to pyproject.toml
-pygls = "^1.0.0"
-watchdog = "^3.0.0"  # For file watching
-fastapi = "^0.104.0"  # For SSE endpoint hosting
-uvicorn = "^0.24.0"   # ASGI server for SSE
-httpx = "^0.25.0"     # HTTP client for agent backend
-```
 
 ### LSP Capabilities
 
@@ -381,91 +288,5 @@ The server will look for `.axiomander/config.json` and respect:
 - Compilation settings
 - Agent backend configuration
 - Custom diagnostic rules
-- SSE connection preferences
 
-## Testing Strategy
-
-### Unit Tests
-- Component index operations
-- Diagnostic generation logic
-- Hover information formatting
-- Code action generation
-- SSE event routing and delivery
-- Connection lifecycle management
-
-### Integration Tests
-- Full LSP server lifecycle
-- File watching and change detection
-- Component compilation integration
-- Error handling scenarios
-- SSE connection handling
-- Agent backend streaming integration
-
-### Manual Testing
-- VSCode extension integration
-- Performance with large component graphs
-- Real-world component development workflows
-- SSE connection stability under load
-- LLM streaming responsiveness
-
-## Performance Considerations
-
-### Indexing Performance
-- Lazy loading of component files
-- Incremental updates for file changes
-- Caching of parsed component metadata
-- Background reindexing for large changes
-
-### Memory Usage
-- Limit in-memory component cache size
-- Periodic cleanup of unused entries
-- Efficient storage of diagnostic information
-- SSE message queue management
-
-### Response Times
-- Target <100ms for hover requests
-- Target <500ms for code actions
-- Background processing for expensive operations
-- Progress reporting for long-running commands
-
-### SSE Performance
-- Message batching for high-frequency updates
-- Connection pooling and reuse
-- Efficient event serialization
-- Client-side buffering and flow control
-
-## Success Criteria
-
-1. **Functional:**
-   - LSP server starts and connects to VSCode
-   - Provides accurate diagnostics for component issues
-   - Hover shows useful component information
-   - Code actions work for common operations
-   - SSE connections establish and maintain reliably
-   - Real-time updates stream without delays
-
-2. **Performance:**
-   - Startup time <2 seconds for typical projects
-   - Hover response time <100ms
-   - File change processing <500ms
-   - Memory usage <100MB for 1000 components
-   - SSE message delivery <50ms latency
-   - LLM streaming with <200ms first token
-
-3. **Reliability:**
-   - No crashes during normal operation
-   - Graceful handling of malformed components
-   - Recovery from temporary file system issues
-   - Clear error messages for user issues
-   - Automatic SSE reconnection on network issues
-   - Robust handling of agent backend failures
-
-4. **Integration:**
-   - Seamless VSCode extension integration
-   - Compatible with existing component workflow
-   - Ready for agent backend integration
-   - Extensible for future features
-   - Real-time collaboration capabilities
-   - Streaming LLM responses in VSCode
-
-This plan provides a solid foundation for the LSP server with comprehensive SSE integration, enabling real-time progress updates, streaming LLM responses, and incremental updates throughout the component development workflow.
+This plan provides a solid foundation for the LSP server.
