@@ -6,8 +6,7 @@ from pathlib import Path
 from typing import List, Optional, Any, Dict
 
 from lsprotocol.types import (
-    TEXT_DOCUMENT_SYNC_KIND,
-    CompletionOptions,
+    TextDocumentSyncKind,
     Hover,
     HoverParams,
     InitializeParams,
@@ -30,7 +29,8 @@ from lsprotocol.types import (
     WorkspaceEdit,
     TextEdit,
     Range,
-    Position
+    Position,
+    ExecuteCommandOptions
 )
 from pygls.server import LanguageServer
 from pygls.workspace import Document
@@ -86,18 +86,18 @@ def initialize(params: InitializeParams) -> InitializeResult:
         capabilities=ServerCapabilities(
             text_document_sync=TextDocumentSyncOptions(
                 open_close=True,
-                change=TEXT_DOCUMENT_SYNC_KIND.Incremental,
+                change=TextDocumentSyncKind.Incremental,
                 save=True
             ),
             hover_provider=True,
-            execute_command_provider={
-                "commands": [
+            execute_command_provider=ExecuteCommandOptions(
+                commands=[
                     "axiomander.compile",
                     "axiomander.validate", 
                     "axiomander.createComponent",
                     "axiomander.analyzeProject"
                 ]
-            },
+            ),
             code_action_provider=True,
             workspace_symbol_provider=True
         )
