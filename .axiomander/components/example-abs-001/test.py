@@ -46,11 +46,13 @@ class TestAbsoluteValue:
             assert is_absolute_value(x, result), f"Postcondition failed for input {x}"
     
     def test_invalid_input_types(self):
-        """Test that invalid input types raise TypeError."""
+        """Test that invalid input types raise PreconditionViolationError."""
+        from axiomander.exceptions import PreconditionViolationError
+        
         invalid_inputs = ["5", None, True, [1, 2, 3], {"x": 5}]
         
         for invalid_input in invalid_inputs:
-            with pytest.raises(TypeError):
+            with pytest.raises(PreconditionViolationError):
                 absolute_value(invalid_input)
     
     def test_mathematical_properties(self):
