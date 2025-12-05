@@ -375,6 +375,107 @@ class CodeGenerator:
         
         return '\n'.join(processed_lines)
     
+    def _generate_component_header(self, component: Component, mapping: ComponentMapping, module_name: str) -> List[str]:
+        """Generate tracking header for compiled files.
+        
+        Args:
+            component: Component being compiled
+            mapping: Component mapping with uniquified name
+            module_name: Name of the compiled module
+            
+        Returns:
+            List of header lines
+        """
+        return [
+            f"# axiomander:component:{component.uid}",
+            f"# axiomander:module:{module_name or 'unknown'}",
+            f"# axiomander:uniquified_name:{mapping.uniquified_name}",
+            f"# axiomander:original_name:{mapping.original_name}",
+            f"# axiomander:path:{mapping.path or ''}",
+            ""
+        ]
+    
+    def _generate_test_preamble(self, mapping: ComponentMapping, module_name: str) -> List[str]:
+        """Generate the test preamble with proper imports.
+        
+        Args:
+            mapping: Component mapping information
+            module_name: Name of the compiled module
+            
+        Returns:
+            List of preamble lines
+        """
+        lines = []
+        lines.append("# AXIOMANDER_PREAMBLE_START")
+        lines.append("# Generated imports for compiled module")
+        lines.append("import sys")
+        lines.append("from pathlib import Path")
+        lines.append("")
+        lines.append("# Add src directory to Python path for testing")
+        lines.append("src_path = Path(__file__).parent.parent / 'src'")
+        lines.append("if str(src_path) not in sys.path:")
+        lines.append("    sys.path.insert(0, str(src_path))")
+        lines.append("")
+        
+        # Build the import paths
+        if mapping.path:
+            path_parts = mapping.path.split("/")
+            import_path = f"{module_name}." + ".".join(path_parts) + f".{mapping.uniquified_name}"
+            logical_path = f"{module_name}." + ".".join(path_parts) + f".{mapping.uniquified_name}_logical"
+        else:
+            import_path = f"{module_name}.{mapping.uniquified_name}"
+            logical_path = f"{module_name}.{mapping.uniquified_name}_logical"
+        
+        lines.append(f"from {import_path} import *")
+        lines.append(f"from {logical_path} import *")
+        lines.append("")
+        
+        # Standard test imports
+        lines.append("import pytest")
+        lines.append("import unittest")
+        lines.append("try:")
+        lines.append("    from hypothesis import given, strategies as st")
+        lines.append("    HAS_HYPOTHESIS = True")
+        lines.append("except ImportError:")
+        lines.append("    HAS_HYPOTHESIS = False")
+        lines.append("# AXIOMANDER_PREAMBLE_END")
+        lines.append("")
+        
+        return lines
+    
+    def _strip_relative_imports_only(self, code: str) -> str:
+        """Strip relative imports from test code but keep everything else.
+        
+        Args:
+            code: Original test code
+            
+        Returns:
+            Test code with relative imports removed
+        """
+        lines = code.split('\n')
+        processed_lines = []
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            # Remove imports from .implementation and .logical - these are handled by the preamble
+            if (stripped.startswith('from .implementation import') or 
+                stripped.startswith('from .logical import') or
+                stripped.startswith('from .implementation ') or
+                stripped.startswith('from .logical ')):
+                # Skip this line entirely - imports are handled by the preamble
+                continue
+            
+            # Convert other relative imports if any
+            elif stripped.startswith('from .') and ' import ' in stripped:
+                # For now, skip other relative imports too - they need to be handled case by case
+                continue
+            
+            # Keep the line as-is
+            processed_lines.append(line)
+        
+        return '\n'.join(processed_lines)
+    
     def _generate_contract_decorator(self, component: Component, func_name: str) -> str:
         """Generate contract decorators for a specific function.
         
