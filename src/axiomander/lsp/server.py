@@ -33,7 +33,7 @@ from lsprotocol.types import (
     ExecuteCommandOptions
 )
 from pygls.lsp.server import LanguageServer
-from pygls.lsp.workspace import Document
+from pygls.workspace import Document
 
 from .index import ComponentIndex
 from .utils import uri_to_path, path_to_uri, format_component_hover_text, get_component_uid_from_path
