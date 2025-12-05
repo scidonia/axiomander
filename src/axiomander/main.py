@@ -359,6 +359,23 @@ def resync_components(
     console.print("This feature will allow syncing changes from compiled Python files back to component storage")
 
 
+@app.command("lsp")
+def start_lsp_server() -> None:
+    """Start the Axiomander Language Server Protocol server."""
+    from axiomander.lsp import start_server
+    
+    console.print("[blue]Starting Axiomander LSP server...[/blue]")
+    console.print("[dim]Connect your editor to stdio for LSP communication[/dim]")
+    
+    try:
+        start_server()
+    except KeyboardInterrupt:
+        console.print("\n[yellow]LSP server stopped[/yellow]")
+    except Exception as e:
+        error_console.print(f"[red]LSP server error: {e}[/red]")
+        raise typer.Exit(1)
+
+
 def main():
     app()
 
