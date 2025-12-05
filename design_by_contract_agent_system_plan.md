@@ -363,15 +363,15 @@ Create an *interactive design-by-contract programming environment* where:
 
 ## 4. Detailed Work Breakdown (WBS)
 
-### 4.1 Core & Indexer
+### 4.1 Core & Storage
 
-- [x] Finalize contract DSL and metadata schema.
+- [x] Finalize component metadata schema and storage structure.
 - [x] Create exception hierarchy (root class, ImplementThis, DontImplementThis, validation exceptions).
-- [x] Implement introspection API.
-- [x] Implement project scanner.
-- [x] Implement contract graph builder.
-- [x] Implement CLI for graph view.
-- [ ] Write unit tests for DSL and indexing.
+- [x] Implement component storage manager.
+- [x] Implement component compiler with dependency resolution.
+- [x] Implement component graph builder.
+- [x] Implement CLI for component management and compilation.
+- [ ] Write unit tests for storage and compilation.
 
 ### 4.2 LSP Server
 
