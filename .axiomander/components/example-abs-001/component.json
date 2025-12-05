@@ -10,9 +10,9 @@
     "has_invariants": false
   },
   "pre_contract": "Input must be a real number",
-  "precondition": "is_real_number",
-  "post_contract": "Result is non-negative and has same magnitude as input",
-  "postcondition": "is_absolute_value",
+  "precondition": "absolute_value_contract",
+  "post_contract": "Result is non-negative and equals absolute value of input",
+  "postcondition": "absolute_value_contract",
   "invariant_contract": null,
   "invariant": null,
   "dependencies": [],

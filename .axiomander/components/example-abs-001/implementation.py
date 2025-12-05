@@ -1,9 +1,17 @@
 """Implementation for absolute_value function."""
 
 from typing import Union
-from .logical import is_real_number, is_absolute_value, Number
+from .logical import Number, absolute_value_contract
 
+# Alternative: use individual decorators
+# from .logical import (
+#     is_real_number, 
+#     result_is_non_negative,
+#     result_equals_abs_input,
+#     result_is_idempotent
+# )
 
+@absolute_value_contract
 def absolute_value(x: Number) -> Number:
     """
     Calculate the absolute value of a number.
@@ -17,9 +25,6 @@ def absolute_value(x: Number) -> Number:
     Returns:
         The absolute value of x (always non-negative)
 
-    Raises:
-        TypeError: If x is not a real number
-
     Examples:
         >>> absolute_value(5)
         5
@@ -30,7 +35,6 @@ def absolute_value(x: Number) -> Number:
         >>> absolute_value(-2.5)
         2.5
     """
-
     # Core logic: return x if non-negative, otherwise return -x
     if x >= 0:
         result = x
