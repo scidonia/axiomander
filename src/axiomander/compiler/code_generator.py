@@ -143,8 +143,19 @@ class CodeGenerator:
         else:
             path_prefix = "."
         
-        lines.append(f"from src.{module_name}{path_prefix}{mapping.uniquified_name} import *")
-        lines.append(f"from src.{module_name}{path_prefix}{mapping.uniquified_name}_logical import *")
+        # Add path setup for tests to find the src directory
+        lines.append("import sys")
+        lines.append("from pathlib import Path")
+        lines.append("")
+        lines.append("# Add src directory to Python path for testing")
+        lines.append("src_path = Path(__file__).parent.parent / 'src'")
+        lines.append("if str(src_path) not in sys.path:")
+        lines.append("    sys.path.insert(0, str(src_path))")
+        lines.append("")
+        
+        # Import the component modules
+        lines.append(f"from {module_name}{path_prefix}{mapping.uniquified_name} import *")
+        lines.append(f"from {module_name}{path_prefix}{mapping.uniquified_name}_logical import *")
         lines.append("")
         
         # Standard test imports
