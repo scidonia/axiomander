@@ -26,7 +26,8 @@ class CodeGenerator:
         component: Component,
         mapping: ComponentMapping,
         all_mappings: Dict[str, ComponentMapping],
-        all_components: Dict[str, Component]
+        all_components: Dict[str, Component],
+        module_name: str = None
     ) -> str:
         """Generate the implementation Python file for a component.
         
@@ -60,7 +61,7 @@ class CodeGenerator:
             lines.append("")
         
         # Generate imports
-        import_lines = self._generate_imports(component, mapping, all_mappings, all_components)
+        import_lines = self._generate_imports(component, mapping, all_mappings, all_components, module_name)
         lines.extend(import_lines)
         
         if import_lines:
@@ -417,7 +418,8 @@ class CodeGenerator:
         component: Component,
         mapping: ComponentMapping,
         all_mappings: Dict[str, ComponentMapping],
-        all_components: Dict[str, Component]
+        all_components: Dict[str, Component],
+        module_name: str = None
     ) -> List[str]:
         """Generate import statements for a component.
         
@@ -426,14 +428,23 @@ class CodeGenerator:
             mapping: Component mapping
             all_mappings: All component mappings for dependency resolution
             all_components: All components
+            module_name: Name of the module being compiled
             
         Returns:
             List of import statement lines
         """
         lines = []
         
-        # Always import the logical file first
-        lines.append(f"from {mapping.uniquified_name}_logical import *")
+        # Always import the logical file first using absolute import
+        if module_name:
+            if mapping.path:
+                path_parts = mapping.path.split("/")
+                logical_import_path = f"{module_name}." + ".".join(path_parts) + f".{mapping.uniquified_name}_logical"
+            else:
+                logical_import_path = f"{module_name}.{mapping.uniquified_name}_logical"
+            lines.append(f"from {logical_import_path} import *")
+        else:
+            lines.append(f"from .{mapping.uniquified_name}_logical import *")
         
         # Generate imports for dependencies
         for dep_uid in component.dependencies:
@@ -443,20 +454,28 @@ class CodeGenerator:
             dep_mapping = all_mappings[dep_uid]
             dep_component = all_components[dep_uid]
             
-            # Determine relative import path
-            current_path = mapping.path or ""
-            dep_path = dep_mapping.path or ""
-            
-            if current_path == dep_path:
-                # Same directory - use simple import
-                import_path = f"{dep_mapping.uniquified_name}"
-            else:
-                # Different directories - use absolute path within module
-                if dep_path:
-                    path_parts = dep_path.split("/")
-                    import_path = ".".join(path_parts) + f".{dep_mapping.uniquified_name}"
+            # Use absolute imports within the module
+            if module_name:
+                if dep_mapping.path:
+                    path_parts = dep_mapping.path.split("/")
+                    import_path = f"{module_name}." + ".".join(path_parts) + f".{dep_mapping.uniquified_name}"
                 else:
+                    import_path = f"{module_name}.{dep_mapping.uniquified_name}"
+            else:
+                # Fallback to relative imports
+                current_path = mapping.path or ""
+                dep_path = dep_mapping.path or ""
+                
+                if current_path == dep_path:
+                    # Same directory - use simple import
                     import_path = f"{dep_mapping.uniquified_name}"
+                else:
+                    # Different directories - use absolute path within module
+                    if dep_path:
+                        path_parts = dep_path.split("/")
+                        import_path = ".".join(path_parts) + f".{dep_mapping.uniquified_name}"
+                    else:
+                        import_path = f"{dep_mapping.uniquified_name}"
             
             # Add import statement
             lines.append(f"from {import_path} import *")

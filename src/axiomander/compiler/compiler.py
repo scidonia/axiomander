@@ -202,7 +202,7 @@ class ComponentCompiler:
             # Generate implementation file
             impl_file = component_dir / f"{mapping.uniquified_name}.py"
             impl_content = self.code_generator.generate_implementation_file(
-                component, mapping, mappings, components
+                component, mapping, mappings, components, module_name
             )
             impl_file.write_text(impl_content)
             generated_files.append(impl_file)
