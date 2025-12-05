@@ -1,17 +1,8 @@
 """Implementation for absolute_value function."""
 
 from typing import Union
-from .logical import Number, absolute_value_contract
+from .logical import Number, absolute_value_precondition, absolute_value_postcondition
 
-# Alternative: use individual decorators
-# from .logical import (
-#     is_real_number, 
-#     result_is_non_negative,
-#     result_equals_abs_input,
-#     result_is_idempotent
-# )
-
-@absolute_value_contract
 def absolute_value(x: Number) -> Number:
     """
     Calculate the absolute value of a number.

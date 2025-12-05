@@ -1,26 +1,15 @@
-"""Logical specification for absolute_value function.
-
-This file demonstrates the use of standard mathematical predicates
-from the axiomander.contracts library instead of custom validation functions.
-"""
+"""Logical specification for absolute_value function."""
 
 from typing import Union
-
-# Import standard predicates from contracts library
-from axiomander.contracts import (
-    is_real_number,
-    result_is_non_negative,
-    result_equals_abs_input,
-    result_is_idempotent,
-    absolute_value_contract
-)
+from axiomander.contracts import is_real_number, result_equals_abs_input
 
 Number = Union[int, float]
 
-# The predicates are now provided by the contracts library
-# No need to redefine them here - they're imported above
+# Define the specific predicate functions referenced in component.json
+def absolute_value_precondition(*args, **kwargs) -> bool:
+    """Precondition: Input must be a real number."""
+    return is_real_number(*args, **kwargs)
 
-# For reference, the complete absolute value contract can be applied as:
-# @absolute_value_contract
-# def absolute_value(x: Number) -> Number:
-#     # implementation
+def absolute_value_postcondition(result, *args, **kwargs) -> bool:
+    """Postcondition: Result is non-negative and equals absolute value of input."""
+    return result_equals_abs_input(result, *args, **kwargs)
