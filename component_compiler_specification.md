@@ -59,6 +59,7 @@ tests/
 - Automatically imports the corresponding logical file at the beginning
 - Imports all dependencies with proper symbol resolution
 - Contains component metadata as module-level constants
+- Creates a name that is not already there under {path} by affixing LLM derived _{suffix} using a cheap model (using LangChain)
 
 #### `src/{module_name}/{path}/{uniquified_component_name}_logical.py`
 - Begins with a comment containing the original component UID for tracking
