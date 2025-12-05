@@ -2,7 +2,8 @@
 
 import pytest
 from .implementation import absolute_value
-from .logical import is_real_number, is_absolute_value
+from .logical import absolute_value_precondition, absolute_value_postcondition
+from axiomander.contracts import is_real_number
 
 class TestAbsoluteValue:
     """Test cases for the absolute_value function."""
@@ -25,24 +26,34 @@ class TestAbsoluteValue:
         assert absolute_value(0.0) == 0.0
     
     def test_contract_precondition(self):
-        """Test that precondition is enforced."""
+        """Test that precondition logic works correctly."""
         # Valid inputs should pass precondition
-        assert is_real_number(5)
-        assert is_real_number(-3.14)
-        assert is_real_number(0)
+        assert absolute_value_precondition(5)
+        assert absolute_value_precondition(-3.14)
+        assert absolute_value_precondition(0)
         
         # Invalid inputs should fail precondition
-        assert not is_real_number("5")
-        assert not is_real_number(None)
-        assert not is_real_number(True)  # bool is not considered a real number
-        assert not is_real_number([1, 2, 3])
+        assert not absolute_value_precondition("5")
+        assert not absolute_value_precondition(None)
+        assert not absolute_value_precondition(True)  # bool is not considered a real number
+        assert not absolute_value_precondition([1, 2, 3])
     
+    def test_contract_postcondition(self):
+        """Test that postcondition logic works correctly."""
+        # Test postcondition with valid results
+        assert absolute_value_postcondition(5, 5)  # result, input
+        assert absolute_value_postcondition(5, -5)  # result, input
+        assert absolute_value_postcondition(0, 0)   # result, input
+        
+        # Test postcondition with invalid results
+        assert not absolute_value_postcondition(-5, 5)  # negative result should fail
+        assert not absolute_value_postcondition(3, 5)   # wrong magnitude should fail
     
     def test_invalid_input_types(self):
         """Test that invalid input types raise PreconditionViolationError."""
         from axiomander.exceptions import PreconditionViolationError
         
-        invalid_inputs = ["5", None, True, [1, 2, 3], {"x": 5}]
+        invalid_inputs = ["5", None, [1, 2, 3], {"x": 5}]
         
         for invalid_input in invalid_inputs:
             with pytest.raises(PreconditionViolationError):

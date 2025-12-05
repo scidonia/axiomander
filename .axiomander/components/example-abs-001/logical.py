@@ -1,7 +1,7 @@
 """Logical specification for absolute_value function."""
 
 from typing import Union
-from axiomander.contracts import is_real_number, result_equals_abs_input
+from axiomander.contracts import is_real_number, result_equals_abs_input, result_is_non_negative
 
 Number = Union[int, float]
 
@@ -12,4 +12,5 @@ def absolute_value_precondition(*args, **kwargs) -> bool:
 
 def absolute_value_postcondition(result, *args, **kwargs) -> bool:
     """Postcondition: Result is non-negative and equals absolute value of input."""
-    return result_equals_abs_input(result, *args, **kwargs)
+    return (result_is_non_negative(result, *args, **kwargs) and 
+            result_equals_abs_input(result, *args, **kwargs))

@@ -2,7 +2,10 @@
 
 from typing import Union
 from .logical import Number, absolute_value_precondition, absolute_value_postcondition
+from axiomander.contracts import precondition, postcondition
 
+@precondition("Input must be a real number", absolute_value_precondition)
+@postcondition("Result is non-negative and equals absolute value of input", absolute_value_postcondition)
 def absolute_value(x: Number) -> Number:
     """
     Calculate the absolute value of a number.
