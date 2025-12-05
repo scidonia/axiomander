@@ -42,9 +42,8 @@ class CodeGenerator:
         """
         lines = []
         
-        # Add UID tracking comment
-        lines.append(f"# axiomander:component:{component.uid}")
-        lines.append("")
+        # Add component tracking header
+        lines.extend(self._generate_component_header(component, mapping, module_name))
         
         # Add module docstring if in development mode
         if self.config.mode.value == "development" and self.config.preserve_metadata:
@@ -78,21 +77,21 @@ class CodeGenerator:
         
         return "\n".join(lines)
     
-    def generate_logical_file(self, component: Component, mapping: ComponentMapping) -> str:
+    def generate_logical_file(self, component: Component, mapping: ComponentMapping, module_name: str = None) -> str:
         """Generate the logical contracts file for a component.
         
         Args:
             component: Component to generate code for
             mapping: Component mapping with uniquified name
+            module_name: Name of the compiled module
             
         Returns:
             Generated Python code as string
         """
         lines = []
         
-        # Add UID tracking comment
-        lines.append(f"# axiomander:component:{component.uid}")
-        lines.append("")
+        # Add component tracking header
+        lines.extend(self._generate_component_header(component, mapping, module_name))
         
         # Add module docstring if in development mode
         if self.config.mode.value == "development" and self.config.preserve_metadata:
@@ -144,31 +143,18 @@ class CodeGenerator:
         else:
             path_prefix = "."
         
-        # Add path setup for tests to find the src directory
-        lines.append("import sys")
-        lines.append("from pathlib import Path")
-        lines.append("")
-        lines.append("# Add src directory to Python path for testing")
-        lines.append("src_path = Path(__file__).parent.parent / 'src'")
-        lines.append("if str(src_path) not in sys.path:")
-        lines.append("    sys.path.insert(0, str(src_path))")
-        lines.append("")
+        # Add component tracking header
+        lines.extend(self._generate_component_header(component, mapping, module_name))
         
-        # Import the component modules
-        lines.append(f"from {module_name}{path_prefix}{mapping.uniquified_name} import *")
-        lines.append(f"from {module_name}{path_prefix}{mapping.uniquified_name}_logical import *")
-        lines.append("")
+        # Generate test preamble with proper imports
+        lines.extend(self._generate_test_preamble(mapping, module_name))
         
-        # Standard test imports
-        lines.append("import pytest")
-        lines.append("import unittest")
-        lines.append("from hypothesis import given, strategies as st")
-        lines.append("")
-        
-        # Load and add test code
+        # Load and process test code
         test_code = self._load_component_file(component.uid, "test.py")
         if test_code:
-            lines.append(test_code)
+            # Strip relative imports but keep everything else
+            cleaned_code = self._strip_relative_imports_only(test_code)
+            lines.append(cleaned_code)
         
         return "\n".join(lines)
     

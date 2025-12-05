@@ -209,7 +209,7 @@ class ComponentCompiler:
             
             # Generate logical file
             logical_file = component_dir / f"{mapping.uniquified_name}_logical.py"
-            logical_content = self.code_generator.generate_logical_file(component, mapping)
+            logical_content = self.code_generator.generate_logical_file(component, mapping, module_name)
             logical_file.write_text(logical_content)
             generated_files.append(logical_file)
             
