@@ -578,10 +578,9 @@ def start_lsp_server():
     """Start the LSP server."""
     print("Starting Axiomander LSP server...")
     try:
-        from ..lsp.server import AxiomanderLSPServer
+        from ..lsp.server import main
 
-        server = AxiomanderLSPServer()
-        server.start_server()
+        main()
     except ImportError as e:
         print(f"Error: LSP server dependencies not available: {e}")
         print("Install with: pip install axiomander[dev]")

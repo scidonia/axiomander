@@ -12,17 +12,18 @@ from pathlib import Path
 import time
 import ast
 import sys
+import tempfile
+import os
 
 import lsprotocol.types as lsp
-from pygls.protocol import LanguageServerProtocol, default_converter
-from pygls.server import run
+from pygls.lsp.server import LanguageServer
 
 from ..verification.orchestrator import VerificationOrchestrator, VerificationResult
-from ..ast.assertion_finder import AssertionFinder, AssertionType
+from ..ast.assertion_finder import AssertionFinder, AssertionType, AssertionInfo
+from ..ast.parser import ASTParser, ParsedCode
 
 
 logger = logging.getLogger(__name__)
-
 
 # Global state for the server
 verification_cache: Dict[str, List[VerificationResult]] = {}
@@ -31,472 +32,426 @@ pending_verifications: Dict[str, asyncio.Task] = {}
 orchestrator = VerificationOrchestrator()
 verification_delay = 1.0  # seconds
 
+# Create the language server instance
+server = LanguageServer("axiomander-lsp", "v1.0")
 
-class AxiomanderLSP(LanguageServerProtocol):
-    """Axiomander Language Server Protocol implementation."""
-    
-    def __init__(self, server_info, converter):
-        super().__init__(server_info, converter)
-        self.verification_cache = verification_cache
-        self.pending_verifications = pending_verifications
-        self.orchestrator = orchestrator
 
-    async def lsp_initialize(self, params: lsp.InitializeParams) -> lsp.InitializeResult:
-        """Initialize the language server."""
-        logger.info("Axiomander LSP server initializing...")
-        return lsp.InitializeResult(
-            capabilities=lsp.ServerCapabilities(
-                text_document_sync=lsp.TextDocumentSyncOptions(
-                    open_close=True,
-                    change=lsp.TextDocumentSyncKind.FULL
-                ),
-                hover_provider=True,
-                completion_provider=lsp.CompletionOptions(
-                    trigger_characters=["assert ", "def "]
-                )
-            )
-        )
+async def debounced_verify_document(uri: str, delay: float = verification_delay):
+    """Verify a document after a delay to avoid too frequent checks."""
+    # Cancel any pending verification for this document
+    if uri in pending_verifications:
+        pending_verifications[uri].cancel()
 
-    async def lsp_text_document__did_open(self, params: lsp.DidOpenTextDocumentParams):
-        """Handle document open events."""
-        await self._verify_document(params.text_document.uri, params.text_document.text)
+    async def verify_after_delay():
+        await asyncio.sleep(delay)
+        await verify_document(uri)
+        if uri in pending_verifications:
+            del pending_verifications[uri]
 
-    async def lsp_text_document__did_change(self, params: lsp.DidChangeTextDocumentParams):
-        """Handle document change events with debouncing."""
-        uri = params.text_document.uri
-        
-        # Cancel any pending verification for this document
-        if uri in self.pending_verifications:
-            self.pending_verifications[uri].cancel()
-        
-        # Get the updated document content
-        document = self.workspace.get_document(uri)
-        
-        # Schedule debounced verification
-        self.pending_verifications[uri] = asyncio.create_task(
-            self._debounced_verify(uri, document.source)
-        )
+    # Start new verification task
+    pending_verifications[uri] = asyncio.create_task(verify_after_delay())
 
-    async def lsp_text_document__did_close(self, params: lsp.DidCloseTextDocumentParams):
-        """Handle document close events."""
-        uri = params.text_document.uri
-        
-        # Cancel pending verification
-        if uri in self.pending_verifications:
-            self.pending_verifications[uri].cancel()
-            del self.pending_verifications[uri]
-        
-        # Clear cache for closed document
-        if uri in self.verification_cache:
-            del self.verification_cache[uri]
-        if uri in last_verification:
-            del last_verification[uri]
 
-    async def lsp_text_document__hover(self, params: lsp.HoverParams) -> Optional[lsp.Hover]:
-        """Provide hover information for assertions and functions."""
+async def verify_document(uri: str):
+    """Verify a document and publish diagnostics."""
+    try:
+        # Get the document content
+        doc = server.workspace.get_text_document(uri)
+        content = doc.source
+
+        # Parse the AST to find function definitions and their line numbers
         try:
-            uri = params.text_document.uri
-            document = self.workspace.get_document(uri)
-            
-            # Get the line at cursor position
-            line_num = params.position.line
-            lines = document.source.split('\n')
-            
-            if line_num >= len(lines):
-                return None
-            
-            line_content = lines[line_num]
-            
-            # Check if hovering over an assertion
-            if "assert" in line_content:
-                # Get verification results for this document
-                if uri in self.verification_cache:
-                    results = self.verification_cache[uri]
-                    
-                    hover_content = []
-                    hover_content.append("**Axiomander Verification**")
-                    
-                    # Find relevant assertion information
-                    for result in results:
-                        for assertion in result.verified_assertions + result.failed_assertions:
-                            if any(word in assertion.lower() for word in line_content.lower().split()):
-                                status = "✅ Verified" if assertion in result.verified_assertions else "❌ Failed"
-                                hover_content.append(f"- {status}: {assertion}")
-                    
-                    if len(hover_content) > 1:
-                        return lsp.Hover(
-                            contents=lsp.MarkupContent(
-                                kind=lsp.MarkupKind.MARKDOWN,
-                                value="\n".join(hover_content)
-                            )
-                        )
-            
-            # Check if hovering over a function definition
-            if line_content.strip().startswith("def "):
-                if uri in self.verification_cache:
-                    results = self.verification_cache[uri]
-                    
-                    for result in results:
-                        if result.function_name in line_content:
-                            verified_count = len(result.verified_assertions)
-                            failed_count = len(result.failed_assertions)
-                            error_count = len(result.errors)
-                            
-                            status_emoji = "✅" if failed_count == 0 and error_count == 0 else "❌"
-                            
-                            hover_content = [
-                                f"**{status_emoji} Function: {result.function_name}**",
-                                f"- Verified assertions: {verified_count}",
-                                f"- Failed assertions: {failed_count}",
-                                f"- Errors: {error_count}",
-                                f"- Execution time: {result.execution_time:.3f}s"
-                            ]
-                            
-                            return lsp.Hover(
-                                contents=lsp.MarkupContent(
-                                    kind=lsp.MarkupKind.MARKDOWN,
-                                    value="\n".join(hover_content)
-                                )
-                            )
-            
-        except Exception as e:
-            logger.error(f"Hover handler error: {e}")
-        
-        return None
-
-    async def lsp_text_document__completion(self, params: lsp.CompletionParams) -> Optional[lsp.CompletionList]:
-        """Provide code completion for contract patterns."""
-        try:
-            document = self.workspace.get_document(params.text_document.uri)
-            line_num = params.position.line
-            lines = document.source.split('\n')
-            
-            if line_num >= len(lines):
-                return None
-            
-            line_content = lines[line_num]
-            
-            completions = []
-            
-            # Provide assertion completions
-            if "assert" in line_content or line_content.strip().endswith("assert"):
-                contract_completions = [
-                    lsp.CompletionItem(
-                        label="assert precondition",
-                        kind=lsp.CompletionItemKind.SNIPPET,
-                        insert_text="assert ${1:condition}, \"${2:Precondition message}\"",
-                        insert_text_format=lsp.InsertTextFormat.SNIPPET,
-                        documentation="Add a precondition assertion",
-                        detail="Precondition contract"
-                    ),
-                    lsp.CompletionItem(
-                        label="assert postcondition",
-                        kind=lsp.CompletionItemKind.SNIPPET,
-                        insert_text="assert ${1:condition}, \"${2:Postcondition message}\"",
-                        insert_text_format=lsp.InsertTextFormat.SNIPPET,
-                        documentation="Add a postcondition assertion",
-                        detail="Postcondition contract"
-                    ),
-                    lsp.CompletionItem(
-                        label="assert loop invariant",
-                        kind=lsp.CompletionItemKind.SNIPPET,
-                        insert_text="assert ${1:invariant_condition}, \"Loop invariant\"",
-                        insert_text_format=lsp.InsertTextFormat.SNIPPET,
-                        documentation="Add a loop invariant assertion",
-                        detail="Loop invariant contract"
-                    )
-                ]
-                completions.extend(contract_completions)
-            
-            # Provide function template completions
-            if line_content.strip().startswith("def") or "def " in line_content:
-                function_completions = [
-                    lsp.CompletionItem(
-                        label="def with contracts",
-                        kind=lsp.CompletionItemKind.SNIPPET,
-                        insert_text="""def ${1:function_name}(${2:param}: ${3:int}) -> ${4:int}:
-    assert ${5:precondition}, "${6:Precondition message}"
-    ${7:# Function body}
-    assert ${8:postcondition}, "${9:Postcondition message}"
-    return ${10:result}""",
-                        insert_text_format=lsp.InsertTextFormat.SNIPPET,
-                        documentation="Function template with pre/postconditions",
-                        detail="Contracted function template"
-                    )
-                ]
-                completions.extend(function_completions)
-            
-            if completions:
-                return lsp.CompletionList(
-                    is_incomplete=False,
-                    items=completions
-                )
-            
-        except Exception as e:
-            logger.error(f"Completion handler error: {e}")
-        
-        return None
-
-    async def _debounced_verify(self, uri: str, content: str):
-        """Verify document after debounce delay."""
-        try:
-            await asyncio.sleep(verification_delay)
-            await self._verify_document(uri, content)
-        except asyncio.CancelledError:
-            logger.debug(f"Verification cancelled for {uri}")
-        except Exception as e:
-            logger.error(f"Debounced verification failed for {uri}: {e}")
-
-    async def _verify_document(self, uri: str, content: str):
-        """Verify a document and publish diagnostics."""
-        try:
-            # Skip verification for non-Python files
-            if not uri.endswith('.py'):
-                return
-            
-            logger.debug(f"Verifying document: {uri}")
-            
-            # Run verification in a thread to avoid blocking
-            loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(
-                None, 
-                self._run_verification, 
-                content, 
-                uri
-            )
-            
-            # Cache results
-            self.verification_cache[uri] = results
-            last_verification[uri] = time.time()
-            
-            # Convert results to diagnostics and publish
-            diagnostics = self._convert_to_diagnostics(results, content)
-            await self._publish_diagnostics(uri, diagnostics)
-            
-        except Exception as e:
-            logger.error(f"Verification failed for {uri}: {e}")
-            # Publish error diagnostic
-            error_diagnostic = lsp.Diagnostic(
+            tree = ast.parse(content)
+        except SyntaxError as e:
+            logger.warning(f"Syntax error in {uri}: {e}")
+            # Publish syntax error as diagnostic
+            diagnostic = lsp.Diagnostic(
                 range=lsp.Range(
-                    start=lsp.Position(line=0, character=0),
-                    end=lsp.Position(line=0, character=0)
+                    start=lsp.Position(
+                        line=max(0, (e.lineno or 1) - 1),
+                        character=max(0, (e.offset or 1) - 1),
+                    ),
+                    end=lsp.Position(
+                        line=max(0, (e.lineno or 1) - 1),
+                        character=max(0, (e.offset or 1) - 1) + 10,
+                    ),
                 ),
-                message=f"Verification error: {str(e)}",
-                severity=lsp.DiagnosticSeverity.ERROR,
-                source="axiomander"
+                message=f"Syntax error: {e.msg}",
+                severity=lsp.DiagnosticSeverity.Error,
+                source="axiomander",
+                code="syntax_error",
             )
-            await self._publish_diagnostics(uri, [error_diagnostic])
+            server.text_document_publish_diagnostics(
+                lsp.PublishDiagnosticsParams(uri=uri, diagnostics=[diagnostic])
+            )
+            return
 
-    def _run_verification(self, content: str, uri: str) -> List[VerificationResult]:
-        """Run verification synchronously (called from thread executor)."""
+        # Build a map of function names to their line numbers
+        function_lines = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                function_lines[node.name] = node.lineno - 1  # Convert to 0-based
+
+        # Use orchestrator to verify the source
         try:
-            return self.orchestrator.verify_source(content, uri)
-        except Exception as e:
-            logger.error(f"Orchestrator verification failed: {e}")
-            # Return empty results on error
-            return []
+            results = orchestrator.verify_source(content, uri)
 
-    def _convert_to_diagnostics(self, results: List[VerificationResult], content: str) -> List[lsp.Diagnostic]:
-        """Convert verification results to LSP diagnostics."""
-        diagnostics = []
-        lines = content.split('\n')
-        
-        for result in results:
-            try:
-                # Parse the content to find function and assertion locations
-                tree = ast.parse(content)
-                
-                # Find the function node
-                function_node = None
-                for node in ast.walk(tree):
-                    if isinstance(node, ast.FunctionDef) and node.name == result.function_name:
-                        function_node = node
-                        break
-                
-                if not function_node:
-                    continue
-                
-                # Add diagnostics for failed assertions
-                for failed_assertion in result.failed_assertions:
-                    diagnostic = self._create_assertion_diagnostic(
-                        failed_assertion, 
-                        function_node, 
-                        content, 
-                        lsp.DiagnosticSeverity.ERROR,
-                        result.counterexamples
-                    )
-                    if diagnostic:
-                        diagnostics.append(diagnostic)
-                
-                # Add informational diagnostics for verified assertions
-                for verified_assertion in result.verified_assertions:
-                    diagnostic = self._create_assertion_diagnostic(
-                        verified_assertion, 
-                        function_node, 
-                        content, 
-                        lsp.DiagnosticSeverity.INFORMATION
-                    )
-                    if diagnostic:
-                        diagnostics.append(diagnostic)
-                
-                # Add diagnostics for errors
-                for error in result.errors:
-                    error_diagnostic = lsp.Diagnostic(
+            # Cache results
+            verification_cache[uri] = results
+            last_verification[uri] = time.time()
+
+            # Convert results to diagnostics
+            diagnostics = []
+
+            for result in results:
+                # Get the line number for this function
+                func_line = function_lines.get(result.function_name, 0)
+
+                # Create diagnostics for each verification result
+                if result.success:
+                    # Create a single success diagnostic per function instead of one per assertion
+                    success_count = len(result.verified_assertions)
+                    diagnostic = lsp.Diagnostic(
                         range=lsp.Range(
-                            start=lsp.Position(line=function_node.lineno - 1, character=0),
-                            end=lsp.Position(line=function_node.lineno - 1, character=len(lines[function_node.lineno - 1]) if function_node.lineno <= len(lines) else 0)
+                            start=lsp.Position(line=func_line, character=0),
+                            end=lsp.Position(line=func_line, character=50),
                         ),
-                        message=f"Verification error in {result.function_name}: {error}",
-                        severity=lsp.DiagnosticSeverity.WARNING,
-                        source="axiomander"
+                        message=f"✅ {result.function_name}: {success_count} assertions verified successfully",
+                        severity=lsp.DiagnosticSeverity.Hint,
+                        source="axiomander",
+                        code="verification_success",
                     )
-                    diagnostics.append(error_diagnostic)
-                    
-            except Exception as e:
-                logger.error(f"Error creating diagnostics for {result.function_name}: {e}")
-        
-        return diagnostics
+                    diagnostics.append(diagnostic)
 
-    def _create_assertion_diagnostic(
-        self, 
-        assertion_desc: str, 
-        function_node: ast.FunctionDef, 
-        content: str,
-        severity: lsp.DiagnosticSeverity,
-        counterexamples: Optional[List[Dict[str, Any]]] = None
-    ) -> Optional[lsp.Diagnostic]:
-        """Create diagnostic for a specific assertion."""
-        try:
-            lines = content.split('\n')
-            
-            # Extract the assertion text from the description
-            # Format is typically "AssertionType: assertion_text"
-            if ": " in assertion_desc:
-                assertion_text = assertion_desc.split(": ", 1)[1]
-            else:
-                assertion_text = assertion_desc
-            
-            # Find the assertion in the function
-            for node in ast.walk(function_node):
-                if isinstance(node, ast.Assert):
-                    node_text = ast.unparse(node.test)
-                    if node_text == assertion_text:
-                        # Create diagnostic at the assertion location
-                        line_num = node.lineno - 1  # Convert to 0-based
-                        line_content = lines[line_num] if line_num < len(lines) else ""
-                        
-                        # Find the assert statement in the line
-                        assert_start = line_content.find("assert")
-                        if assert_start == -1:
-                            assert_start = 0
-                        
-                        message = assertion_desc
-                        
-                        # Add counterexample information if available
-                        if counterexamples and severity == lsp.DiagnosticSeverity.ERROR:
-                            relevant_ce = next(
-                                (ce for ce in counterexamples if assertion_text in ce.get("assertion", "")), 
-                                None
-                            )
-                            if relevant_ce and "counterexample" in relevant_ce:
-                                ce_text = ", ".join(f"{k}={v}" for k, v in relevant_ce["counterexample"].items())
-                                message += f" | Counterexample: {ce_text}"
-                        
-                        return lsp.Diagnostic(
-                            range=lsp.Range(
-                                start=lsp.Position(line=line_num, character=assert_start),
-                                end=lsp.Position(line=line_num, character=len(line_content))
-                            ),
-                            message=message,
-                            severity=severity,
-                            source="axiomander",
-                            code="assertion_verification"
-                        )
-            
-        except Exception as e:
-            logger.error(f"Error creating assertion diagnostic: {e}")
-        
+                # Create error diagnostics for failed assertions
+                for failed_assertion in result.failed_assertions:
+                    diagnostic = lsp.Diagnostic(
+                        range=lsp.Range(
+                            start=lsp.Position(line=func_line, character=0),
+                            end=lsp.Position(line=func_line, character=50),
+                        ),
+                        message=f"❌ Contract violation: {failed_assertion}",
+                        severity=lsp.DiagnosticSeverity.Error,
+                        source="axiomander",
+                        code="verification_failed",
+                    )
+                    diagnostics.append(diagnostic)
+
+                # Create error diagnostics for verification errors
+                for error in result.errors:
+                    diagnostic = lsp.Diagnostic(
+                        range=lsp.Range(
+                            start=lsp.Position(line=func_line, character=0),
+                            end=lsp.Position(line=func_line, character=50),
+                        ),
+                        message=f"🔥 {result.function_name}: {error}",
+                        severity=lsp.DiagnosticSeverity.Error,
+                        source="axiomander",
+                        code="verification_error",
+                    )
+                    diagnostics.append(diagnostic)
+
+            # Publish diagnostics
+            server.text_document_publish_diagnostics(
+                lsp.PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics)
+            )
+
+        except SyntaxError as e:
+            logger.warning(f"Syntax error in {uri}: {e}")
+            # Publish syntax error as diagnostic
+            diagnostic = lsp.Diagnostic(
+                range=lsp.Range(
+                    start=lsp.Position(
+                        line=max(0, (e.lineno or 1) - 1),
+                        character=max(0, (e.offset or 1) - 1),
+                    ),
+                    end=lsp.Position(
+                        line=max(0, (e.lineno or 1) - 1),
+                        character=max(0, (e.offset or 1) - 1) + 10,
+                    ),
+                ),
+                message=f"Syntax error: {e.msg}",
+                severity=lsp.DiagnosticSeverity.Error,
+                source="axiomander",
+                code="syntax_error",
+            )
+            server.text_document_publish_diagnostics(
+                lsp.PublishDiagnosticsParams(uri=uri, diagnostics=[diagnostic])
+            )
+            return
+
+    except Exception as e:
+        logger.error(f"Unexpected error verifying {uri}: {e}")
+        # Publish general error
+        diagnostic = lsp.Diagnostic(
+            range=lsp.Range(
+                start=lsp.Position(line=0, character=0),
+                end=lsp.Position(line=0, character=100),
+            ),
+            message=f"Verification error: {str(e)}",
+            severity=lsp.DiagnosticSeverity.Error,
+            source="axiomander",
+            code="general_error",
+        )
+        server.text_document_publish_diagnostics(
+            lsp.PublishDiagnosticsParams(uri=uri, diagnostics=[diagnostic])
+        )
+
+
+@server.feature(lsp.TEXT_DOCUMENT_DID_OPEN)
+async def did_open(params: lsp.DidOpenTextDocumentParams) -> None:
+    """Handle document open event."""
+    logger.info(f"Document opened: {params.text_document.uri}")
+    await debounced_verify_document(params.text_document.uri)
+
+
+@server.feature(lsp.TEXT_DOCUMENT_DID_CHANGE)
+async def did_change(params: lsp.DidChangeTextDocumentParams) -> None:
+    """Handle document change event."""
+    logger.info(f"Document changed: {params.text_document.uri}")
+    await debounced_verify_document(params.text_document.uri)
+
+
+@server.feature(lsp.TEXT_DOCUMENT_DID_CLOSE)
+async def did_close(params: lsp.DidCloseTextDocumentParams) -> None:
+    """Handle document close event."""
+    uri = params.text_document.uri
+    logger.info(f"Document closed: {uri}")
+
+    # Cancel any pending verification
+    if uri in pending_verifications:
+        pending_verifications[uri].cancel()
+        del pending_verifications[uri]
+
+    # Clear cache
+    if uri in verification_cache:
+        del verification_cache[uri]
+    if uri in last_verification:
+        del last_verification[uri]
+
+
+@server.feature(lsp.TEXT_DOCUMENT_HOVER)
+async def hover(params: lsp.HoverParams) -> Optional[lsp.Hover]:
+    """Provide hover information."""
+    uri = params.text_document.uri
+    position = params.position
+
+    # Get cached verification results
+    if uri not in verification_cache:
         return None
 
-    async def _publish_diagnostics(self, uri: str, diagnostics: List[lsp.Diagnostic]):
-        """Publish diagnostics to the client."""
-        self.publish_diagnostics(uri, diagnostics)
-        logger.debug(f"Published {len(diagnostics)} diagnostics for {uri}")
+    results = verification_cache[uri]
+
+    # Create hover information from verification results
+    if results:
+        content_lines = []
+        for result in results:
+            content_lines.append(f"**Function: {result.function_name}**")
+
+            if result.success:
+                content_lines.append("✅ **Status**: All assertions verified")
+            else:
+                content_lines.append("❌ **Status**: Some assertions failed")
+
+            content_lines.append(f"**Execution time**: {result.execution_time:.3f}s")
+
+            if result.verified_assertions:
+                content_lines.append("**Verified assertions**:")
+                for assertion in result.verified_assertions:
+                    content_lines.append(f"  - ✅ {assertion}")
+
+            if result.failed_assertions:
+                content_lines.append("**Failed assertions**:")
+                for assertion in result.failed_assertions:
+                    content_lines.append(f"  - ❌ {assertion}")
+
+            if result.counterexamples:
+                content_lines.append("**Counterexamples**:")
+                for i, example in enumerate(result.counterexamples):
+                    content_lines.append(f"  - Example {i + 1}: {example}")
+
+            if result.errors:
+                content_lines.append("**Errors**:")
+                for error in result.errors:
+                    content_lines.append(f"  - 🔥 {error}")
+
+            content_lines.append("---")
+
+        content = "\n".join(content_lines)
+
+        return lsp.Hover(
+            contents=lsp.MarkupContent(kind=lsp.MarkupKind.Markdown, value=content)
+        )
+
+    return None
 
 
-def create_axiomander_server():
-    """Create a language server protocol instance with Axiomander features."""
-    # Create a simple server info object 
-    class ServerInfo:
-        name = "axiomander-lsp"
-        version = "v0.1.0"
-    
-    server_info = ServerInfo()
-    
-    # Create protocol with proper parameters
-    return AxiomanderLSP(server_info, default_converter())
+@server.feature(
+    lsp.TEXT_DOCUMENT_COMPLETION, lsp.CompletionOptions(trigger_characters=[".", "@"])
+)
+async def completion(params: lsp.CompletionParams) -> lsp.CompletionList:
+    """Provide code completions for contract constructs."""
+    completions = []
+
+    # Basic contract completions
+    completions.extend(
+        [
+            lsp.CompletionItem(
+                label="@contract",
+                kind=lsp.CompletionItemKind.Snippet,
+                detail="Contract decorator",
+                documentation="Add a contract decorator to a function",
+                insert_text="@contract\ndef ${1:function_name}(${2:args}):\n    '''\n    requires: ${3:precondition}\n    ensures: ${4:postcondition}\n    '''\n    ${0:pass}",
+                insert_text_format=lsp.InsertTextFormat.Snippet,
+            ),
+            lsp.CompletionItem(
+                label="requires",
+                kind=lsp.CompletionItemKind.Keyword,
+                detail="Precondition",
+                documentation="Add a precondition to a contract",
+                insert_text="requires: ${1:condition}",
+            ),
+            lsp.CompletionItem(
+                label="ensures",
+                kind=lsp.CompletionItemKind.Keyword,
+                detail="Postcondition",
+                documentation="Add a postcondition to a contract",
+                insert_text="ensures: ${1:condition}",
+            ),
+            lsp.CompletionItem(
+                label="invariant",
+                kind=lsp.CompletionItemKind.Keyword,
+                detail="Loop invariant",
+                documentation="Add a loop invariant",
+                insert_text="invariant: ${1:condition}",
+            ),
+            lsp.CompletionItem(
+                label="assert",
+                kind=lsp.CompletionItemKind.Keyword,
+                detail="Assertion",
+                documentation="Add an assertion",
+                insert_text="assert ${1:condition}, '${2:message}'",
+            ),
+        ]
+    )
+
+    return lsp.CompletionList(is_incomplete=False, items=completions)
+
+
+@server.command("axiomander.verifyContract")
+async def verify_contract_command(uri: str) -> None:
+    """Command to verify contracts in a specific file."""
+    logger.info(f"Verifying contracts in: {uri}")
+    await verify_document(uri)
+
+
+@server.command("axiomander.showSMT")
+async def show_smt_command(uri: str) -> str:
+    """Command to show SMT-LIB representation."""
+    logger.info(f"Generating SMT for: {uri}")
+
+    try:
+        doc = server.workspace.get_text_document(uri)
+        content = doc.source
+
+        # Create a temporary file to use with the orchestrator
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", delete=False
+        ) as temp_file:
+            temp_file.write(content)
+            temp_path = temp_file.name
+
+        try:
+            # Use orchestrator to get verification details - this would generate SMT internally
+            results = orchestrator.verify_source(content, uri)
+
+            smt_content = f"; SMT-LIB representation for {uri}\n\n"
+
+            for result in results:
+                smt_content += f"; Function: {result.function_name}\n"
+                smt_content += f"; Success: {result.success}\n"
+                smt_content += f"; Execution time: {result.execution_time}s\n\n"
+
+                if result.verified_assertions:
+                    smt_content += "; Verified assertions:\n"
+                    for assertion in result.verified_assertions:
+                        smt_content += f";   - {assertion}\n"
+                    smt_content += "\n"
+
+                if result.failed_assertions:
+                    smt_content += "; Failed assertions:\n"
+                    for assertion in result.failed_assertions:
+                        smt_content += f";   - {assertion}\n"
+                    smt_content += "\n"
+
+                # Note: The actual SMT generation is internal to the orchestrator
+                # In a full implementation, we'd need to expose the SMT translator
+                smt_content += "; (Detailed SMT-LIB code would be generated here)\n\n"
+
+        finally:
+            # Clean up temporary file
+            os.unlink(temp_path)
+
+        return smt_content
+
+    except Exception as e:
+        return f"; Error generating SMT: {e}"
+
+
+@server.command("axiomander.generateTest")
+async def generate_test_command(uri: str) -> str:
+    """Command to generate test cases for contracts."""
+    logger.info(f"Generating tests for: {uri}")
+
+    try:
+        doc = server.workspace.get_text_document(uri)
+        content = doc.source
+
+        # Get verification results to understand what to test
+        results = orchestrator.verify_source(content, uri)
+
+        test_content = f"# Generated test cases for {uri}\n\n"
+        test_content += "import pytest\n\n"
+
+        for result in results:
+            test_content += f"def test_{result.function_name}_contracts():\n"
+            test_content += f'    """Test contracts for {result.function_name}"""\n'
+
+            if result.verified_assertions:
+                test_content += "    # Verified assertions:\n"
+                for assertion in result.verified_assertions:
+                    test_content += f"    #   - {assertion}\n"
+
+            if result.failed_assertions:
+                test_content += "    # Failed assertions (need fixing):\n"
+                for assertion in result.failed_assertions:
+                    test_content += f"    #   - {assertion}\n"
+
+            if result.counterexamples:
+                test_content += "    # Counterexamples found:\n"
+                for i, example in enumerate(result.counterexamples):
+                    test_content += f"    #   Example {i + 1}: {example}\n"
+
+            test_content += "    # TODO: Implement actual test cases\n"
+            test_content += "    pass\n\n"
+
+        return test_content
+
+    except Exception as e:
+        return f"# Error generating tests: {e}"
 
 
 def main():
-    """Main entry point for LSP server."""
-    
-    # Setup logging
+    """Main entry point for the LSP server."""
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler('/tmp/axiomander-lsp.log'),
-            logging.StreamHandler(sys.stderr) if len(sys.argv) > 1 and '--debug' in sys.argv else logging.NullHandler()
-        ]
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
-    
+
     logger.info("Starting Axiomander LSP server...")
-    
-    async def run_server():
-        """Run the LSP server asynchronously."""
-        import threading
-        from pygls.server import StdinAsyncReader, StdoutWriter, run_async
-        
-        # Create the protocol
-        protocol = create_axiomander_server()
-        
-        # Create I/O handlers for stdin/stdout
-        reader = StdinAsyncReader(sys.stdin)
-        writer = StdoutWriter(sys.stdout)
-        
-        # Set up the protocol with the writer
-        protocol.set_writer(writer)
-        
-        # Create stop event
-        stop_event = threading.Event()
-        
-        # Run the server
-        await run_async(stop_event, reader, protocol)
-    
-    # Create and run the server
-    try:
-        asyncio.run(run_server())
-    except Exception as e:
-        logger.error(f"Failed to start LSP server: {e}")
-        sys.exit(1)
 
-
-# Legacy compatibility functions
-def create_server():
-    """Create and return a server instance for compatibility."""
-    return create_axiomander_server()
-
-
-class AxiomanderLSPServer:
-    """Legacy wrapper for backwards compatibility."""
-    
-    def __init__(self):
-        logger.warning("AxiomanderLSPServer class is deprecated, use main() function instead")
-        self._server = None
-    
-    def start_server(self, host: str = "localhost", port: int = 0):
-        """Legacy method - just calls main()."""
-        main()
+    # Start the server
+    server.start_io()
 
 
 if __name__ == "__main__":

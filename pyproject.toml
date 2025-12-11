@@ -12,6 +12,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "click>=8.0.0",
     "watchdog>=3.0.0",
+    "lsprotocol>=2025.0.0",
 ]
 
 [build-system]

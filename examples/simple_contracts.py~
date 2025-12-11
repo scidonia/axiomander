@@ -1,0 +1,81 @@
+"""
+Simple Contract Examples for Z3 Verification
+
+These examples demonstrate basic assertion patterns that work well
+with the current Z3 pipeline implementation.
+
+Usage:
+  python -m src.axiomander.cli.commands verify src/example/simple_contracts.py --verbose
+"""
+
+
+def always_positive(x: int) -> int:
+    """Function that always returns a positive result."""
+    # Precondition - at function start
+    assert x > 0, "Input must be positive"
+
+    result = x
+
+    # Postcondition - right before return
+    assert result > 0, "Result is always positive"
+    return result
+
+
+def increment_function(n: int) -> int:
+    """Simple increment with basic contracts."""
+    # Precondition - at function start
+    assert isinstance(n, int), "Input must be integer"
+
+    result = n + 1
+
+    # Postcondition - right before return
+    assert result > n, "Result should be greater than input"
+    return result
+
+
+def non_negative_square(x: int) -> str:
+    """Square function demonstrating non-negative results."""
+    # Precondition - at function start
+    assert isinstance(x, int), "Input must be integer"
+
+    result = x * x
+
+    # Postcondition - right before return
+    assert result >= 0, "Square is always non-negative"
+    return result
+
+
+def bounded_add(a: int, b: int) -> int:
+    """Addition with explicit bounds."""
+    # Preconditions - at function start
+    assert a >= 0, "First argument must be non-negative"
+    assert b >= 0, "Second argument must be non-negative"
+    assert a <= 100, "First argument must be <= 100"
+    assert b <= 100, "Second argument must be <= 100"
+
+    result = a + b
+
+    # Postconditions - right before return
+    assert result >= 0, "Sum is non-negative"
+    assert result >= a, "Sum is at least first argument"
+    assert result >= b, "Sum is at least second argument"
+    return result
+
+
+if __name__ == "__main__":
+    # Simple test
+    print("Testing simple contracts...")
+
+    result1 = always_positive(5)
+    print(f"always_positive(5) = {result1}")
+
+    result2 = increment_function(10)
+    print(f"increment_function(10) = {result2}")
+
+    result3 = non_negative_square(-3)
+    print(f"non_negative_square(-3) = {result3}")
+
+    result4 = bounded_add(20, 30)
+    print(f"bounded_add(20, 30) = {result4}")
+
+    print("Simple contracts test completed!")

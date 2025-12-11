@@ -36,6 +36,7 @@ source = { editable = "." }
 dependencies = [
     { name = "astpretty" },
     { name = "click" },
+    { name = "lsprotocol" },
     { name = "pydantic" },
     { name = "pygls" },
     { name = "typing-extensions" },
@@ -59,6 +60,7 @@ requires-dist = [
     { name = "astpretty", specifier = ">=3.0.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0.0" },
     { name = "click", specifier = ">=8.0.0" },
+    { name = "lsprotocol", specifier = ">=2025.0.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
