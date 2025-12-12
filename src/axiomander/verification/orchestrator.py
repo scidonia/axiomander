@@ -58,7 +58,7 @@ class VerificationOrchestrator:
     ):
         self.parser = parser or ASTParser()
         self.smt_translator = smt_translator or SMTTranslator()
-        
+
         # Add constraint accumulation for Z3 dumps
         self._accumulated_constraints = []
         self._accumulated_variables = {}
@@ -66,7 +66,7 @@ class VerificationOrchestrator:
     def _accumulate_constraints_from_current_context(self, function_name: str):
         """
         Accumulate constraints and variables from current SMT translator context.
-        
+
         Args:
             function_name: Name of the function being processed
         """
@@ -74,7 +74,7 @@ class VerificationOrchestrator:
             # Get current constraints and variables
             current_constraints = self.smt_translator.get_solver_assertions()
             current_variables = self.smt_translator.get_variable_summary()
-            
+
             # Add function context to constraints
             if current_constraints:
                 function_constraints = []
@@ -82,12 +82,12 @@ class VerificationOrchestrator:
                     function_constraints.append(f"; Function: {function_name}")
                     function_constraints.append(f"(assert {constraint})")
                 self._accumulated_constraints.extend(function_constraints)
-            
+
             # Merge variables (with function prefix to avoid conflicts)
             for var_name, var_info in current_variables.items():
                 prefixed_name = f"{function_name}_{var_name}"
                 self._accumulated_variables[prefixed_name] = var_info
-                
+
         except Exception as e:
             logger.warning(f"Failed to accumulate constraints for {function_name}: {e}")
 
@@ -108,7 +108,7 @@ class VerificationOrchestrator:
         """
         # Clear previous accumulated constraints for new file
         self.clear_accumulated_constraints()
-        
+
         file_path = Path(file_path)
 
         try:
@@ -362,7 +362,9 @@ class VerificationOrchestrator:
                         logger.error(error_msg)
                         result.errors.append(error_msg)
 
-            result.success = len(result.errors) == 0  # Success if no errors occurred
+            result.success = (
+                len(result.errors) == 0 and len(result.failed_assertions) == 0
+            )  # Success if no errors and no failed assertions
             logger.info(
                 f"Z3 verification complete for {function_name}: {verification_count} verified, {len(result.failed_assertions)} failed"
             )
@@ -523,13 +525,16 @@ class VerificationOrchestrator:
                     # Convert variable type to SMT-LIB type
                     if "int" in str(var_info).lower():
                         smt_type = "Int"
-                    elif "real" in str(var_info).lower() or "float" in str(var_info).lower():
-                        smt_type = "Real"  
+                    elif (
+                        "real" in str(var_info).lower()
+                        or "float" in str(var_info).lower()
+                    ):
+                        smt_type = "Real"
                     elif "bool" in str(var_info).lower():
                         smt_type = "Bool"
                     else:
                         smt_type = "Int"  # Default
-                    
+
                     output_lines.append(f"(declare-const {var_name} {smt_type})")
                 output_lines.append("")
             else:

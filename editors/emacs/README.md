@@ -1,223 +1,283 @@
-# Axiomander Emacs Mode
+# Axiomander Emacs Integration
 
-A specialized Emacs major mode for editing Axiomander Python code with enhanced support for formal verification constructs, LSP integration, and development tooling.
+This directory contains Emacs configurations for Axiomander LSP integration with formal verification support.
+
+## Files
+
+- **`axiomander.el`** - Complete LSP configuration with hover improvements built-in
+- **`axiomander-setup.el`** - Setup loader (symlink this to `~/.emacs.d/setup/axiomander.el`)
+- **`axiomander-mode.el`** - Basic mode definition (legacy)
+- **`axiomander-pkg.el`** - Package metadata
+
+## Quick Setup
+
+### Recommended: Automatic Setup
+
+1. **Create the symlink:**
+   ```bash
+   ln -sf ~/dev/Scidonia/axiomander/editors/emacs/axiomander-setup.el ~/.emacs.d/setup/axiomander.el
+   ```
+
+2. **Load in your init.el:**
+   ```elisp
+   ;; In your ~/.emacs.d/init.el
+   (load-file "~/.emacs.d/setup/axiomander.el")
+   ```
+
+This automatically:
+- Loads the main configuration with built-in hover improvements
+- Enables global mode for all Python files  
+- Provides status, reload, and management commands
+- Maintains connection to source control for updates
+
+### Manual Setup
+
+If you prefer manual control:
+
+```elisp
+(add-to-list 'load-path "~/dev/Scidonia/axiomander/editors/emacs")
+(require 'axiomander)
+(axiomander-global-mode 1)
+```
+
+
+
+## Dependencies
+
+### Required
+- **`lsp-mode`** (version 9.0+) - Core LSP functionality
+
+### Recommended  
+- **`lsp-ui`** - Enhanced hover display and diagnostics
+- **`python-mode`** - Better Python support
+
+### Optional
+- **`pos-tip`** - Alternative hover display method
+
+Install via package manager:
+```elisp
+(package-install 'lsp-mode)
+(package-install 'lsp-ui)
+```
 
 ## Features
 
-- **Enhanced Python Support**: Built on top of `python-mode` with Axiomander-specific extensions
-- **Syntax Highlighting**: Special highlighting for formal verification keywords (`requires`, `ensures`, `invariant`, etc.)
-- **LSP Integration**: Seamless integration with Language Server Protocol for intelligent code completion and analysis  
-- **Contract Support**: Special handling for `@contract`, `@pure`, `@axiom` decorators
-- **Verification Commands**: Built-in commands for running verification, tests, and Z3 checks
-- **Imenu Integration**: Easy navigation to contract functions and pure functions
-- **Project Detection**: Automatic mode activation for Axiomander projects
+### Modern LSP Integration (`axiomander.el`)
 
-## Installation
-
-### Method 1: Manual Installation
-
-1. Copy the `axiomander-mode.el` file to your Emacs load path
-2. Add the following to your Emacs configuration:
-
-```elisp
-(require 'axiomander-mode)
-```
-
-### Method 2: Using use-package
-
-```elisp
-(use-package axiomander-mode
-  :load-path "/path/to/axiomander/editors/emacs/"
-  :mode (("\\.ax\\.py\\'" . axiomander-mode)
-         ("/axiomander/.*\\.py\\'" . axiomander-mode))
-  :config
-  (setq axiomander-python-executable "python3"))
-```
-
-### Method 3: Local Development
-
-For development on the Axiomander project itself:
-
-```elisp
-(add-to-list 'load-path "/home/gavin/dev/Scidonia/axiomander/editors/emacs/")
-(require 'axiomander-mode)
-```
-
-## Prerequisites
-
-### Required Packages
-
-The mode depends on these Emacs packages:
-- `python-mode` (or built-in `python.el`)
-- `lsp-mode` (version 8.0.0+) - for LSP integration
-- `flycheck` (optional) - for syntax checking
-
-Install via package manager:
-
-```elisp
-(package-install 'lsp-mode)
-(package-install 'flycheck)
-```
-
-### Python Environment Setup
-
-1. Ensure your Python environment has the Axiomander package installed
-2. Install Python LSP server:
-   ```bash
-   pip install python-lsp-server[all]
-   ```
-
-## Usage
-
-### Automatic Mode Detection
-
-The mode automatically activates for:
-- Files with `.ax.py` extension
-- Python files in `/axiomander/` directories
-- Files in projects with `pyproject.toml` containing axiomander dependencies
-
-### Manual Activation
-
-```elisp
-M-x axiomander-mode
-```
+- **Multi-server support** - Runs alongside Pyright for complete Python + verification
+- **Smart hover display** - Properly positioned and sized verification results
+- **Contract-specific commands** - Verification, testing, SMT generation
+- **Automatic configuration** - Sets up when Python files are opened
+- **Comprehensive diagnostics** - Built-in troubleshooting tools
+- **Status monitoring** - Server health and connection status
 
 ### Key Bindings
 
-| Key Binding | Command | Description |
-|-------------|---------|-------------|
-| `C-c C-v` | `axiomander-verify-file` | Verify current file |
-| `C-c C-t` | `axiomander-run-tests` | Run project tests |
-| `C-c C-z` | `axiomander-z3-check` | Check file with Z3 |
-| `C-c C-s` | `axiomander-show-smt` | Show SMT-LIB output |
+#### Contract Operations
+| Key | Command | Description |
+|-----|---------|-------------|
+| `C-c a v` | `axiomander-verify-contracts` | Verify contracts in current file |
+| `C-c a t` | `axiomander-generate-tests` | Generate tests for contracts |
+| `C-c a s` | `axiomander-show-smt` | Show SMT-LIB representation |
+| `C-c a e` | `axiomander-explain-assertion` | Explain assertion at point |
+| `C-c a c` | `axiomander-generate-counterexample` | Generate counterexample |
 
-### LSP Features
+#### Navigation & Info
+| Key | Command | Description |
+|-----|---------|-------------|
+| `C-c a h` | `lsp-describe-thing-at-point` | Show hover information |
+| `C-c a i` | `lsp-ui-doc-show` | Show documentation popup |
+| `C-c a r` | `lsp-find-references` | Find references |
+| `C-c a j` | `lsp-find-definition` | Jump to definition |
 
-When LSP is active, you get:
-- Code completion for Axiomander constructs
-- Hover documentation
-- Go to definition
-- Find references
-- Diagnostic errors and warnings
+#### Utilities
+| Key | Command | Description |
+|-----|---------|-------------|
+| `C-c a S` | `axiomander-server-status` | Show server status |
+| `C-c a R` | `axiomander-restart-server` | Restart LSP server |
+| `C-c a D` | `axiomander-doctor` | Run diagnostics |
+| `C-c a H` | `axiomander-configure-hover` | Configure hover display |
+| `C-c a ?` | `axiomander-help` | Show help |
 
-## Syntax Highlighting
+#### Setup Commands (from `~/.emacs.d/setup/axiomander.el`)
+| Key | Command | Description |
+|-----|---------|-------------|
+| `C-c a L` | `reload-axiomander-config` | Reload configuration |
+| `C-c a O` | `open-axiomander-config` | Open config file |
+| `C-c a P` | `open-axiomander-project` | Open project directory |
+| `C-c a ?` | `axiomander-setup-status` | Show setup status |
 
-The mode provides enhanced highlighting for:
+## Hover Display Improvements
 
-### Contract Keywords
-- `requires`, `ensures`, `invariant`
-- `assert`, `assume`, `havoc`
+The hover configuration fixes common issues with verification result display:
 
-### Logical Operators
-- `forall`, `exists`, `implies`, `iff`
+### Problems Solved
+- **Positioning**: Hover now appears above the function, not far to the right
+- **Width**: Expanded to 100+ characters for full verification results  
+- **Height**: Increased to 30+ lines for multiple assertions
+- **Speed**: Quick 0.1s display delay
 
-### Decorators
-- `@contract`, `@pure`, `@axiom`, `@lemma`, `@theorem`
+### Configuration
+```elisp
+;; Customize hover display (before loading)
+(setq axiomander-hover-max-width 120)     ; Characters wide
+(setq axiomander-hover-max-height 40)     ; Lines tall  
+(setq axiomander-hover-position 'top)     ; Position: top/bottom/at-point
+(setq axiomander-hover-at-point t)        ; Follow cursor
+```
 
-### Mathematical Operators
-- `==`, `!=`, `<=`, `>=`, `&&`, `||`, `!`
+### Manual Alternatives
+If hover still has issues:
+- **Manual popup**: `C-c a p`
+- **Help buffer**: `C-c l h` 
+- **Status check**: `C-c a ?`
 
 ## Configuration
 
-### Customization Variables
+### Main Settings
 
 ```elisp
-;; Python executable for Axiomander
+;; Core configuration
+(setq axiomander-server-command "axiomander-lsp")
 (setq axiomander-python-executable "python3")
+(setq axiomander-enable-contracts t)
+(setq axiomander-strict-mode nil)
 
-;; Custom LSP server command
-(setq axiomander-lsp-server-command '("pylsp"))
+;; UI settings
+(setq axiomander-keybinding-prefix "C-c a")
+(setq axiomander-show-server-messages t)
 
-;; Disable contract highlighting
-(setq axiomander-enable-contract-highlighting nil)
+;; Hover configuration
+(setq axiomander-hover-max-width 120)
+(setq axiomander-hover-position 'top)
 ```
 
-### Complete Configuration Example
+### Complete Example
 
 ```elisp
-(use-package axiomander-mode
-  :load-path "/path/to/axiomander/editors/emacs/"
-  :mode (("\\.ax\\.py\\'" . axiomander-mode)
-         ("/axiomander/.*\\.py\\'" . axiomander-mode))
-  :config
-  ;; Python configuration
-  (setq axiomander-python-executable "python3")
-  
-  ;; Enable LSP
-  (add-hook 'axiomander-mode-hook #'lsp)
-  
-  ;; Enable flycheck
-  (add-hook 'axiomander-mode-hook #'flycheck-mode)
-  
-  ;; Custom keybindings
-  (define-key axiomander-mode-map (kbd "C-c C-d") 'lsp-describe-thing-at-point))
+;; Load from setup directory (recommended)
+(load-file "~/.emacs.d/setup/axiomander.el")
+
+;; Or manual configuration
+(add-to-list 'load-path "~/dev/Scidonia/axiomander/editors/emacs")
+(require 'axiomander)
+
+;; Customize if needed
+(setq axiomander-strict-mode t
+      axiomander-hover-max-width 100
+      axiomander-keybinding-prefix "C-c x")
+
+;; Enable globally
+(axiomander-global-mode 1)
 ```
-
-## Imenu Integration
-
-The mode provides special imenu support for:
-- Contract functions (`@contract` decorated)
-- Pure functions (`@pure` decorated)
-
-Access via `M-x imenu` or your preferred imenu interface.
 
 ## Troubleshooting
 
-### LSP Not Starting
+### Quick Diagnostics
 
-1. Check Python LSP server installation:
-   ```bash
-   python3 -m pylsp --help
-   ```
-
-2. Verify LSP mode is loaded:
-   ```elisp
-   M-x lsp-describe-session
-   ```
-
-3. Check Python executable path:
-   ```elisp
-   M-x customize-variable RET axiomander-python-executable
-   ```
-
-### Syntax Highlighting Issues
-
-1. Ensure font-lock is enabled:
-   ```elisp
-   M-x font-lock-mode
-   ```
-
-2. Reload the mode:
-   ```elisp
-   M-x revert-buffer
-   ```
-
-### Command Not Found Errors
-
-Ensure the Axiomander Python package is installed and accessible:
-```bash
-python3 -c "import axiomander; print('OK')"
+```
+M-x axiomander-setup-status    # Check setup
+M-x axiomander-doctor          # Comprehensive diagnostics
 ```
 
-## Development
+### Common Issues
 
-### Contributing
+#### LSP Server Not Starting
 
-1. Edit `axiomander-mode.el`
+1. **Check Axiomander installation:**
+   ```bash
+   python3 -m axiomander.lsp --help
+   ```
+
+2. **Verify setup status:**
+   ```
+   C-c a ?  (axiomander-setup-status)
+   ```
+
+3. **Try reloading:**
+   ```  
+   C-c a L  (reload-axiomander-config)
+   ```
+
+#### Hover Display Issues
+
+1. **Configure hover manually:**
+   ```
+   C-c a H  (axiomander-configure-hover)
+   ```
+
+2. **Try manual popup:**
+   ```
+   C-c a p  (axiomander-show-verification-popup)
+   ```
+
+3. **Check LSP UI:**
+   ```elisp
+   M-x package-install RET lsp-ui RET
+   ```
+
+#### Server Connection Problems
+
+1. **Check server status:**
+   ```
+   C-c a S  (axiomander-server-status)
+   ```
+
+2. **Restart server:**
+   ```
+   C-c a R  (axiomander-restart-server)
+   ```
+
+3. **Check Python environment:**
+   ```bash
+   python3 -c "import axiomander; print('OK')"
+   ```
+
+### Debug Information
+
+Enable debug output:
+```elisp
+(setq lsp-log-io t)
+(setq axiomander-log-level "debug")
+```
+
+Check logs:
+```
+M-x lsp-workspace-show-log
+```
+
+## Project Structure
+
+Expected file organization:
+```
+~/dev/Scidonia/axiomander/
+├── editors/emacs/              # This directory
+│   ├── axiomander.el          # Main configuration  
+│   ├── axiomander-hover-fix.el # Hover improvements
+│   ├── axiomander-mode.el     # Basic mode (legacy)
+│   └── README.md              # This file
+├── src/axiomander/
+│   └── lsp/                   # LSP server implementation
+└── ~/.emacs.d/setup/
+    └── axiomander.el          # Setup loader
+```
+
+## Alternative Configurations
+
+- **Modern LSP**: `axiomander.el` (recommended)
+- **Hover fix only**: `axiomander-hover-fix.el` 
+- **Basic mode**: `axiomander-mode.el` (legacy)
+- **Package metadata**: `axiomander-pkg.el`
+
+## Contributing
+
+1. Edit configuration files in this directory
 2. Test changes:
    ```elisp
-   M-x eval-buffer
-   M-x axiomander-mode
+   C-c a L  ; Reload config
    ```
-3. Submit improvements via pull request
-
-### Adding New Features
-
-The mode is designed to be extensible. Common extension points:
-- Add new font-lock keywords to `axiomander-font-lock-keywords`
-- Define new commands and bind them in `axiomander-mode-map`
-- Extend imenu support in `axiomander-imenu-create-index`
+3. Submit pull requests to the main project
 
 ## License
 
-This mode is part of the Axiomander project. See the main project LICENSE file for details.
+Part of the Axiomander project. See main project license.
