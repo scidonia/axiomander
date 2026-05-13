@@ -179,6 +179,17 @@ class ContractLinter(ast.NodeVisitor):
         return Var(node.id)
 
     def visit_Attribute(self, node: ast.Attribute) -> Expr:
+        if isinstance(node.value, ast.Subscript):
+            # items[i].field → IndexExpr with compound key
+            base = node.value.value
+            if isinstance(base, ast.Name):
+                name = f"{base.id}.{node.attr}"
+            else:
+                name = f"?.{node.attr}"
+            idx = self.visit(node.value.slice) if isinstance(node.value.slice, ast.expr) else IntLit(0)
+            if not idx:
+                idx = IntLit(0)
+            return IndexExpr(name, idx)
         path = self._attribute_path(node)
         if self.context == "precondition":
             return Var(path.replace(".", "_"))

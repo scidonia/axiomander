@@ -565,30 +565,44 @@ def _imp_aexp_to_coq_z(aexp_str: str) -> str:
 
 
 def _vcg_exit_condition(func_node) -> str:
-    """Generate the VCG exit condition from the first loop's condition.
+    """Generate the VCG exit condition from the loop containing invariants.
 
-    For `while i < n:` → `Z.leb (i + 1) n = false`.
-    For `while i <= n:` → `Z.leb i n = false`.
-    For `for i in range(n):` → `Z.leb (i + 1) n = false`.
-    Returns a Coq Prop expression (unscoped, bare Z variables).
+    Walks the function AST to find the while/for loop whose body
+    has invariant assertions, and returns the unscoped exit condition.
     """
     import ast
+
+    def has_invariant(body: list[ast.stmt]) -> bool:
+        """Check if the first non-assert stmt in body is preceded by asserts."""
+        for s in body:
+            if isinstance(s, ast.Assert):
+                return True
+            elif not isinstance(s, ast.Expr):  # skip docstrings
+                return False
+        return False
+
+    for node in ast.walk(func_node):
+        if isinstance(node, ast.While):
+            if has_invariant(node.body):
+                return _py_cond_to_vcg_exit(node.test)
+        if isinstance(node, ast.For):
+            if has_invariant(node.body):
+                if (isinstance(node.iter, ast.Call)
+                    and isinstance(node.iter.func, ast.Name)
+                    and node.iter.func.id == "range"
+                    and node.iter.args):
+                    limit = node.iter.args[-1]
+                    target = node.target
+                    target_str = target.id if isinstance(target, ast.Name) else "i"
+                    limit_str = _py_expr_to_coq_var(limit)
+                    return f"Z.leb ({target_str} + 1) {limit_str} = false"
+                return "Z.leb i n = false"
+
+    # Fallback: use the first loop
     for node in ast.walk(func_node):
         if isinstance(node, ast.While):
             return _py_cond_to_vcg_exit(node.test)
         if isinstance(node, ast.For):
-            if (isinstance(node.iter, ast.Call)
-                and isinstance(node.iter.func, ast.Name)
-                and node.iter.func.id == "range"
-                and node.iter.args):
-                limit = node.iter.args[-1]  # last arg is stop value
-                target = node.target
-                if isinstance(target, ast.Name):
-                    target_str = target.id
-                else:
-                    target_str = "i"
-                limit_str = _py_expr_to_coq_var(limit)
-                return f"Z.leb ({target_str} + 1) {limit_str} = false"
             return "Z.leb i n = false"
     return "Z.leb i n = false"
 
@@ -623,7 +637,27 @@ def _py_expr_to_coq_var(node: ast.expr) -> str:
         return node.id
     if isinstance(node, ast.Constant) and isinstance(node.value, int):
         return str(node.value)
+    if isinstance(node, ast.Call):
+        name = _get_call_name(node)
+        if name == "len" and node.args and isinstance(node.args[0], ast.Name):
+            return f"{node.args[0].id}__len"
     return "?"
+
+
+def _get_call_name(node: ast.Call) -> str | None:
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        parts = []
+        c = func
+        while isinstance(c, ast.Attribute):
+            parts.append(c.attr)
+            c = c.value
+        if isinstance(c, ast.Name):
+            parts.append(c.id)
+        return ".".join(reversed(parts))
+    return None
 
 
 def _try_smt_vcg(inv_coq: str, exit_cond: str, post_vcg: str, scaffold: str) -> bool:
@@ -810,19 +844,23 @@ Qed.
     has_bor = "BOr" in imp_body
     has_cif = "CIf" in imp_body
 
+    # Don't use conditional proof if there's a while loop — CWhile's
+    # (fun _ => True) makes the WP trivial; conditional is handled inside.
+    use_conditional_proof = has_cif and not has_while
+
     # Determine the proof strategy based on body complexity
     hammer_import = ""
     if hint == "hammer":
         hammer_import = "From Hammer Require Import Hammer.\n"
         hammer_config = "  Set Hammer ATPLimit 30.\n  Set Hammer ReconstrLimit 10.\n"
-        if has_cif:
+        if use_conditional_proof:
             if has_bor:
                 proof = hammer_config + "  intros.\n  wp_reduce.\n  split; intro Hb.\n  - apply Bool.orb_true_iff in Hb. destruct Hb as [Hc|Hc]; apply Z.leb_le in Hc; wp_prove; split; try lia; try hammer.\n  - apply Bool.orb_false_iff in Hb. destruct Hb as [Hc1 Hc2]; apply Z.leb_gt in Hc1; apply Z.leb_gt in Hc2; wp_prove; split; try lia; try hammer."
             else:
                 proof = hammer_config + "  intros.\n  wp_reduce.\n  split; [ intro Hle; apply Z.leb_le in Hle | intro Hgt; apply Z.leb_gt in Hgt ];\n  wp_prove; split; try lia; try hammer.\n  (* If hammer still fails, try LLM oracle *)"
         else:
             proof = hammer_config + "  intros.\n  wp_reduce.\n  hammer."
-    elif has_cif:
+    elif use_conditional_proof:
         if has_bor:
             proof = "  intros.\n  wp_reduce.\n  split; intro Hb.\n  - apply Bool.orb_true_iff in Hb. destruct Hb as [Hc|Hc]; apply Z.leb_le in Hc; wp_prove; split; lia.\n  - apply Bool.orb_false_iff in Hb. destruct Hb as [Hc1 Hc2]; apply Z.leb_gt in Hc1; apply Z.leb_gt in Hc2; wp_prove; split; lia."
         else:
@@ -961,7 +999,7 @@ def main():
         sys.stdout.flush()
 
 
-def _cli():
+def _cli(argv: list[str] | None = None):
     """CLI mode using Typer."""
     import typer
     from pathlib import Path as _Path
@@ -992,6 +1030,6 @@ def _cli():
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1:
-        _cli()
+        _cli(sys.argv)
     else:
         main()

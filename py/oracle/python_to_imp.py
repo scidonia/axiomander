@@ -72,6 +72,8 @@ class ImpTranslator:
         """Translate a single statement to an IMP command string."""
         if isinstance(stmt, ast.Assign):
             return self._translate_assign(stmt)
+        elif isinstance(stmt, ast.AugAssign):
+            return self._translate_augassign(stmt)
         elif isinstance(stmt, ast.Return):
             return self._translate_return(stmt)
         elif isinstance(stmt, ast.If):
@@ -118,7 +120,11 @@ class ImpTranslator:
             return f'(AVar "{node.id}"%string)'
 
         if isinstance(node, ast.Attribute):
-            # obj.field → AVar "obj.field"
+            if isinstance(node.value, ast.Subscript):
+                # items[i].field → AIndex "items.field" i
+                base = self._translate_target(node.value.value)
+                idx = self.translate_expr(node.value.slice)
+                return f'(AIndex "{base}.{node.attr}"%string {idx})'
             path = self._attribute_path(node)
             return f'(AVar "{path}"%string)'
 
@@ -186,6 +192,14 @@ class ImpTranslator:
         for cmd in reversed(targets[:-1]):
             result = f"(CSeq {cmd} {result})"
         return result
+
+    def _translate_augassign(self, stmt: ast.AugAssign) -> str:
+        """Translate augmented assignment: i += 1 → CAss i (APlus i 1)."""
+        target = self._translate_target(stmt.target)
+        val = self.translate_expr(stmt.value)
+        op_map = {ast.Add: "APlus", ast.Sub: "AMinus", ast.Mult: "AMult"}
+        op_str = op_map.get(type(stmt.op), "APlus")
+        return f'(CAss "{target}"%string ({op_str} (AVar "{target}"%string) {val}))'
 
     def _translate_list_literal(self, target: str, node: ast.List) -> str:
         """Translate list literal: x = [e1, e2, ...] → CListNew + CListAppend chain."""
@@ -331,6 +345,13 @@ class ImpTranslator:
             current = current.value
         if isinstance(current, ast.Name):
             parts.append(current.id)
+        elif isinstance(current, ast.Subscript):
+            inner = self._translate_target(current.value)
+            idx = self.translate_expr(current.slice)
+            # items[i].field → "items.field" with AIndex semantics
+            # The key is constructed as list_name.attr_name (indexed dynamically)
+            full = f"{inner}.{'.'.join(reversed(parts))}"
+            return full
         return ".".join(reversed(parts))
 
     def _get_call_name(self, node: ast.Call) -> Optional[str]:
