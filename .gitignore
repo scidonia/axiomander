@@ -1,0 +1,13 @@
+_build/
+. lia.cache
+__pycache__/
+*.pyc
+*.vo
+*.glob
+*.vos
+*.vok
+*.aux
+*.egg-info/
+dist/
+*.o
+*.cm*

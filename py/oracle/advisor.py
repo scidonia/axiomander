@@ -1,0 +1,346 @@
+"""
+Advisor — LLM-powered contract guidance for the MCP server.
+
+When verification fails, generates specific, actionable advice about:
+  - Why the current assertions are insufficient
+  - What invariants/preconditions/postconditions to add
+  - Whether the property might be false
+  - How to restructure the function for verifiability
+
+Uses the LLM oracle (client.py) to generate guidance when
+the templated heuristics aren't sufficient.
+"""
+
+from dataclasses import dataclass, field
+from typing import Optional
+
+from py.oracle.client import load_config, call_llm
+
+
+import ast
+@dataclass
+class AdornmentAdvice:
+    """Advice for where to add assertions in a function."""
+    location: str           # "function_start", "loop_body", "before_return"
+    line: int
+    suggestion: str         # e.g. "Add precondition: assert x >= 0"
+    template: str = ""      # e.g. "assert <condition>"
+    reasoning: str = ""     # Why this assertion is needed
+
+
+@dataclass
+class FunctionAnalysis:
+    """Complete analysis of a function's contract status."""
+    name: str
+    has_preconditions: bool = False
+    has_postconditions: bool = False
+    has_invariants: bool = False
+    has_loops: bool = False
+    has_conditionals: bool = False
+    has_side_effects: bool = False
+    existing_asserts: list[str] = field(default_factory=list)
+    suggested_adornments: list[AdornmentAdvice] = field(default_factory=list)
+    verification_status: str = "not_attempted"  # "proved", "failed", "not_attempted"
+    failure_detail: str = ""
+    llm_guidance: str = ""
+
+
+@dataclass
+class FileAnalysis:
+    """Analysis of an entire Python file."""
+    functions: list[FunctionAnalysis]
+    summary: str
+
+
+def analyze_function(source: str, func_name: str | None = None) -> FunctionAnalysis:
+    """Analyze a function and suggest where to add assertions.
+
+    Does NOT run verification — just structural analysis.
+    """
+    import ast
+
+    tree = ast.parse(source)
+    func_node = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            if func_name is None or node.name == func_name:
+                func_node = node
+                break
+
+    if func_node is None:
+        return FunctionAnalysis(name=func_name or "unknown")
+
+    analysis = FunctionAnalysis(name=func_node.name)
+
+    # Check for loops and conditionals
+    for node in ast.walk(func_node):
+        if isinstance(node, (ast.While, ast.For)):
+            analysis.has_loops = True
+        if isinstance(node, ast.If):
+            analysis.has_conditionals = True
+        if isinstance(node, ast.Call):
+            # Check for side effects (simplified)
+            name = _get_call_name(node)
+            if name and name not in _PURE:
+                analysis.has_side_effects = True
+        if isinstance(node, ast.Assert):
+            # Classify
+            classification = _classify_in_function(func_node, node)
+            analysis.existing_asserts.append(
+                f"Line {node.lineno} [{classification}]: {ast.unparse(node)}"
+            )
+            if classification == "precondition":
+                analysis.has_preconditions = True
+            elif classification == "postcondition":
+                analysis.has_postconditions = True
+            elif classification == "invariant":
+                analysis.has_invariants = True
+
+    # Generate adornment suggestions
+    analysis.suggested_adornments = _suggest_adornments(func_node, analysis)
+
+    return analysis
+
+
+def analyze_file(source: str) -> FileAnalysis:
+    """Analyze an entire Python file for contract adornment opportunities."""
+    import ast
+    tree = ast.parse(source)
+    funcs = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            # Extract just this function's source
+            func_source = ast.unparse(node) if hasattr(ast, "unparse") else ""
+            analysis = FunctionAnalysis(name=node.name)
+
+            for child in ast.walk(node):
+                if isinstance(child, (ast.While, ast.For)):
+                    analysis.has_loops = True
+                if isinstance(child, ast.If):
+                    analysis.has_conditionals = True
+                if isinstance(child, ast.Assert):
+                    classification = _classify_in_function(node, child)
+                    analysis.existing_asserts.append(
+                        f"Line {child.lineno} [{classification}]: {ast.unparse(child)}"
+                    )
+                    if classification == "precondition":
+                        analysis.has_preconditions = True
+                    elif classification == "postcondition":
+                        analysis.has_postconditions = True
+                    elif classification == "invariant":
+                        analysis.has_invariants = True
+
+            analysis.suggested_adornments = _suggest_adornments(node, analysis)
+            funcs.append(analysis)
+
+    # Build summary
+    total = len(funcs)
+    adorned = sum(1 for f in funcs if f.has_preconditions or f.has_postconditions)
+    with_loops = sum(1 for f in funcs if f.has_loops)
+    missing_invariants = sum(1 for f in funcs if f.has_loops and not f.has_invariants)
+
+    summary = f"{total} function(s), {adorned} with contracts, {with_loops} with loops, {missing_invariants} missing invariants"
+
+    return FileAnalysis(functions=funcs, summary=summary)
+
+
+def generate_llm_guidance(
+    func_name: str,
+    goal_statement: str,
+    error_detail: str,
+    existing_asserts: list[str],
+    suggestions: list[AdornmentAdvice],
+) -> str:
+    """Use the LLM to generate specific guidance for a failed verification.
+
+    Returns templated guidance if no API key is set, otherwise calls the LLM.
+    """
+    # Build a templated fallback
+    fallback = _templated_guidance(func_name, error_detail, suggestions)
+
+    config = load_config()
+    if not config.api_key:
+        return fallback
+
+    # Build LLM prompt
+    prompt = f"""A Coq verification of this Python function failed.
+
+Function: {func_name}
+
+Existing assertions:
+{chr(10).join(existing_asserts) if existing_asserts else '(none)'}
+
+Suggested adornments:
+{chr(10).join(f'- {s.location} line {s.line}: {s.suggestion}' for s in suggestions) if suggestions else '(none)'}
+
+Verification error:
+{error_detail[:1000]}
+
+Goal statement:
+{goal_statement[:500]}
+
+Please provide specific, actionable guidance:
+1. Why did the verification fail? (one sentence)
+2. What specific assert statements should be added or changed? (use Python syntax)
+3. Should the user try a different approach (e.g., add a helper lemma, restructure the loop)?
+"""
+
+    system = "You are a formal verification advisor. Give concise, actionable advice about Python assert-based contracts. Use Python assert syntax in your suggestions."
+
+    try:
+        response = call_llm(config, system, prompt)
+        if response:
+            return response.strip()
+    except Exception:
+        pass
+
+    return fallback
+
+
+def _templated_guidance(name: str, error: str, suggestions: list[AdornmentAdvice]) -> str:
+    """Generate templated guidance when LLM is unavailable."""
+    parts = [f"## Verification of `{name}` failed\n"]
+
+    if "invariant" in error.lower() or "loop" in error.lower():
+        parts.append("**Issue**: The function contains a loop but no loop invariant.\n")
+        parts.append("**Fix**: Add an assert at the top of the loop body describing what the loop preserves.\n")
+        parts.append("Example:")
+        parts.append("```python")
+        parts.append("while i < n:")
+        parts.append("    assert acc == i * (i + 1) // 2  # loop invariant")
+        parts.append("    i += 1; acc += i")
+        parts.append("```\n")
+    elif "type" in error.lower() or "unify" in error.lower():
+        parts.append("**Issue**: The expressions in your assertions could not be translated.\n")
+        parts.append("**Fix**: Use simple expressions: comparisons (==, !=, <, <=, >, >=), arithmetic (+, -, *, //), and logical operators (and, or, not).\n")
+    elif "could not" in error.lower():
+        parts.append("**Issue**: The prover could not automatically close the goal.\n")
+        parts.append("**Fix**: Try adding more assertions to break the proof into smaller steps.\n")
+    else:
+        parts.append("**Issue**: The verification could not be completed.\n")
+        parts.append(f"**Error**: {error[:200]}\n")
+
+    if suggestions:
+        parts.append("## Suggested assertions to add\n")
+        for s in suggestions:
+            parts.append(f"- **{s.location}** (line {s.line}): `{s.suggestion}`")
+            if s.reasoning:
+                parts.append(f"  - Reason: {s.reasoning}")
+        parts.append("")
+
+    parts.append("\nTry adding the suggested assertions and re-running verification.")
+    return "\n".join(parts)
+
+
+# ─── Helpers ──────────────────────────────────────────────────────
+
+_PURE = frozenset({"abs", "len", "min", "max", "sum", "sorted", "all", "any",
+                    "isinstance", "int", "float", "bool", "str", "ord", "chr",
+                    "range", "round", "pow", "sqrt"})
+
+
+def _get_call_name(node: ast.Call) -> Optional[str]:
+    """Get the name of a function call."""
+    import ast
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    if isinstance(node.func, ast.Attribute):
+        parts = []
+        c = node.func
+        while isinstance(c, ast.Attribute):
+            parts.append(c.attr)
+            c = c.value
+        if isinstance(c, ast.Name):
+            parts.append(c.id)
+        return ".".join(reversed(parts))
+    return None
+
+
+def _classify_in_function(func_node, assert_node) -> str:
+    """Classify an assert within a function."""
+    import ast
+    # Check if it's in a loop body
+    for node in ast.walk(func_node):
+        if isinstance(node, (ast.While, ast.For)):
+            for child in ast.iter_child_nodes(node):
+                if child is assert_node:
+                    return "invariant"
+            for i, stmt in enumerate(node.body):
+                if stmt is assert_node:
+                    # Check if it's the first non-docstring statement
+                    all_asserts_before = all(
+                        isinstance(s, ast.Assert)
+                        for s in node.body[:i]
+                    )
+                    if all_asserts_before:
+                        return "invariant"
+
+    # Check if immediately before a return
+    body = func_node.body
+    for i, stmt in enumerate(body):
+        if stmt is assert_node:
+            if i + 1 < len(body) and isinstance(body[i + 1], ast.Return):
+                return "postcondition"
+
+    # Check if at function start
+    seen_code = False
+    for stmt in body:
+        if stmt is assert_node:
+            if not seen_code:
+                return "precondition"
+            break
+        is_doc = (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant)
+                  and isinstance(stmt.value.value, str))
+        if not isinstance(stmt, ast.Assert) and not is_doc:
+            seen_code = True
+
+    return "general"
+
+
+def _suggest_adornments(func_node, analysis: FunctionAnalysis) -> list[AdornmentAdvice]:
+    """Suggest where to add assertions based on code structure."""
+    import ast
+    suggestions = []
+
+    # If no preconditions, suggest adding at function start
+    if not analysis.has_preconditions:
+        params = [arg.arg for arg in func_node.args.args]
+        if params:
+            first_line = func_node.body[0].lineno if func_node.body else func_node.lineno + 1
+            suggestions.append(AdornmentAdvice(
+                location="function_start",
+                line=first_line,
+                suggestion=f"Add precondition for {', '.join(params)}",
+                template=f"assert <condition on {', '.join(params)}>",
+                reasoning="Preconditions document assumptions about inputs and enable verification.",
+            ))
+
+    # If loops and no invariants, suggest invariants
+    if analysis.has_loops and not analysis.has_invariants:
+        for node in ast.walk(func_node):
+            if isinstance(node, (ast.While, ast.For)):
+                suggestions.append(AdornmentAdvice(
+                    location="loop_body",
+                    line=node.lineno,
+                    suggestion="Add loop invariant at the top of this loop body",
+                    template="assert <invariant condition>",
+                    reasoning="Loops need invariants to prove postconditions. Describe what the loop preserves.",
+                ))
+                break  # one suggestion per function
+
+    # If no postconditions, suggest adding before return
+    if not analysis.has_postconditions:
+        # Find the last return
+        returns = [n for n in ast.walk(func_node) if isinstance(n, ast.Return)]
+        if returns:
+            last_return = returns[-1]
+            suggestions.append(AdornmentAdvice(
+                location="before_return",
+                line=last_return.lineno - 1,
+                suggestion="Add postcondition describing what the function guarantees",
+                template="assert <postcondition about result>",
+                reasoning="Postconditions specify what the function guarantees on return.",
+            ))
+
+    return suggestions
