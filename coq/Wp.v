@@ -33,6 +33,19 @@ Fixpoint wp (c : com) (Q : assertion) : assertion :=
                       (parray_len_key name) (len + 1))
   | CListSet name idx_e val_e =>
       fun s => Q (upd s (parray_key name (aeval idx_e s)) (aeval val_e s))
+  | CDictSet name key_e val_e =>
+      fun s => Q (upd (upd s (dict_key name (aeval key_e s)) (aeval val_e s))
+                     (parray_len_key (dict_key name (aeval key_e s))) 1)
+  | CDictGet name key_e target =>
+      fun s => Q (upd s target (s (dict_key name (aeval key_e s))))
+  | CDictEnsureList name key_e =>
+      fun s => let dk := dict_key name (aeval key_e s) in
+               Q (upd s (parray_len_key dk) (s (parray_len_key dk)))
+  | CDictAppend name key_e val_e =>
+      fun s => let dk := dict_key name (aeval key_e s) in
+               let len := s (parray_len_key dk) in
+               Q (upd (upd s (parray_key dk len) (aeval val_e s))
+                      (parray_len_key dk) (len + 1))
   end.
 
 (** ** WP Properties *)

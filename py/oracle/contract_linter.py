@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from .contract_ir import (
-    Expr, Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr,
+    Expr, Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr,
 )
 
 
@@ -246,6 +246,14 @@ class ContractLinter(ast.NodeVisitor):
 
     def _translate_pure_call(self, node: ast.Call, name: str) -> Optional[Expr]:
         if name == "len":
+            if node.args and isinstance(node.args[0], ast.Subscript):
+                # len(dict[key]) → DictLenExpr
+                sub = node.args[0]
+                if isinstance(sub.value, ast.Name):
+                    dname = sub.value.id
+                    key = self.visit(sub.slice) if isinstance(sub.slice, ast.expr) else IntLit(0)
+                    if key:
+                        return DictLenExpr(dname, key)
             if node.args and isinstance(node.args[0], ast.Name):
                 lst_name = node.args[0].id
                 return LenExpr(lst_name)

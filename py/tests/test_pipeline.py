@@ -67,6 +67,8 @@ EXAMPLES = [
     ("first_char", "def first_char(text: str):\n assert len(text)>0\n result=text[0]\n assert True\n return result"),
     # Original bookwyrm: filter_text_regions (using while loop, string fields via Z encoding)
     ("filter_regions", "class Region: content_type: str; text: str\ndef filter_regions(regions: list[Region]):\n assert len(regions)>=0\n result=[];i=0\n while i<len(regions):\n  assert len(result)<=i;assert i<=len(regions)\n  if regions[i].content_type==\"text\":result.append(regions[i].text)\n  i+=1\n assert len(result)<=len(regions)\n return result"),
+    # Dict group-by (bookwyrm group_mappings_by_page)
+    ("count_groups", "def count_groups(mappings: list[int]):\n assert len(mappings)>0\n result={};i=0;count=0\n while i<len(mappings):\n  assert count==i;assert i<=len(mappings)\n  key=mappings[i]\n  if key not in result:result[key]=[]\n  result[key].append(1);count+=1;i+=1\n assert count==len(mappings)\n return count"),
     # Pattern: for-range list copy with indexing
     ("list_copy", '''def list_copy(src):
     assert True

@@ -60,7 +60,8 @@ Inductive aexp : Type :=
   | AMod (a1 a2 : aexp)
   | ADiv (a1 a2 : aexp)
   | ALen (name : var)
-  | AIndex (name : var) (idx : aexp).
+  | AIndex (name : var) (idx : aexp)
+  | ADictLen (name : var) (key_e : aexp).
 
 (** Convert Z to string for array key encoding. *)
 Fixpoint pos_to_string (p : positive) : string :=
@@ -83,6 +84,9 @@ Definition parray_key (name : var) (idx : Z) : var :=
 Definition parray_len_key (name : var) : var :=
   (name ++ "._len")%string.
 
+Definition dict_key (name : var) (key : Z) : var :=
+  (name ++ ".v." ++ z_to_string key)%string.
+
 (** Evaluation of arithmetic expressions. *)
 Fixpoint aeval (a : aexp) (s : state) : Z :=
   match a with
@@ -95,6 +99,7 @@ Fixpoint aeval (a : aexp) (s : state) : Z :=
   | ADiv a1 a2 => (aeval a1 s) / (aeval a2 s)
   | ALen name => s (parray_len_key name)
   | AIndex name idx_e => s (parray_key name (aeval idx_e s))
+  | ADictLen name key_e => s (parray_len_key (dict_key name (aeval key_e s)))
   end.
 
 (** ** Boolean Expressions *)
@@ -129,7 +134,11 @@ Inductive com : Type :=
   | CHavoc (vars : list var)
   | CListNew (name : var)
   | CListAppend (name : var) (val : aexp)
-  | CListSet (name : var) (idx val : aexp).
+  | CListSet (name : var) (idx val : aexp)
+  | CDictSet (name : var) (key val : aexp)
+  | CDictGet (name : var) (key : aexp) (target : var)
+  | CDictEnsureList (name : var) (key : aexp)
+  | CDictAppend (name : var) (key val : aexp).
 
 (** Big-step operational semantics: [(c, s) ⇓ s']. *)
 Inductive ceval : com -> state -> state -> Prop :=
@@ -166,9 +175,25 @@ Inductive ceval : com -> state -> state -> Prop :=
       ceval (CListAppend name val) s
             (upd (upd s (parray_key name (s (parray_len_key name))) (aeval val s))
                  (parray_len_key name) (s (parray_len_key name) + 1))
-   | E_ListSet : forall name idx_e val_e s,
-       ceval (CListSet name idx_e val_e) s
-             (upd s (parray_key name (aeval idx_e s)) (aeval val_e s)).
+  | E_ListSet : forall name idx_e val_e s,
+      ceval (CListSet name idx_e val_e) s
+            (upd s (parray_key name (aeval idx_e s)) (aeval val_e s))
+  | E_DictSet : forall name key_e val_e s,
+      ceval (CDictSet name key_e val_e) s
+            (upd (upd s (dict_key name (aeval key_e s)) (aeval val_e s))
+                 (parray_len_key (dict_key name (aeval key_e s))) 1)
+  | E_DictGet : forall name key_e target s,
+      ceval (CDictGet name key_e target) s
+            (upd s target (s (dict_key name (aeval key_e s))))
+  | E_DictEnsureList : forall name key_e s,
+      let dk := dict_key name (aeval key_e s) in
+      ceval (CDictEnsureList name key_e) s
+            (upd s (parray_len_key dk) (s (parray_len_key dk)))
+  | E_DictAppend : forall name key_e val_e s,
+      let dk := dict_key name (aeval key_e s) in
+      ceval (CDictAppend name key_e val_e) s
+            (upd (upd s (parray_key dk (s (parray_len_key dk))) (aeval val_e s))
+                 (parray_len_key dk) (s (parray_len_key dk) + 1)).
 
 (** ** Notation *)
 (** Scope for IMP notation (opened locally, not globally). *)

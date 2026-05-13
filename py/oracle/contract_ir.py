@@ -113,8 +113,23 @@ class IndexExpr(Expr):
         return f"{self.name}___{self.index.to_coq(False)}"
 
     def to_smt(self) -> str:
-        # SMT doesn't understand parray_key — approximate as distinct variable
         return f"{self.name}___{self.index.to_smt()}"
+
+
+@dataclass
+class DictLenExpr(Expr):
+    """len(dict[key]) — dict value list length."""
+    name: str
+    key: Expr
+
+    def to_coq(self, scoped: bool = False) -> str:
+        key_str = self.key.to_coq(False)
+        if scoped:
+            return f's (parray_len_key (dict_key "{self.name}"%string ({key_str})))%string'
+        return f"{self.name}_v_{key_str}__len"
+
+    def to_smt(self) -> str:
+        return f"{self.name}_v_{self.key.to_smt()}__len"
 
 
 def formula_to_smt(invariant: Expr, exit_cond: Expr, postcondition: Expr, scaffold: Expr | None = None) -> str:

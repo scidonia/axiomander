@@ -92,15 +92,21 @@ class ImpTranslator:
             return f"(* untranslated: {type(stmt).__name__} *)"
 
     def _translate_expr_stmt(self, stmt: ast.Expr) -> Optional[str]:
-        """Translate expression statements like lst.append(x) → CListAppend."""
+        """Translate expression statements like lst.append(x) and dict[key].append(x)."""
         value = stmt.value
         if isinstance(value, ast.Call):
             name = self._get_call_name(value)
             if name and name.endswith(".append") and value.args:
-                # obj.append(x) → CListAppend
                 obj = self._get_call_object(value)
                 if obj:
                     val = self.translate_expr(value.args[0])
+                    if isinstance(value.func, ast.Attribute) and isinstance(value.func.value, ast.Subscript):
+                        # dict[key].append(val) → CDictAppend
+                        sub = value.func.value
+                        dict_name = self._translate_target(sub.value)
+                        key_e = self.translate_expr(sub.slice)
+                        return f'(CDictAppend "{dict_name}"%string {key_e} {val})'
+                    # obj.append(x) → CListAppend
                     return f'(CListAppend "{obj}"%string {val})'
         return None
 
@@ -114,6 +120,8 @@ class ImpTranslator:
                 return f"(ANum {val})"
             if val is None:
                 return f"(ANum 0)"
+            if isinstance(val, str):
+                return f"(ANum {hash(val) % 10000})"
             return f"(ANum 0) (* unhandled constant: {val} *)"
 
         if isinstance(node, ast.Name):
@@ -152,11 +160,13 @@ class ImpTranslator:
 
         if isinstance(node, ast.Subscript):
             name = self._translate_target(node.value)
-            if isinstance(node.slice, ast.Constant):
-                idx = self.translate_expr(node.slice)
-            else:
-                idx = self.translate_expr(node.slice)
+            idx = self.translate_expr(node.slice)
             return f'(AIndex "{name}"%string {idx})'
+
+        if isinstance(node, ast.Dict):
+            if not node.keys:
+                return "CSkip"  # empty dict → no state change needed
+            return f"(* non-empty dict literal *) CSkip"
 
         return f"(* unhandled: {type(node).__name__} *)"
 
@@ -166,10 +176,13 @@ class ImpTranslator:
         targets = []
         for t in stmt.targets:
             if isinstance(t, ast.Subscript):
-                # lst[idx] = val → CListSet
+                # Could be lst[idx] = val (CListSet) or dict[key] = val (CDictEnsureList)
                 name = self._translate_target(t.value)
                 idx = self.translate_expr(t.slice)
                 val = self.translate_expr(stmt.value)
+                if isinstance(stmt.value, ast.List):
+                    # dict[key] = [] → CDictEnsureList (creates list at key if not exists)
+                    return f'(CDictEnsureList "{name}"%string {idx})'
                 return f'(CListSet "{name}"%string {idx} {val})'
 
             target = self._translate_target(t)
@@ -181,8 +194,9 @@ class ImpTranslator:
                     f'(CAss "{target}"%string (ANum 0)))'
                 )
             elif isinstance(value, ast.List):
-                # list literal: x = [] → CListNew; x = [a,b] → CListNew + appends
                 return self._translate_list_literal(target, value)
+            elif isinstance(value, ast.Dict) and not value.keys:
+                return "CSkip"  # x = {} — empty dict, no state change
             else:
                 val = self.translate_expr(value)
                 targets.append(f'(CAss "{target}"%string {val})')
@@ -379,9 +393,17 @@ class ImpTranslator:
     def _translate_compare(self, node: ast.Compare) -> str:
         if len(node.ops) == 1 and len(node.comparators) == 1:
             left = self.translate_expr(node.left)
+            op = node.ops[0]
+            if isinstance(op, (ast.In, ast.NotIn)):
+                # dict name as a string var (not aexp)
+                if isinstance(node.comparators[0], ast.Name):
+                    right = f'"{node.comparators[0].id}"%string'
+                else:
+                    right = self._translate_target(node.comparators[0])
+                    right = f'"{right}"%string'
+                return self._mk_cmp(op, left, right)
             right = self.translate_expr(node.comparators[0])
-            return self._mk_cmp(node.ops[0], left, right)
-        # Chained: a < b < c → BAnd (a < b) (BAnd (b < c) ...)
+            return self._mk_cmp(op, left, right)
         parts = [node.left] + node.comparators
         result = self._mk_cmp(node.ops[0], parts[0], parts[1])
         for i in range(1, len(node.ops)):
@@ -390,21 +412,21 @@ class ImpTranslator:
 
     @staticmethod
     def _mk_cmp(op, left, right) -> str:
-        op_map = {
-            ast.Eq: "BEq", ast.NotEq: "BNot (BEq ...)",
-            ast.LtE: "BLe",
-        }
+        if isinstance(op, ast.In):
+            # x in dict → ADictLen dict x > 0
+            return f"(BLe (ANum 1) (ADictLen {right} {left}))"
+        if isinstance(op, ast.NotIn):
+            # x not in dict → ADictLen dict x = 0
+            return f"(BEq (ANum 0) (ADictLen {right} {left}))"
         if isinstance(op, ast.Lt):
-            # a < b  ≡  a + 1 <= b  since IMP only has BLe (<=)
             return f"(BLe (APlus {left} (ANum 1)) {right})"
         if isinstance(op, ast.Gt):
-            # a > b  ≡  b + 1 <= a  ≡  b < a
             return f"(BLe (APlus {right} (ANum 1)) {left})"
         if isinstance(op, ast.GtE):
-            # a >= b  ≡  b <= a
             return f"(BLe {right} {left})"
         if isinstance(op, ast.NotEq):
             return f"(BNot (BEq {left} {right}))"
+        op_map = {ast.Eq: "BEq", ast.LtE: "BLe"}
         op_str = op_map.get(type(op), "BEq")
         return f"({op_str} {left} {right})"
 
