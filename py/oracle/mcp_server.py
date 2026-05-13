@@ -489,20 +489,23 @@ def _py_type_to_coq(annotation) -> str:
     """Map Python type annotation AST node to a Coq type string."""
     if annotation is None:
         return "Z"
-    type_map = {"int": "Z", "float": "Z", "bool": "bool", "str": "string"}
+    type_map = {"int": "Z", "float": "Z", "bool": "bool"}
     if isinstance(annotation, ast.Name):
+        if annotation.id == "str":
+            return "list"  # encode strings as Z-arrays (ordinals)
         return type_map.get(annotation.id, "Z")
     if isinstance(annotation, ast.Subscript):
-        # list[int], list[Item], etc.
         if isinstance(annotation.value, ast.Name) and annotation.value.id == "list":
             return "list"
     return "Z"
 
 
 def _is_list_param(annotation) -> bool:
-    """Check if a type annotation is a list type."""
+    """Check if a type annotation is a list type (or string — encoded as Z-array)."""
     if annotation is None:
         return False
+    if isinstance(annotation, ast.Name) and annotation.id == "str":
+        return True  # strings encoded as Z-arrays
     if isinstance(annotation, ast.Subscript):
         if isinstance(annotation.value, ast.Name) and annotation.value.id == "list":
             return True

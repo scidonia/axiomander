@@ -62,19 +62,9 @@ EXAMPLES = [
     ("range_build", "def range_build(n):\n assert n>=0\n xs=[]\n for i in range(n):\n  xs.append(i)\n assert len(xs)==n\n return xs"),
 
     # ── Bookwyrm patterns ──────────────────────────────────────────
-    # Pattern: filter list with indexed field access (bookwyrm filter_text_regions)
-    ("filter_items", '''class Item: value: int
-def filter_items(items: list[Item], threshold: int):
-    assert True
-    count = 0; i = 0
-    while i < len(items):
-        assert count <= i; assert i <= len(items)
-        if items[i].value > threshold:
-            count = count + 1
-        i = i + 1
-    result = count
-    assert result <= len(items)
-    return result'''),
+    ("filter_items", "class Item: value: int\ndef filter_items(items: list[Item], threshold: int):\n assert True\n count=0;i=0\n while i<len(items):\n  assert count<=i;assert i<=len(items)\n  if items[i].value>threshold:count+=1\n  i+=1\n result=count\n assert result<=len(items)\n return result"),
+    ("total_chars", "def total_chars(text: str):\n assert len(text)>0\n total=0;i=0\n while i<len(text):\n  assert total==i;assert i<=len(text)\n  total+=1;i+=1\n result=total\n assert result==len(text)\n return result"),
+    ("first_char", "def first_char(text: str):\n assert len(text)>0\n result=text[0]\n assert True\n return result"),
     # Pattern: for-range list copy with indexing
     ("list_copy", '''def list_copy(src):
     assert True
