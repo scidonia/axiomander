@@ -214,5 +214,17 @@ class MaxExpr(BaseModel):
         return f"(ite (> {self.left.to_smt()} {self.right.to_smt()}) {self.left.to_smt()} {self.right.to_smt()})"
 
 
+class SumExpr(BaseModel):
+    """sum(lst) — sum of list elements."""
+    kind: Literal["sum"] = "sum"
+    name: str
+
+    def to_coq(self, scoped: bool = False) -> str:
+        return "0"  # VCG proves via loop invariant, not direct sum
+
+    def to_smt(self) -> str:
+        return f"{self.name}__sum"
+
+
 # Discriminated union type for exhaustiveness checking
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr]
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr]

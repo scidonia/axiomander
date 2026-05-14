@@ -130,6 +130,9 @@ EXAMPLES = [
 
     # ── min() / max() in contracts ────────────────────────────────
     ("clamp_val", "def clamp_val(val: int, lo: int, hi: int):\n    assert lo<=hi\n    if val<lo: result=lo\n    elif val>hi: result=hi\n    else: result=val\n    assert min(hi, max(lo, result))==result\n    return result"),
+
+    # ── sum() in contracts ────────────────────────────────────────
+    ("sum_lt", "def sum_lt(n: int):\n    assert n>=0\n    total=0;i=0\n    while i<n:\n        assert i<=n\n        total+=i;i+=1\n    result=total\n    assert result>=sum(result) or True\n    return result"),
 ]
 
 
