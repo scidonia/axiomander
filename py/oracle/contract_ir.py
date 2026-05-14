@@ -1,23 +1,17 @@
 """
 Intermediate representation for contract expressions.
 
-A small expression AST that compiles to both Coq Prop and SMT-LIB.
-Replaces regex-based string parsing with structured code generation.
+A typed expression AST that compiles to both Coq Prop and SMT-LIB.
+Uses Pydantic discriminated unions for type-safe matching.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Union, Optional
+from pydantic import BaseModel, Field
 
 
-@dataclass
-class Expr:
-    """Base for IR expressions."""
-    pass
-
-
-@dataclass
-class Var(Expr):
+class Var(BaseModel):
+    kind: Literal["var"] = "var"
     name: str
 
     def to_coq(self, scoped: bool = False) -> str:
@@ -29,8 +23,8 @@ class Var(Expr):
         return self.name
 
 
-@dataclass
-class IntLit(Expr):
+class IntLit(BaseModel):
+    kind: Literal["int"] = "int"
     value: int
 
     def to_coq(self, scoped: bool = False) -> str:
@@ -40,8 +34,8 @@ class IntLit(Expr):
         return str(self.value)
 
 
-@dataclass
-class BoolLit(Expr):
+class BoolLit(BaseModel):
+    kind: Literal["bool"] = "bool"
     value: bool
 
     def to_coq(self, scoped: bool = False) -> str:
@@ -51,8 +45,8 @@ class BoolLit(Expr):
         return "true" if self.value else "false"
 
 
-@dataclass
-class BinOp(Expr):
+class BinOp(BaseModel):
+    kind: Literal["binop"] = "binop"
     op: str  # +, -, *, /, mod, =, <=, >=, <, >
     left: Expr
     right: Expr
@@ -68,10 +62,10 @@ class BinOp(Expr):
         return f"({smt_op} {self.left.to_smt()} {self.right.to_smt()})"
 
 
-@dataclass
-class Logical(Expr):
+class Logical(BaseModel):
+    kind: Literal["logical"] = "logical"
     op: str  # and, or, not
-    operands: list[Expr] = field(default_factory=list)
+    operands: list[Expr] = Field(default_factory=list)
 
     def to_coq(self, scoped: bool = False) -> str:
         if self.op == "not":
@@ -87,9 +81,9 @@ class Logical(Expr):
         return f"({smt_op} {' '.join(o.to_smt() for o in self.operands)})"
 
 
-@dataclass
-class LenExpr(Expr):
+class LenExpr(BaseModel):
     """len(lst) — array length lookup."""
+    kind: Literal["len"] = "len"
     name: str
 
     def to_coq(self, scoped: bool = False) -> str:
@@ -101,9 +95,9 @@ class LenExpr(Expr):
         return f"{self.name}__len"
 
 
-@dataclass
-class IndexExpr(Expr):
+class IndexExpr(BaseModel):
     """lst[i] — array index lookup."""
+    kind: Literal["index"] = "index"
     name: str
     index: Expr
 
@@ -116,9 +110,9 @@ class IndexExpr(Expr):
         return f"{self.name}___{self.index.to_smt()}"
 
 
-@dataclass
-class DictLenExpr(Expr):
+class DictLenExpr(BaseModel):
     """len(dict[key]) — dict value list length."""
+    kind: Literal["dict_len"] = "dict_len"
     name: str
     key: Expr
 
@@ -132,9 +126,9 @@ class DictLenExpr(Expr):
         return f"{self.name}_v_{self.key.to_smt()}__len"
 
 
-@dataclass
-class DictCountExpr(Expr):
+class DictCountExpr(BaseModel):
     """len(dict) — number of keys in dict."""
+    kind: Literal["dict_count"] = "dict_count"
     name: str
 
     def to_coq(self, scoped: bool = False) -> str:
@@ -146,30 +140,5 @@ class DictCountExpr(Expr):
         return f"{self.name}__count"
 
 
-def formula_to_smt(invariant: Expr, exit_cond: Expr, postcondition: Expr, scaffold: Expr | None = None) -> str:
-    """Generate an SMT-LIB file from the IR and return (source, variables)."""
-    from .smt_export import _extract_vars
-
-    # Collect vars from all sub-expressions
-    inv_str = invariant.to_coq(scoped=False)
-    exit_str = exit_cond.to_coq(scoped=False)
-    post_str = postcondition.to_coq(scoped=False)
-    scaff_str = scaffold.to_coq(scoped=False) if scaffold else ""
-
-    vars_set = _extract_vars(inv_str, exit_str, post_str, scaff_str)
-
-    lines = [
-        "(set-logic QF_NIA)",
-        "(set-option :produce-models true)",
-    ]
-    for v in sorted(vars_set):
-        lines.append(f"(declare-fun {v} () Int)")
-
-    lines.append(f"(assert {invariant.to_smt()})")
-    lines.append(f"(assert {exit_cond.to_smt()})")
-    if scaffold:
-        lines.append(f"(assert {scaffold.to_smt()})")
-    lines.append(f"(assert (not {postcondition.to_smt()}))")
-    lines.append("(check-sat)")
-
-    return "\n".join(lines)
+# Discriminated union type for exhaustiveness checking
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr]

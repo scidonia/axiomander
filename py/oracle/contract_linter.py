@@ -108,7 +108,7 @@ class ContractLinter(ast.NodeVisitor):
             right = self.visit(node.comparators[0])
             op = self._translate_compare_op(node.ops[0])
             if left and right:
-                return BinOp(op, left, right)
+                return BinOp(op=op, left=left, right=right)
             return None
         # Chained: a < b < c → (a < b) /\ (b < c)
         parts = [node.left] + node.comparators
@@ -118,8 +118,8 @@ class ContractLinter(ast.NodeVisitor):
             right = self.visit(parts[i + 1])
             op_str = self._translate_compare_op(op)
             if left and right:
-                conjuncts.append(BinOp(op_str, left, right))
-        return Logical("and", conjuncts) if conjuncts else None
+                conjuncts.append(BinOp(op=op_str, left=left, right=right))
+        return Logical(op="and", operands=conjuncts) if conjuncts else None
 
     def visit_BoolOp(self, node: ast.BoolOp) -> Optional[Expr]:
         operands = [self.visit(v) for v in node.values]
@@ -129,16 +129,16 @@ class ContractLinter(ast.NodeVisitor):
         op = "and" if isinstance(node.op, ast.And) else "or"
         if len(operands) == 1:
             return operands[0]
-        return Logical(op, operands)
+        return Logical(op=op, operands=operands)
 
     def visit_UnaryOp(self, node: ast.UnaryOp) -> Optional[Expr]:
         inner = self.visit(node.operand)
         if not inner:
             return None
         if isinstance(node.op, ast.Not):
-            return Logical("not", [inner])
+            return Logical(op="not", operands=[inner])
         if isinstance(node.op, ast.USub):
-            return BinOp("*", IntLit(-1), inner)
+            return BinOp("*", IntLit(value=-1), inner)
         return None
 
     def visit_BinOp(self, node: ast.BinOp) -> Optional[Expr]:
@@ -151,7 +151,7 @@ class ContractLinter(ast.NodeVisitor):
             return None
         left = self.visit(node.left)
         right = self.visit(node.right)
-        return BinOp(op, left, right) if left and right else None
+        return BinOp(op=op, left=left, right=right) if left and right else None
 
     def visit_Call(self, node: ast.Call) -> Optional[Expr]:
         name = self._get_call_name(node)
@@ -167,16 +167,16 @@ class ContractLinter(ast.NodeVisitor):
 
     def visit_Constant(self, node: ast.Constant) -> Expr:
         if isinstance(node.value, bool):
-            return BoolLit(node.value)
+            return BoolLit(value=node.value)
         if isinstance(node.value, int):
-            return IntLit(node.value)
+            return IntLit(value=node.value)
         if isinstance(node.value, str):
-            # String literals → IntLit(0) approximation (no string support yet)
-            return IntLit(0)
-        return IntLit(0)
+            # String literals → IntLit(value=0) approximation (no string support yet)
+            return IntLit(value=0)
+        return IntLit(value=0)
 
     def visit_Name(self, node: ast.Name) -> Expr:
-        return Var(node.id)
+        return Var(name=node.id)
 
     def visit_Attribute(self, node: ast.Attribute) -> Expr:
         if isinstance(node.value, ast.Subscript):
@@ -186,13 +186,13 @@ class ContractLinter(ast.NodeVisitor):
                 name = f"{base.id}.{node.attr}"
             else:
                 name = f"?.{node.attr}"
-            idx = self.visit(node.value.slice) if isinstance(node.value.slice, ast.expr) else IntLit(0)
+            idx = self.visit(node.value.slice) if isinstance(node.value.slice, ast.expr) else IntLit(value=0)
             if not idx:
-                idx = IntLit(0)
-            return IndexExpr(name, idx)
+                idx = IntLit(value=0)
+            return IndexExpr(name=name, index=idx)
         path = self._attribute_path(node)
         if self.context == "precondition":
-            return Var(path.replace(".", "_"))
+            return Var(name=path.replace(".", "_"))
         return Var(path)
 
     def visit_Subscript(self, node: ast.Subscript) -> Optional[Expr]:
@@ -200,10 +200,10 @@ class ContractLinter(ast.NodeVisitor):
             name = node.value.id
         else:
             name = self._attribute_path(node.value) if isinstance(node.value, ast.Attribute) else "?"
-        idx = self.visit(node.slice) if isinstance(node.slice, ast.expr) else IntLit(0)
+        idx = self.visit(node.slice) if isinstance(node.slice, ast.expr) else IntLit(value=0)
         if not idx:
-            idx = IntLit(0)
-        return IndexExpr(name, idx)
+            idx = IntLit(value=0)
+        return IndexExpr(name=name, index=idx)
 
     def generic_visit(self, node: ast.AST) -> None:
         self._violation(node, ExprKind.UNSUPPORTED,
@@ -251,37 +251,37 @@ class ContractLinter(ast.NodeVisitor):
                 sub = node.args[0]
                 if isinstance(sub.value, ast.Name):
                     dname = sub.value.id
-                    key = self.visit(sub.slice) if isinstance(sub.slice, ast.expr) else IntLit(0)
+                    key = self.visit(sub.slice) if isinstance(sub.slice, ast.expr) else IntLit(value=0)
                     if key:
-                        return DictLenExpr(dname, key)
+                        return DictLenExpr(name=dname, key=key)
             if node.args and isinstance(node.args[0], ast.Name):
                 lst_name = node.args[0].id
-                return LenExpr(lst_name)
-            return IntLit(0)
+                return LenExpr(name=lst_name)
+            return IntLit(value=0)
         if name in ("abs", "min", "max"):
             args = [self.visit(a) for a in node.args]
             args = [a for a in args if a]
             if not args:
-                return IntLit(0)
+                return IntLit(value=0)
         if name == "len":
             if node.args and isinstance(node.args[0], ast.Name):
                 arg_name = node.args[0].id
                 if self._is_dict_name(arg_name):
-                    return DictCountExpr(arg_name)
+                    return DictCountExpr(name=arg_name)
                 return LenExpr(arg_name)
             if node.args and isinstance(node.args[0], ast.Subscript):
                 sub = node.args[0]
                 if isinstance(sub.value, ast.Name):
                     dname = sub.value.id
-                    key = self.visit(sub.slice) if isinstance(sub.slice, ast.expr) else IntLit(0)
+                    key = self.visit(sub.slice) if isinstance(sub.slice, ast.expr) else IntLit(value=0)
                     if key:
-                        return DictLenExpr(dname, key)
-            return IntLit(0)
+                        return DictLenExpr(name=dname, key=key)
+            return IntLit(value=0)
         if name == "isinstance":
-            return BoolLit(True)
+            return BoolLit(value=True)
         if name in ("all", "any"):
-            return BoolLit(True)  # approximate
-        return IntLit(0)
+            return BoolLit(value=True)  # approximate
+        return IntLit(value=0)
 
 
 # ─── File-level linter (unchanged classification logic) ───────────

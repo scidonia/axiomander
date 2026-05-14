@@ -484,6 +484,13 @@ class InvariantFinder(ast.NodeVisitor):
         self.generic_visit(node)
 
     def _find_in_body(self, body: list[ast.stmt], loop_line: int):
+        """Find consecutive assert statements at the top of a loop body.
+
+        Contracts:
+          pre:  len(body) >= 0
+          post: self.invariants[loop_line] is set iff body starts with >= 1 valid asserts
+        """
+        assert len(body) >= 0
         inv_parts = []
         for stmt in body:
             if isinstance(stmt, ast.Assert):

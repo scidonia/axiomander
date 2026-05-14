@@ -738,8 +738,8 @@ def _try_smt_vcg_ir(inv_irs: list, exit_cond: str, post_irs: list, scaffold: str
     if not inv_irs or not post_irs:
         return SmtResult(is_valid=False, error="No IR nodes")
 
-    inv = Logical("and", list(inv_irs)) if len(inv_irs) > 1 else inv_irs[0]
-    post = Logical("and", list(post_irs)) if len(post_irs) > 1 else post_irs[0]
+    inv = Logical(op="and", operands=list(inv_irs)) if len(inv_irs) > 1 else inv_irs[0]
+    post = Logical(op="and", operands=list(post_irs)) if len(post_irs) > 1 else post_irs[0]
     exit_smt = _expr_to_smt(exit_cond)
 
     inv_smt = inv.to_smt()

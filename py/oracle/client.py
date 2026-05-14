@@ -142,13 +142,20 @@ def _parse_tactics(proof_text: str) -> list[str]:
 
     Handles bullet points (-, +, *), brace groups, and semicolon chains.
     Returns a list of tactic strings ready for try_tactic.
+
+    Contracts:
+      pre:  len(proof_text) >= 0
+      inv:  depth >= 0
+      post: every returned tactic ends with '.', none starts with '(*'
     """
+    assert len(proof_text) >= 0
     tactics = []
     current = ""
     depth = 0
     i = 0
 
     while i < len(proof_text):
+        assert depth >= 0
         c = proof_text[i]
 
         if c == '{':

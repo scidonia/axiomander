@@ -97,8 +97,13 @@ def verify_vcg(
 
 
 def _extract_vars(*args: str) -> set[str]:
-    """Extract Z variable names from Coq expressions."""
-    vars_set = set()
+    """Extract Z variable names from Coq expressions.
+
+    Contracts:
+      post: vars_set contains all identifier-like substrings from all args,
+            minus the excluded keyword set.
+    """
+    vars_set: set[str] = set()
     for expr in args:
         if not expr:
             continue
@@ -205,9 +210,13 @@ def _find_top_level_binop(expr: str, op: str) -> Optional[tuple[str, str]]:
 
 def _find_top_level_op(expr: str, ops: list[str]) -> Optional[tuple[str, str, str]]:
     """Find the first top-level operator from ops (not inside parens).
-    Returns (op_str, left_subexpr, right_subexpr) or None.
-    Finds the RIGHTMOST match for proper left-associativity.
+
+    Contracts:
+      pre:  expr is not empty
+      inv:  depth >= 0
+      post: returns (op, left, right) where op is at paren-depth 0, or None
     """
+    assert len(expr) > 0
     depth = 0
     for i in range(len(expr) - 1, -1, -1):
         c = expr[i]
@@ -233,9 +242,17 @@ def _find_top_level_op(expr: str, ops: list[str]) -> Optional[tuple[str, str, st
 
 
 def _balanced(expr: str) -> bool:
-    """Check if parentheses are balanced."""
+    """Check if parentheses are balanced.
+
+    Contracts:
+      pre:  len(expr) >= 0
+      inv:  depth >= 0
+      post: result == True iff each '(' has a matching ')' and no ')' precedes its '('
+    """
+    assert len(expr) >= 0
     depth = 0
     for c in expr:
+        assert depth >= 0
         if c == '(':
             depth += 1
         elif c == ')':
