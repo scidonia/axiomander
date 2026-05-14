@@ -800,6 +800,11 @@ def _py_expr_to_coq_var(node: ast.expr) -> str:
         name = _get_call_name(node)
         if name == "len" and node.args and isinstance(node.args[0], ast.Name):
             return f"{node.args[0].id}__len"
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Sub):
+        left = _py_expr_to_coq_var(node.left)
+        right = _py_expr_to_coq_var(node.right)
+        if left != "?" and right != "?":
+            return f"({left} - {right})"
     return "?"
 
 
