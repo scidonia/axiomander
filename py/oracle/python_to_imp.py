@@ -27,13 +27,11 @@ from typing import Optional
 def python_to_imp(func_node: ast.FunctionDef, invariants: dict[int, str] | None = None, contract_map: dict[str, tuple[list[str], str, str]] | None = None) -> str:
     """Translate a Python function to its IMP body commands.
 
-    Args:
-        func_node: The AST FunctionDef node.
-        invariants: Optional pre-computed invariant map (loop_line → Coq string).
-        contract_map: Optional map of function_name → (pre_coq, post_coq) for CCall.
-
-    Returns a Coq `com` expression string.
+    Contracts:
+      pre:  isinstance(func_node, ast.FunctionDef)
+      post: returns a valid Coq com expression string
     """
+    assert isinstance(func_node, ast.FunctionDef)
     translator = ImpTranslator()
     if invariants is not None:
         translator._invariants = invariants
@@ -353,23 +351,25 @@ class ImpTranslator:
             return self._build_for_loop(target, start_val, limit_val, step_val, stmt)
 
         # for x in expr: (string or list iteration)
-        iter_expr = self.translate_expr(stmt.iter)
-        start_val = "(ANum 0)"
-        limit_expr = f"(ALen {iter_expr})" if isinstance(stmt.iter, ast.Name) else "(ANum 0)"
-        step_val = "(ANum 1)"
         if isinstance(stmt.iter, ast.Name):
-            # Pre-bind: i = 0; while i < len(expr): target = expr[i]; body; i += 1
-            loop_var = "_i"
-            init = f'(CAss "{loop_var}"%string {start_val})'
-            cond = f"(BLe (APlus (AVar \"{loop_var}\"%string) {step_val}) (ALen \"{stmt.iter.id}\"%string))"
-            body_cmds = self.translate_body(stmt.body) or "CSkip"
-            elem_load = f'(CAss "{target}"%string (AIndex \"{stmt.iter.id}\"%string (AVar \"{loop_var}\"%string)))'
-            incr = f'(CAss "{loop_var}"%string (APlus (AVar \"{loop_var}\"%string) {step_val}))'
-            inv = self._invariants.get(stmt.lineno, "(fun _ => True)")
-            loop_body = f"(CSeq {elem_load} (CSeq {body_cmds} {incr}))"
-            loop = f"(CWhile {cond} {inv} {loop_body})"
-            return f"(CSeq {init} {loop})"
+            return self._build_for_in_name(target, stmt.iter.id, stmt)
+        # Generic for-in: try while+index loop
         return f"(* untranslated for-in: {ast.unparse(stmt)} *)"
+
+    def _build_for_in_name(self, target: str, iter_name: str, stmt: ast.For) -> str:
+        """Build a for-in-name loop: for x in name → while i<len(name): x=name[i]; body; i+=1"""
+        start_val = "(ANum 0)"
+        step_val = "(ANum 1)"
+        loop_var = "_i"
+        init = f'(CAss "{loop_var}"%string {start_val})'
+        cond = f"(BLe (APlus (AVar \"{loop_var}\"%string) {step_val}) (ALen \"{iter_name}\"%string))"
+        body_cmds = self.translate_body(stmt.body) or "CSkip"
+        elem_load = f'(CAss "{target}"%string (AIndex \"{iter_name}\"%string (AVar \"{loop_var}\"%string)))'
+        incr = f'(CAss "{loop_var}"%string (APlus (AVar \"{loop_var}\"%string) {step_val}))'
+        inv = self._invariants.get(stmt.lineno, "(fun _ => True)")
+        loop_body = f"(CSeq {elem_load} (CSeq {body_cmds} {incr}))"
+        loop = f"(CWhile {cond} {inv} {loop_body})"
+        return f"(CSeq {init} {loop})"
 
     def _build_for_loop(self, target: str, start_val: str, limit_val: str, step_val: str, stmt: ast.For) -> str:
         body_cmds = self.translate_body(stmt.body)

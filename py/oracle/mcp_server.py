@@ -416,12 +416,14 @@ def _classify_assert(func_node: ast.FunctionDef, assert_node: ast.Assert) -> str
 
     # Check if at function start
     seen_code = False
-    for i, s in enumerate(body[:body.index(assert_node) + 1]):
-        is_doc = (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant)
-                  and isinstance(s.value.value, str))
-        if not isinstance(s, ast.Assert) and not is_doc:
-            if s is not assert_node:
-                seen_code = True
+    if assert_node in body:
+        idx = body.index(assert_node)
+        for i, s in enumerate(body[:idx + 1]):
+            is_doc = (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant)
+                      and isinstance(s.value.value, str))
+            if not isinstance(s, ast.Assert) and not is_doc:
+                if s is not assert_node:
+                    seen_code = True
     if not seen_code:
         return "precondition"
 
