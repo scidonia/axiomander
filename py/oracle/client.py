@@ -111,10 +111,13 @@ def extract_proof(response: str) -> str:
 
 
 def validate_proof(coq_source: str, coq_paths: list[str]) -> tuple[bool, str]:
-    """Validate a Coq proof script by compiling it with coqc.
+    """Validate a Coq proof by compiling with coqc.
 
-    Returns (True, "") if the proof compiles, (False, error_msg) otherwise.
+    Contracts:
+      pre:  len(coq_source) > 0
+      post: returns (True, "") if compilation succeeds, (False, error) otherwise
     """
+    assert len(coq_source) > 0
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".v", delete=False, prefix="oracle_"
     ) as f:
@@ -191,15 +194,11 @@ def validate_with_coqpyt(
 ) -> tuple[bool, str]:
     """Validate a proof script via coqpyt interactive session.
 
-    Args:
-        coq_preamble: The Coq source up to and including 'Proof.' (not beyond).
-        proof_script: The proof body (may include 'Proof.' prefix, not Qed).
-        build_dir: Path to the Coq build directory containing .vo files.
-
-    Returns:
-        (True, "") or (False, error_message).
+    Contracts:
+      pre:  len(coq_preamble) > 0, build_dir exists
+      post: (True, "") if all tactics apply and proof closes, (False, error) otherwise
     """
-    from .coqpyt_session import CoqpytSession
+    assert len(coq_preamble) > 0
     import sys as _sys
 
     proof_text = proof_script.strip()
