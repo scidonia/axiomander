@@ -220,11 +220,23 @@ class SumExpr(BaseModel):
     name: str
 
     def to_coq(self, scoped: bool = False) -> str:
-        return "0"  # VCG proves via loop invariant, not direct sum
+        return "0"
 
     def to_smt(self) -> str:
         return f"{self.name}__sum"
 
 
-# Discriminated union type for exhaustiveness checking
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr]
+class StrLitExpr(BaseModel):
+    """String literal for comparison: s == \"value\"."""
+    kind: Literal["strlit"] = "strlit"
+    value: str
+
+    def to_coq(self, scoped: bool = False) -> str:
+        return str(hash(self.value) % 10000)
+
+    def to_smt(self) -> str:
+        return str(hash(self.value) % 10000)
+
+
+# Discriminated union
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr]

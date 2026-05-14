@@ -16,7 +16,7 @@ from typing import Optional
 from .contract_ir import (
     Expr, Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr,
     DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr,
-    MinExpr, MaxExpr, SumExpr,
+    MinExpr, MaxExpr, SumExpr, StrLitExpr,
 )
 
 
@@ -175,8 +175,8 @@ class ContractLinter(ast.NodeVisitor):
         if isinstance(node.value, int):
             return IntLit(value=node.value)
         if isinstance(node.value, str):
-            # String literals → IntLit(value=0) approximation (no string support yet)
-            return IntLit(value=0)
+            # String literals → StrLitExpr with hash value
+            return StrLitExpr(value=node.value)
         return IntLit(value=0)
 
     def visit_Name(self, node: ast.Name) -> Expr:
