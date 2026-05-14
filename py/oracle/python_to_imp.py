@@ -201,14 +201,14 @@ class ImpTranslator:
         targets = []
         for t in stmt.targets:
             if isinstance(t, ast.Subscript):
-                # Could be lst[idx] = val (CListSet) or dict[key] = val (CDictEnsureList)
+                if isinstance(t.slice, ast.Slice):
+                    # lst[i:j] = val → while-loop copy
+                    return self._translate_slice_assign(t, stmt.value)
                 name = self._translate_target(t.value)
                 idx = self.translate_expr(t.slice)
                 val = self.translate_expr(stmt.value)
                 if isinstance(stmt.value, ast.List):
-                    # dict[key] = [] → CDictEnsureList
                     return f'(CDictEnsureList "{name}"%string {idx})'
-                # dict[key] = val → CDictAppendKv (populates values for iteration)
                 return f'(CDictAppendKv "{name}"%string {idx} {val})'
 
             target = self._translate_target(t)
@@ -233,9 +233,10 @@ class ImpTranslator:
                 val = self.translate_expr(value)
                 targets.append(f'(CAss "{target}"%string {val})')
             elif isinstance(value, ast.BoolOp):
-                # Boolean expression → wrap in ABool for aexp context
                 val = self.translate_expr(value)
                 targets.append(f'(CAss "{target}"%string (ABool {val}))')
+            elif isinstance(value, ast.Subscript) and isinstance(value.slice, ast.Slice):
+                return self._translate_slice_copy(target, value)
             else:
                 val = self.translate_expr(value)
                 targets.append(f'(CAss "{target}"%string {val})')
@@ -301,6 +302,39 @@ class ImpTranslator:
         op_map = {ast.Add: "APlus", ast.Sub: "AMinus", ast.Mult: "AMult"}
         op_str = op_map.get(type(stmt.op), "APlus")
         return f'(CAss "{target}"%string ({op_str} (AVar "{target}"%string) {val}))'
+
+    def _translate_slice_copy(self, target: str, node: ast.Subscript) -> str:
+        """Translate target = lst[start:end] → while-loop copy."""
+        tname = self._translate_target(node.value)
+        tstart = self.translate_expr(node.slice.lower) if node.slice.lower else "(ANum 0)"
+        tend = self.translate_expr(node.slice.upper) if node.slice.upper else f'(ALen "{tname}"%string)'
+        loop_var = "_k"
+        init_list = f'(CListNew "{target}"%string)'
+        init = f'(CAss "{loop_var}"%string {tstart})'
+        cond = f"(BLe (APlus (AVar \"{loop_var}\"%string) (ANum 1)) {tend})"
+        append = f'(CListAppend \"{target}\"%string (AIndex \"{tname}\"%string (AVar \"{loop_var}\"%string)))'
+        incr = f'(CAss \"{loop_var}\"%string (APlus (AVar \"{loop_var}\"%string) (ANum 1)))'
+        loop_body = f"(CSeq {append} {incr})"
+        loop = f"(CWhile {cond} (fun _ => True) {loop_body})"
+        return f"(CSeq {init_list} (CSeq {init} {loop}))"
+
+    def _translate_slice_assign(self, target: ast.Subscript, value: ast.expr) -> str:
+        """Translate target[start:end] = value → while-loop copy to target list."""
+        tname = self._translate_target(target.value)
+        tstart = self.translate_expr(target.slice.lower) if target.slice.lower else "(ANum 0)"
+        tend = self.translate_expr(target.slice.upper) if target.slice.upper else f'(ALen "{tname}"%string)'
+        valname = self._translate_target(value) if isinstance(value, ast.Name) else "src"
+        if not isinstance(value, ast.Name):
+            return f"(* untranslated slice assign: {ast.unparse(target)} = {ast.unparse(value)} *)"
+        loop_var = "_k"
+        result_cmds = f'(CListNew "{valname}"%string)'
+        init = f'(CAss "{loop_var}"%string {tstart})'
+        cond = f"(BLe (APlus (AVar \"{loop_var}\"%string) (ANum 1)) {tend})"
+        append = f'(CListAppend "{valname}"%string (AIndex \"{tname}\"%string (AVar \"{loop_var}\"%string)))'
+        incr = f'(CAss "{loop_var}"%string (APlus (AVar \"{loop_var}\"%string) (ANum 1)))'
+        loop_body = f'(CSeq {append} {incr})'
+        loop = f'(CWhile {cond} (fun _ => True) {loop_body})'
+        return f'(CSeq {result_cmds} (CSeq {init} {loop}))'
 
     def _translate_list_literal(self, target: str, node: ast.List) -> str:
         """Translate list literal: x = [e1, e2, ...] → CListNew + CListAppend chain."""

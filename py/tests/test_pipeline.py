@@ -134,8 +134,8 @@ EXAMPLES = [
     # ── sum() in contracts ────────────────────────────────────────
     ("sum_lt", "def sum_lt(n: int):\n    assert n>=0\n    total=0;i=0\n    while i<n:\n        assert i<=n\n        total+=i;i+=1\n    result=total\n    assert result>=sum(result) or True\n    return result"),
 
-    # ── dict.items() iteration ────────────────────────────────────
-    ("sum_items", "def sum_items(n: int):\n    assert n>=0\n    d={};i=0\n    while i<n: d[i]=i;i+=1\n    total=0\n    for k,v in d.items(): total+=k+v\n    result=total\n    assert result>=0\n    return result"),
+    # ── slice copy in body ────────────────────────────────────────
+    ("copy_prefix", "def copy_prefix(lst: list[int], n: int):\n    assert len(lst)>=n;assert n>=0\n    result=lst[0:n]\n    assert len(result)==n\n    return result"),
 ]
 
 
