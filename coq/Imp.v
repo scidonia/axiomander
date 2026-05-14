@@ -101,6 +101,12 @@ Definition dict_key (name : var) (key : Z) : var :=
 Definition dict_count_key (name : var) : var :=
   (name ++ "._count")%string.
 
+Definition dict_keys_key (name : var) : var :=
+  (name ++ "._keys")%string.
+
+Definition dict_vals_key (name : var) : var :=
+  (name ++ "._vals")%string.
+
 (** Evaluation of arithmetic and boolean expressions. *)
 Fixpoint aeval (a : aexp) (s : state) : Z :=
   match a with
@@ -144,6 +150,7 @@ Inductive com : Type :=
   | CDictGet (name : var) (key : aexp) (target : var)
   | CDictEnsureList (name : var) (key : aexp)
   | CDictAppend (name : var) (key val : aexp)
+  | CDictAppendKv (name : var) (key val : aexp)
   | CCall (name : var) (args : list aexp) (pre post : state -> Prop) (target : var).
 
 (** Big-step operational semantics: [(c, s) ⇓ s']. *)
@@ -190,11 +197,11 @@ Inductive ceval : com -> state -> state -> Prop :=
   | E_DictSet : forall name key_e val_e s,
       let dk := dict_key name (aeval key_e s) in
       let is_new := Z.eqb 0 (s (parray_len_key dk)) in
+      let new_count := s (dict_count_key name) + (if is_new then 1 else 0) in
       ceval (CDictSet name key_e val_e) s
             (upd (upd (upd s dk (aeval val_e s))
                       (parray_len_key dk) 1)
-                 (dict_count_key name)
-                 (s (dict_count_key name) + (if is_new then 1 else 0)))
+                 (dict_count_key name) new_count)
   | E_DictGet : forall name key_e target s,
       ceval (CDictGet name key_e target) s
             (upd s target (s (dict_key name (aeval key_e s))))
@@ -209,6 +216,16 @@ Inductive ceval : com -> state -> state -> Prop :=
       ceval (CDictAppend name key_e val_e) s
             (upd (upd s (parray_key dk (s (parray_len_key dk))) (aeval val_e s))
                  (parray_len_key dk) (s (parray_len_key dk) + 1))
+  | E_DictAppendKv : forall name key_e val_e s,
+      let dk := dict_key name (aeval key_e s) in
+      let is_new := Z.eqb 0 (s (parray_len_key dk)) in
+      let c := s (dict_count_key name) in
+      let new_c := c + (if is_new then 1 else 0) in
+      ceval (CDictAppendKv name key_e val_e) s
+            (upd (upd (upd (upd s dk (aeval val_e s))
+                           (parray_len_key dk) 1)
+                      (parray_key (dict_vals_key name) c) (aeval val_e s))
+                 (dict_count_key name) new_c)
   | E_Call : forall name args pre post target s r,
       pre s ->
       post (upd s target r) ->

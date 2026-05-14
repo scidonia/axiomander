@@ -206,9 +206,10 @@ class ImpTranslator:
                 idx = self.translate_expr(t.slice)
                 val = self.translate_expr(stmt.value)
                 if isinstance(stmt.value, ast.List):
-                    # dict[key] = [] → CDictEnsureList (creates list at key if not exists)
+                    # dict[key] = [] → CDictEnsureList
                     return f'(CDictEnsureList "{name}"%string {idx})'
-                return f'(CListSet "{name}"%string {idx} {val})'
+                # dict[key] = val → CDictAppendKv (populates values for iteration)
+                return f'(CDictAppendKv "{name}"%string {idx} {val})'
 
             target = self._translate_target(t)
             value = stmt.value
@@ -396,6 +397,16 @@ class ImpTranslator:
         path = self._translate_target(stmt.iter) if isinstance(stmt.iter, (ast.Name, ast.Attribute)) else None
         if path:
             return self._build_for_in_name(target, path, stmt)
+        # for x in d.values(), d.keys(), etc.
+        if isinstance(stmt.iter, ast.Call):
+            name = self._get_call_name(stmt.iter)
+            if name and name.endswith(".values"):
+                obj = self._translate_target(stmt.iter.func.value)
+                return self._build_for_in_name(target, f"{obj}._vals", stmt)
+            if name and name.endswith(".keys"):
+                obj = self._translate_target(stmt.iter.func.value)
+                return self._build_for_in_name(target, f"{obj}._keys", stmt)
+
         return f"(* untranslated for-in: {ast.unparse(stmt)} *)"
 
     def _build_for_in_name(self, target: str, iter_name: str, stmt: ast.For) -> str:
