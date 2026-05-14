@@ -105,6 +105,9 @@ EXAMPLES = [
 
     # ── list.pop + computed index ──────────────────────────────────
     ("push_level", "def push_level(stack: list[int], level: int):\n    assert len(stack)>=0\n    while len(stack)>0 and stack[len(stack)-1]>=level:\n        assert len(stack)>=0\n        stack.pop()\n    stack.append(level)\n    result=len(stack)\n    assert result>=0\n    return result"),
+
+    # ── for-in-field (for x in obj.field) ──────────────────────────
+    ("count_children", "class Node: children: list[int]\ndef count_children(parent: Node):\n    assert True\n    total=0\n    for child in parent.children:\n        total+=child\n    result=total\n    assert result>=0\n    return result"),
 ]
 
 
