@@ -103,16 +103,24 @@ def _extract_vars(*args: str) -> set[str]:
       post: vars_set contains all identifier-like substrings from all args,
             minus the excluded keyword set.
     """
-    vars_set: set[str] = set()
+    EXCLUDED = {'true', 'false', 'z', 'string', 'and', 'or', 'not',
+                'fun', 's', 'leb', 'parray_key', 'prop'}
+    vars_set = set()
     for expr in args:
         if not expr:
             continue
-        for name in re.findall(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b', expr):
-            if name.lower() not in {
-                'true', 'false', 'z', 'string', 'and', 'or', 'not',
-                'fun', 's', 'leb', 'parray_key', '%', 'prop',
-            }:
-                vars_set.add(name)
+        current = ""
+        for c in expr:
+            if c.isalnum() or c == '_':
+                current += c
+            else:
+                if current and current[0].isalpha():
+                    if current.lower() not in EXCLUDED:
+                        vars_set.add(current)
+                current = ""
+        if current and current[0].isalpha():
+            if current.lower() not in EXCLUDED:
+                vars_set.add(current)
     return vars_set
 
 
