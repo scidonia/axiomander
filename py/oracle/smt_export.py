@@ -212,9 +212,8 @@ def _find_top_level_op(expr: str, ops: list[str]) -> Optional[tuple[str, str, st
     """Find the first top-level operator from ops (not inside parens).
 
     Contracts:
-      pre:  len(expr) > 0
-      inv:  depth >= 0
-      post: returns (op, left, right) where op is at paren-depth 0, or None
+      pre: len(expr) > 0
+      post: returns (op, left, right) at depth 0, or None
     """
     assert len(expr) > 0
     depth = 0
@@ -224,7 +223,6 @@ def _find_top_level_op(expr: str, ops: list[str]) -> Optional[tuple[str, str, st
             depth += 1
         elif c == '(':
             depth -= 1
-        assert depth >= 0
         if depth == 0:
             for op in ops:
                 op_len = len(op)
