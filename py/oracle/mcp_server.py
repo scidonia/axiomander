@@ -523,7 +523,12 @@ def _is_list_param(annotation) -> bool:
 
 
 def _build_contract_map(tree) -> dict[str, tuple[list[str], str, str]]:
-    """Build a map of function_name -> (param_names, pre_coq, post_coq) from AST."""
+    """Build a map of function_name -> (param_names, pre_coq, post_coq) from AST.
+
+    Contracts:
+      post: keys are function names, values are (params, pre, post) triples
+            for functions that have pre/post assertions
+    """
     import ast
     from .contract_linter import ContractLinter
 
