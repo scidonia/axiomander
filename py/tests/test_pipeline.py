@@ -127,6 +127,9 @@ EXAMPLES = [
 
     # ── CCall: function call verification ─────────────────────────
     ("caller", "def square(x: int):\n    assert x>=0\n    result=x*x\n    assert result>=x\n    return result\ndef caller(n: int):\n    assert n>=0\n    total=square(n)\n    assert total>=n\n    return total"),
+
+    # ── min() / max() in contracts ────────────────────────────────
+    ("clamp_val", "def clamp_val(val: int, lo: int, hi: int):\n    assert lo<=hi\n    if val<lo: result=lo\n    elif val>hi: result=hi\n    else: result=val\n    assert min(hi, max(lo, result))==result\n    return result"),
 ]
 
 

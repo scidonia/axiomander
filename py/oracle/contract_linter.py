@@ -15,7 +15,7 @@ from typing import Optional
 
 from .contract_ir import (
     Expr, Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr,
-    DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr,
+    DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr,
 )
 
 
@@ -293,6 +293,17 @@ class ContractLinter(ast.NodeVisitor):
             return BoolLit(value=True)
         if name in ("all", "any"):
             return self._translate_quantifier(node, name)
+        if name in ("min", "max"):
+            if len(node.args) >= 2:
+                left = self.visit(node.args[0])
+                right = self.visit(node.args[1])
+                if left and right:
+                    if name == "min":
+                        return MinExpr(left=left, right=right)
+                    return MaxExpr(left=left, right=right)
+            return IntLit(value=0)
+        if name == "sum":
+            return IntLit(value=0)  # sum(lst) — specification only
         return IntLit(value=0)
 
     def _translate_quantifier(self, node: ast.Call, name: str) -> Optional[Expr]:

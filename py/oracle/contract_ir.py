@@ -188,5 +188,31 @@ class SliceLenExpr(BaseModel):
         return f"(- {e} {s})"
 
 
+class MinExpr(BaseModel):
+    """min(a, b) — minimum of two values."""
+    kind: Literal["min"] = "min"
+    left: "Expr"
+    right: "Expr"
+
+    def to_coq(self, scoped: bool = False) -> str:
+        return f"(Z.min ({self.left.to_coq(scoped)}) ({self.right.to_coq(scoped)}))"
+
+    def to_smt(self) -> str:
+        return f"(ite (< {self.left.to_smt()} {self.right.to_smt()}) {self.left.to_smt()} {self.right.to_smt()})"
+
+
+class MaxExpr(BaseModel):
+    """max(a, b) — maximum of two values."""
+    kind: Literal["max"] = "max"
+    left: "Expr"
+    right: "Expr"
+
+    def to_coq(self, scoped: bool = False) -> str:
+        return f"(Z.max ({self.left.to_coq(scoped)}) ({self.right.to_coq(scoped)}))"
+
+    def to_smt(self) -> str:
+        return f"(ite (> {self.left.to_smt()} {self.right.to_smt()}) {self.left.to_smt()} {self.right.to_smt()})"
+
+
 # Discriminated union type for exhaustiveness checking
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr]
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr]
