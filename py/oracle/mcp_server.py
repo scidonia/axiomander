@@ -213,7 +213,7 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
                           suggestion_text=f"Function '{func_name}' not found in source")
 
     # Compute expanded params from class definitions
-    params = [arg.arg for arg in func_node.args.args]
+    params = [name for name, _ in _func_params(func_node)]
     expanded, class_fields, _, init_state, record_section = _expand_params(tree, params, func_node)
 
     # Lint with expanded params (so result, account.balance are scoped correctly)
@@ -330,7 +330,7 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus) -> GoalStatus
     if func_node is None:
         return goal
 
-    params = [arg.arg for arg in func_node.args.args]
+    params = [name for name, _ in _func_params(func_node)]
     expanded, _, params_coq, _, _ = _expand_params(tree, params, func_node)
     imp_body = python_to_imp(func_node)
     
@@ -436,11 +436,11 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
     param_types: dict[str, str] = {}
     list_params: set[str] = set()
     if func_node:
-        for arg in func_node.args.args:
-            coq_type = _py_type_to_coq(arg.annotation)
-            param_types[arg.arg] = coq_type
-            if _is_list_param(arg.annotation):
-                list_params.add(arg.arg)
+        for arg, annot in _func_params(func_node):
+            coq_type = _py_type_to_coq(annot)
+            param_types[arg] = coq_type
+            if _is_list_param(annot):
+                list_params.add(arg)
 
     class_fields = {}
     record_section = ""
@@ -664,6 +664,23 @@ def _py_cond_to_vcg_exit(test: ast.expr) -> str:
     return "Z.leb i n = false"
 
 
+def _func_params(func_node) -> list[tuple[str, ast.expr | None]]:
+    """Extract all named parameters from a function definition.
+
+    Returns list of (name, annotation) for positional-only, regular,
+    and keyword-only args. Skips *args and **kwargs.
+    """
+    import ast
+    params = []
+    for a in func_node.args.args:
+        params.append((a.arg, a.annotation))
+    for a in func_node.args.posonlyargs:
+        params.append((a.arg, a.annotation))
+    for a in func_node.args.kwonlyargs:
+        params.append((a.arg, a.annotation))
+    return params
+
+
 def _py_expr_to_coq_var(node: ast.expr) -> str:
     """Convert a simple Python expression to a Coq variable name."""
     import ast
@@ -787,7 +804,7 @@ def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: 
     import ast
 
     name = func_node.name
-    params = [arg.arg for arg in func_node.args.args]
+    params = [name for name, _ in _func_params(func_node)]
 
     # Compute expanded params, init state, and record section
     if full_tree is not None:
@@ -796,8 +813,8 @@ def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: 
     else:
         expanded_params = params
         coq_types = {
-            arg.arg: _py_type_to_coq(arg.annotation)
-            for arg in func_node.args.args
+            arg: _py_type_to_coq(annot)
+            for arg, annot in _func_params(func_node)
         }
         params_coq = " ".join(f"({p} : {coq_types.get(p, 'Z')})" for p in params)
         init_state = "empty_state"
