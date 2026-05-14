@@ -115,6 +115,9 @@ EXAMPLES = [
 
     # ── nested loops (outer VCG) ──────────────────────────────────
     ("nested_sum", "def nested_sum(n: int):\n    assert n>=0\n    total=0;i=0\n    while i<n:\n        assert total==3*i;assert i<=n\n        j=0\n        while j<3:\n            total+=1;j+=1\n        i+=1\n    result=total\n    assert result==3*n\n    return result"),
+
+    # ── list slicing in contracts ─────────────────────────────────
+    ("slice_len", "def slice_len(n: int):\n    assert n>=0\n    result=[];i=0\n    while i<n:\n        assert len(result)==i;assert i<=n\n        result.append(i);i+=1\n    assert len(result[0:n])==n\n    return result"),
 ]
 
 

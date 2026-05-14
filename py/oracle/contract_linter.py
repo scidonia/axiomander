@@ -15,7 +15,7 @@ from typing import Optional
 
 from .contract_ir import (
     Expr, Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr,
-    DictLenExpr, DictCountExpr, AllExpr, AnyExpr,
+    DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr,
 )
 
 
@@ -252,8 +252,15 @@ class ContractLinter(ast.NodeVisitor):
     def _translate_pure_call(self, node: ast.Call, name: str) -> Optional[Expr]:
         if name == "len":
             if node.args and isinstance(node.args[0], ast.Subscript):
-                # len(dict[key]) → DictLenExpr
                 sub = node.args[0]
+                if isinstance(sub.slice, ast.Slice):
+                    # len(lst[i:j]) → SliceLenExpr
+                    if isinstance(sub.value, ast.Name):
+                        dname = sub.value.id
+                        start = self.visit(sub.slice.lower) if sub.slice.lower else None
+                        end = self.visit(sub.slice.upper) if sub.slice.upper else None
+                        return SliceLenExpr(name=dname, start=start, end=end)
+                # len(dict[key]) → DictLenExpr
                 if isinstance(sub.value, ast.Name):
                     dname = sub.value.id
                     key = self.visit(sub.slice) if isinstance(sub.slice, ast.expr) else IntLit(value=0)

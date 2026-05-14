@@ -170,5 +170,23 @@ class AnyExpr(BaseModel):
         return f"(exists (({self.var} Int)) (and (and (<= 0 {self.var}) (< {self.var} {self.lst}__len)) {p}))"
 
 
+class SliceLenExpr(BaseModel):
+    """len(lst[i:j]) — length of slice = j - i."""
+    kind: Literal["slice_len"] = "slice_len"
+    name: str
+    start: Optional["Expr"] = None
+    end: Optional["Expr"] = None
+
+    def to_coq(self, scoped: bool = False) -> str:
+        s = self.start.to_coq(False) if self.start else "0"
+        e = self.end.to_coq(False) if self.end else f's "{self.name}._len"%string' if scoped else f"{self.name}__len"
+        return f"({e} - {s})"
+
+    def to_smt(self) -> str:
+        s = self.start.to_smt() if self.start else "0"
+        e = self.end.to_smt() if self.end else f"{self.name}__len"
+        return f"(- {e} {s})"
+
+
 # Discriminated union type for exhaustiveness checking
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr]
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr]
