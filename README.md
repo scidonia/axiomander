@@ -1,102 +1,142 @@
-# Refactoring Robots
+# verify-contracts
 
-A Hoare-logic verification pipeline for Python. Write pre/post contracts and loop invariants as Python decorators. The pipeline translates them into weakest-precondition proof obligations, formalised in Coq. SMT solvers clear the easy goals; an LLM oracle tackles the rest.
-
-## Pipeline
+A Hoare-logic verification pipeline for Python. Write contracts as plain `assert` statements. The pipeline translates them into IMP, formalises proof obligations in Coq, dispatches easy goals to SMT (cvc4), and falls back to an LLM oracle.
 
 ```
-Python source + @requires / @ensures / @invariant
-              │
-              ▼
-     [WP Transformer]  (Python AST → proof obligations)
-              │
-              ▼
-     Coq theory: IMP language + WP calculus + soundness
-              │
-              ▼
-     [SMT hammer]  (coq-hammer / SMTCoq / Z3)
-              │
-              ▼ (remaining goals)
-     [LLM oracle]  →  Coq proof script  →  coqc  →  Qed / ✗
+Python assert contracts
+        │
+        ▼
+  contract_linter.py  →  IR (Pydantic AST)  →  Coq  →  wp_prove (L1)
+        │                                      │
+        ▼                                      ▼
+  python_to_imp.py   →  IMP body              SMT (cvc4)  (L2)
+                                                   │
+                                                   ▼
+                                              LLM oracle  (L3)
 ```
 
-## Why This Works
+## Quick Start
 
-| Concern | Solution |
-|---|---|
-| LLM ecosystem is Python-native | Contracts live in Python, LLM speaks Python |
-| Python has no static verifier | We build one, backed by Coq |
-| Full verification is hard | SMT solves the easy stuff, LLM the hard stuff |
-| Soundness is paramount | WP calculus formalised and proven sound in Coq |
+```bash
+git clone https://github.com/anomalyco/refactoring-robots
+cd refactoring-robots
+uv pip install -e .
 
-## Project Structure
-
-```
-docs/                       Design documents
-  ARCHITECTURE.md           Full architecture spec
-  WP_CALCULUS.md            Hoare/WP theory
-
-coq/                        Coq formalisation
-  Imp.v                     IMP language syntax + semantics
-  Wp.v                      Weakest precondition calculus
-  Soundness.v               Soundness proof: {P} c {Q} ↔ P ⇒ wp(c,Q)
-  VcGen.v                   Verification condition generator
-
-py/                         Python side
-  contracts/                Decorator library
-  wp_transformer/           AST → Coq proof obligations
-  oracle/                   LLM proof oracle client
-
-server/                     Dream web server (proof dashboard)
-bin/                        CLI entry points
+# Run the test suite
+eval $(opam env)
+PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 ```
 
-## Stack
-
-| Layer | Technology |
-|---|---|
-| Contracts | Python decorators (`@requires`, `@ensures`, `@invariant`) |
-| WP engine | Python `ast` module → Coq obligations |
-| Proof kernel | Coq (Rocq), IMP formalisation, WP calculus |
-| SMT bridge | coq-hammer / SMTCoq / SMT-LIB export |
-| LLM oracle | Cohttp → LLM API → Coq proof script |
-| Web UI | Dream (OCaml) — submit files, view proof status |
-
-## The Hoare Triple Model
-
-```
-    {P}          precondition  — @requires(lambda args: ...)
-    c            command       — the Python function body
-    {Q}          postcondition — @ensures(lambda args, result: ...)
-```
-
-Loop invariants use `@invariant`:
+## Usage
 
 ```python
-@requires(lambda n: n >= 0)
-@ensures(lambda n, r: r == n * (n + 1) // 2)
-@invariant(lambda i, acc: acc == i * (i + 1) // 2 and i <= n)
+def add(a, b):
+    assert True              # precondition
+    result = a + b
+    assert result == a + b   # postcondition
+    return result
+
 def sum_to(n):
+    assert n >= 0            # precondition
     acc = 0
-    for i in range(n + 1):
-        acc += i
+    i = 0
+    while i < n:
+        assert acc == i * (i + 1) // 2   # invariant
+        assert i <= n                     # invariant
+        i = i + 1
+        acc = acc + i
+    assert acc == n * (n + 1) // 2       # postcondition
+    assert i == n                         # postcondition
     return acc
 ```
 
-## Proof Strategy
+## CLI
 
-1. **WP transformer** generates `∀ args, P(args) → wp(body, Q(args, result))`
-2. **SMT** attempts to prove the goal. If proved → done.
-3. **Coq hammer** tries `sauto`, `smt`, `lia`, `nia`.
-4. **LLM oracle** receives the remaining goal, generates a Coq proof script.
-5. **coqc** verifies the script. If it passes → `Qed`. If not → back to LLM with error.
+```bash
+# Analyze a file for contract opportunities
+verify-contracts-mcp check-file path/to/file.py
 
-## Development Sequence
+# Verify a single function
+verify-contracts-mcp check-function --function add path/to/file.py
 
-1. Coq formalisation of IMP + WP calculus + soundness proof
-2. Python decorator library
-3. Simple WP transformer (straight-line code, no loops)
-4. SMT integration via coq-hammer
-5. LLM oracle client
-6. Loop invariant support
-7. Web dashboard
+# Verify with hammer hint (SMT ATP fallback)
+verify-contracts-mcp check-function --function add --hint hammer path/to/file.py
+```
+
+## MCP Integration
+
+Add to your `~/.config/opencode/opencode.json`:
+
+```json
+"verify-contracts": {
+  "type": "local",
+  "command": ["bash", "-c", "eval $(opam env) 2>/dev/null; exec verify-contracts-mcp"],
+  "enabled": true,
+  "environment": {
+    "DEEPSEEK_API_KEY": "{env:DEEPSEEK_API_KEY}",
+    "REFACTORING_ROBOTS_ROOT": "/path/to/refactoring-robots",
+    "PYTHONPATH": "/path/to/refactoring-robots/py"
+  }
+}
+```
+
+## Supported Operations
+
+| Category | Operations |
+|---|---|
+| Arithmetic | +, -, *, /, //, %, ** |
+| Comparisons | <, <=, >, >=, ==, !=, is, is not, in, not in |
+| Logic | and, or, not |
+| Lists | `len()`, `lst[i]`, `lst.append()`, `lst.pop()`, `lst = []`, `lst[i:j]` |
+| Dicts | `d[key]`, `key in d`, `d[key] = val`, `len(d)`, `d.keys()`, `d.values()`, `d.items()` |
+| Sets | `set()`, `s.add(x)`, `x in s` |
+| Strings | `len(s)`, `s[i]`, `s == "literal"` |
+| Functions | `min()`, `max()`, `sum()`, `all()`, `any()`, `abs()`, `len()` |
+| Loops | `while`, `for i in range(n)`, `for x in lst`, `for c in s`, `for x in d.values()` |
+| Conditionals | `if/else`, `elif`, `or`/`and` in conditions |
+| Functions | Cross-function verification via CCall |
+| Builtins | `isinstance()`, `int()`, `float()`, `bool()` |
+
+## Pipeline Tiers
+
+| Level | Mechanism | What it handles |
+|---|---|---|
+| 1 — `wp_prove` | Structural recursion + `lia` | Assignments, conditionals, linear arithmetic |
+| 2 — SMT | cvc4 subprocess (QF_NIA) | Non-linear VCG, division, multiplication |
+| 3 — LLM oracle | DeepSeek via coqpyt | Complex invariants, quantifiers |
+
+## Testing
+
+```bash
+eval $(opam env)
+PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
+```
+
+34 tests covering the full feature set.
+
+## Architecture
+
+```
+py/
+  oracle/
+    contract_linter.py   # Python AST → IR (Coq + SMT targets)
+    contract_ir.py       # Expression IR (Pydantic models)
+    python_to_imp.py     # Python AST → IMP commands
+    mcp_server.py        # MCP server (check-file, check-function)
+    smt_export.py        # Coq → SMT-LIB export
+    client.py            # LLM oracle client
+    coqpyt_session.py    # Interactive Coq proof session
+    reporting.py         # Goal status + report generation
+
+coq/
+  Imp.v                  # IMP language + aexp/bexp (mutual), ae/beval, com, ceval
+  Wp.v                   # WP calculus + VCG definitions
+  WpTactics.v            # wp_reduce/wp_prove automation
+```
+
+## Contract Discipline
+
+- **Type annotations** document preconditions: `def f(x: int, lst: list[str]) -> bool`
+- **`assert`** captures what types can't: `assert len(lst) > 0`, `assert depth >= 0`
+- **Contracts** document pre/post/invariant in docstrings
+- **SMT counterexamples** tell you exactly what's missing from weak invariants
