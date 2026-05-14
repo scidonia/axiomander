@@ -80,6 +80,8 @@ class ContractLinter(ast.NodeVisitor):
         self.context = context
 
     def lint_expression(self, node: ast.expr) -> LintResult:
+        """Convert a Python expression to IR. Returns LintResult with coq/smt."""
+        assert isinstance(node, ast.expr)
         self.violations = []
         ir = self.visit(node)
         coq = ir.to_coq(scoped=(self.context != "precondition")) if ir else ""
@@ -213,6 +215,8 @@ class ContractLinter(ast.NodeVisitor):
     # ─── Helpers ──────────────────────────────────────────────────
 
     def _get_call_name(self, node: ast.Call) -> Optional[str]:
+        """Extract the fully-qualified function name from a call node."""
+        assert isinstance(node, ast.Call)
         func = node.func
         if isinstance(func, ast.Name):
             return func.id
