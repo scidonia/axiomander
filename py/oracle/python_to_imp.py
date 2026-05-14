@@ -53,7 +53,11 @@ class ImpTranslator:
         self._contract_map: dict[str, tuple[list[str], str, str]] = {}  # name → (params, pre, post)
 
     def translate_body(self, body: list[ast.stmt]) -> str:
-        """Translate a list of statements into a seq of IMP commands."""
+        """Translate a list of statements into an IMP command sequence.
+
+        Contracts:
+          post: result is a Coq com string (never empty)
+        """
         commands = []
         for stmt in body:
             cmd = self.translate_stmt(stmt)
@@ -69,7 +73,13 @@ class ImpTranslator:
         return result
 
     def translate_stmt(self, stmt: ast.stmt) -> Optional[str]:
-        """Translate a single statement to an IMP command string."""
+        """Translate a single statement to an IMP command string.
+
+        Contracts:
+          pre: isinstance(stmt, ast.stmt)
+          post: returns a Coq com string or None (for no-op stmts)
+        """
+        assert isinstance(stmt, ast.stmt)
         if isinstance(stmt, ast.Assign):
             return self._translate_assign(stmt)
         elif isinstance(stmt, ast.AugAssign):
@@ -115,7 +125,13 @@ class ImpTranslator:
         return None
 
     def translate_expr(self, node: ast.expr) -> str:
-        """Translate a Python expression to an IMP aexp or bexp string."""
+        """Translate a Python expression to an IMP aexp or bexp string.
+
+        Contracts:
+          pre: isinstance(node, ast.expr)
+          post: returns a Coq aexp/bexp string
+        """
+        assert isinstance(node, ast.expr)
         if isinstance(node, ast.Constant):
             val = node.value
             if isinstance(val, bool):
