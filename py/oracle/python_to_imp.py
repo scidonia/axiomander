@@ -53,11 +53,7 @@ class ImpTranslator:
         self._contract_map: dict[str, tuple[list[str], str, str]] = {}  # name → (params, pre, post)
 
     def translate_body(self, body: list[ast.stmt]) -> str:
-        """Translate a list of statements into an IMP command sequence.
-
-        Contracts:
-          post: result is a Coq com string (never empty)
-        """
+        """Translate a list of statements into an IMP command sequence."""
         commands = []
         for stmt in body:
             cmd = self.translate_stmt(stmt)
@@ -65,6 +61,9 @@ class ImpTranslator:
                 commands.append(cmd)
         if not commands:
             return "CSkip"
+        # Strip trailing duplicate CAss to "result" (from explicit + return)
+        while len(commands) >= 2 and commands[-1].startswith('(CAss "result"') and commands[-2].startswith('(CAss "result"'):
+            commands = commands[:-1]
         if len(commands) == 1:
             return commands[0]
         result = commands[-1]
@@ -431,7 +430,7 @@ class ImpTranslator:
         path = self._translate_target(stmt.iter) if isinstance(stmt.iter, (ast.Name, ast.Attribute)) else None
         if path:
             return self._build_for_in_name(target, path, stmt)
-        # for x in d.values(), d.keys(), etc.
+        # for x in d.values(), d.keys(), d.items()
         if isinstance(stmt.iter, ast.Call):
             name = self._get_call_name(stmt.iter)
             if name and name.endswith(".items"):
@@ -447,6 +446,7 @@ class ImpTranslator:
                 obj = self._translate_target(stmt.iter.func.value)
                 return self._build_for_in_name(target, f"{obj}._keys", stmt)
 
+        # General for-in (other Call or expr) — not yet supported
         return f"(* untranslated for-in: {ast.unparse(stmt)} *)"
 
     def _build_for_in_name(self, target: str, iter_name: str, stmt: ast.For) -> str:
