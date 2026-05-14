@@ -101,13 +101,17 @@ class ImpTranslator:
                 if obj:
                     val = self.translate_expr(value.args[0])
                     if isinstance(value.func, ast.Attribute) and isinstance(value.func.value, ast.Subscript):
-                        # dict[key].append(val) → CDictAppend
                         sub = value.func.value
                         dict_name = self._translate_target(sub.value)
                         key_e = self.translate_expr(sub.slice)
                         return f'(CDictAppend "{dict_name}"%string {key_e} {val})'
-                    # obj.append(x) → CListAppend
                     return f'(CListAppend "{obj}"%string {val})'
+            if name and name.endswith(".add") and value.args:
+                # set.add(x) → CDictSet with value 1
+                obj = self._get_call_object(value)
+                if obj:
+                    val = self.translate_expr(value.args[0])
+                    return f'(CDictSet "{obj}"%string {val} (ANum 1))'
         return None
 
     def translate_expr(self, node: ast.expr) -> str:
@@ -198,11 +202,18 @@ class ImpTranslator:
             elif isinstance(value, ast.Dict) and not value.keys:
                 return "CSkip"  # x = {} — empty dict
             elif isinstance(value, ast.Call):
+                name = self._get_call_name(value)
+                if name == "set" and not value.args:
+                    return "CSkip"  # x = set() — empty set
                 cc = self._translate_function_call(target, value)
                 if cc:
                     return cc
                 val = self.translate_expr(value)
                 targets.append(f'(CAss "{target}"%string {val})')
+            elif isinstance(value, ast.BoolOp):
+                # Boolean expression → wrap in ABool for aexp context
+                val = self.translate_expr(value)
+                targets.append(f'(CAss "{target}"%string (ABool {val}))')
             else:
                 val = self.translate_expr(value)
                 targets.append(f'(CAss "{target}"%string {val})')
@@ -319,6 +330,8 @@ class ImpTranslator:
             return "BTrue" if node.value else "BFalse"
         if isinstance(node, ast.Name):
             return f"(BNot (BEq (AVar \"{node.id}\"%string) (ANum 0)))"
+        if isinstance(node, ast.BoolOp):
+            return self._translate_boolop(node)
         if isinstance(node, ast.Call):
             name = self._get_call_name(node)
             if name == "len" and node.args and isinstance(node.args[0], ast.Name):
