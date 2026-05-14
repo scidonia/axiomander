@@ -12,17 +12,19 @@ Open Scope Z_scope.
 Ltac wp_reduce :=
   unfold wp, upd, aeval, beval; simpl.
 
-(** [wp_prove] — wp_reduce + trivial + lia (closes simple goals). *)
+(** [wp_prove] — structural recursion over goal shape after wp_reduce.
+    Handles conjunctions, disjunctions, ABool cases, reflexivity, lia.
+    Does NOT intro forall/-> (handled by the proof template's intros). *)
 Ltac wp_prove :=
   wp_reduce;
-  try reflexivity;
-  try lia;
-  try (match goal with
-  | [ |- (if ?c then _ else _) = _ \/ (if ?c then _ else _) = _ ] =>
+  match goal with
+  | |- _ /\ _ => split; wp_prove
+  | |- (if ?c then _ else _) = 1 \/ (if ?c then _ else _) = 0 =>
       destruct c; auto
-  | [ |- ?x = 1 \/ ?x = 0 ] =>
-      destruct (Z.eqb x 1) eqn:?; auto; right; lia
-  end).
+  | |- _ \/ _ => (left; wp_prove) || (right; wp_prove)
+  | |- ?x = ?x => reflexivity
+  | |- _ => try lia; try reflexivity; try auto
+  end.
 
 (** [vcg_exit] — proves the while-exit verification condition.
     The goal is: vcg_while_exit b inv Q

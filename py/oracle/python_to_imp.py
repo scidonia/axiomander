@@ -392,6 +392,10 @@ class ImpTranslator:
         # for x in expr: (string or list iteration)
         if isinstance(stmt.iter, ast.Name):
             return self._build_for_in_name(target, stmt.iter.id, stmt)
+        # for x in obj.field, x in dict.values(), etc. — approximate as name iteration
+        path = self._translate_target(stmt.iter) if isinstance(stmt.iter, (ast.Name, ast.Attribute)) else None
+        if path:
+            return self._build_for_in_name(target, path, stmt)
         return f"(* untranslated for-in: {ast.unparse(stmt)} *)"
 
     def _build_for_in_name(self, target: str, iter_name: str, stmt: ast.For) -> str:
