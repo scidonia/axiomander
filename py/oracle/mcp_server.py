@@ -1021,7 +1021,8 @@ TOOLS = [
         "description": (
             "Analyze a Python file for contract adornment opportunities. "
             "Suggests where to add assert-based preconditions, postconditions, "
-            "and loop invariants. Does NOT run verification — just structural analysis."
+            "and loop invariants. Detects: for-loops, while-loops, list/dict/set "
+            "operations, string indexing, function calls. Does NOT run verification."
         ),
         "inputSchema": {
             "type": "object",
@@ -1038,9 +1039,12 @@ TOOLS = [
         "name": "check-function",
         "description": (
             "Verify a single Python function with assert-based contracts. "
-            "Runs Level 1 verification (wp_reduce). If it fails, returns "
-            "LLM-generated guidance on what assertions to add or change, "
-            "and whether the property might be false."
+            "Level 1: wp_reduce/wp_prove (structural + linear arithmetic). "
+            "Level 2: SMT (cvc4) for VCG obligations (non-linear, division). "
+            "Level 3: LLM oracle (DeepSeek) with coqpyt interactive proof "
+            "for remaining goals. Supports: lists, dicts, sets, strings, "
+            "function calls (CCall), for-loops, while-loops, BOr conditionals. "
+            "Returns proof status + SMT counterexample if invariant is too weak."
         ),
         "inputSchema": {
             "type": "object",
@@ -1052,6 +1056,10 @@ TOOLS = [
                 "function_name": {
                     "type": "string",
                     "description": "Name of the function to verify",
+                },
+                "hint": {
+                    "type": "string",
+                    "description": "Optional: 'hammer' for SMT ATP fallback, or guidance text for LLM thinking time",
                 },
             },
             "required": ["source", "function_name"],
