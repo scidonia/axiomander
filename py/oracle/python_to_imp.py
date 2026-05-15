@@ -51,6 +51,13 @@ class ImpTranslator:
     def __init__(self):
         self._invariants: dict[int, str] = {}  # line → invariant string
         self._contract_map: dict[str, tuple[list[str], str, str]] = {}  # name → (params, pre, post)
+        self._vc = 0  # var counter for _fresh_var
+
+    def _fresh_var(self, prefix: str = "v") -> str:
+        """Return a unique loop variable name: _v0, _v1, ..."""
+        name = f"_{prefix}{self._vc}"
+        self._vc += 1
+        return name
 
     def _desugar_break_continue(self, body: list[ast.stmt]) -> list[ast.stmt]:
         """Preprocess loop body to eliminate break/continue.
@@ -66,6 +73,12 @@ class ImpTranslator:
         if not has_break and not has_continue:
             return body
 
+        brk_name = self._fresh_var("brk")
+        skp_name = self._fresh_var("skp")
+        # Store for later use by while/for translators
+        self._last_brk_var = brk_name if has_break else None
+        self._last_skp_var = skp_name if has_continue else None
+
         result: list[ast.stmt] = []
         after_break = False
         after_skip = False
@@ -73,42 +86,42 @@ class ImpTranslator:
         for stmt in body:
             if isinstance(stmt, ast_mod.Break):
                 result.append(ast_mod.Assign(
-                    targets=[ast_mod.Name(id='_brk', ctx=ast_mod.Store())],
+                    targets=[ast_mod.Name(id=brk_name, ctx=ast_mod.Store())],
                     value=ast_mod.Constant(value=1)))
                 after_break = True
                 continue
             if isinstance(stmt, ast_mod.Continue):
                 result.append(ast_mod.Assign(
-                    targets=[ast_mod.Name(id='_skp', ctx=ast_mod.Store())],
+                    targets=[ast_mod.Name(id=skp_name, ctx=ast_mod.Store())],
                     value=ast_mod.Constant(value=1)))
                 after_skip = True
                 continue
             s = deepcopy(stmt)
             if after_break:
                 guard = ast_mod.Compare(
-                    left=ast_mod.Name(id='_brk', ctx=ast_mod.Load()),
+                    left=ast_mod.Name(id=brk_name, ctx=ast_mod.Load()),
                     ops=[ast_mod.Eq()], comparators=[ast_mod.Constant(value=0)])
                 s = ast_mod.If(test=guard, body=[s], orelse=[])
             if after_skip:
                 guard = ast_mod.Compare(
-                    left=ast_mod.Name(id='_skp', ctx=ast_mod.Load()),
+                    left=ast_mod.Name(id=skp_name, ctx=ast_mod.Load()),
                     ops=[ast_mod.Eq()], comparators=[ast_mod.Constant(value=0)])
                 s = ast_mod.If(test=guard, body=[s], orelse=[])
             result.append(s)
 
-        # Reset skip flag at end of iteration
         if has_continue:
             result.append(ast_mod.Assign(
-                targets=[ast_mod.Name(id='_skp', ctx=ast_mod.Store())],
+                targets=[ast_mod.Name(id=skp_name, ctx=ast_mod.Store())],
                 value=ast_mod.Constant(value=0)))
         return result
 
     def _add_break_to_condition(self, cond_str: str) -> str:
-        """Add _brk flag check to loop condition."""
-        return f'(BAnd {cond_str} (BEq (AVar "_brk"%string) (ANum 0)))'
+        brk = getattr(self, '_last_brk_var', '_brk')
+        return f'(BAnd {cond_str} (BEq (AVar "{brk}"%string) (ANum 0)))'
 
     def _break_init(self) -> str:
-        return '(CAss "_brk"%string (ANum 0))'
+        brk = getattr(self, '_last_brk_var', '_brk')
+        return f'(CAss "{brk}"%string (ANum 0))'
 
     def translate_body(self, body: list[ast.stmt]) -> str:
         """Translate a list of statements into an IMP command sequence."""
@@ -188,7 +201,7 @@ class ImpTranslator:
             if name and name.endswith(".lower") and not value.args:
                 obj = self._get_call_object(value)
                 if obj:
-                    loop_var = "_k"
+                    loop_var = self._fresh_var("k")
                     init = f'(CAss "{loop_var}"%string (ANum 0))'
                     cond = f"(BLe (APlus (AVar \"{loop_var}\"%string) (ANum 1)) (ALen \"{obj}\"%string))"
                     char = f'(AIndex "{obj}"%string (AVar "{loop_var}"%string))'
@@ -200,7 +213,7 @@ class ImpTranslator:
             if name and name.endswith(".upper") and not value.args:
                 obj = self._get_call_object(value)
                 if obj:
-                    loop_var = "_k"
+                    loop_var = self._fresh_var("k")
                     init = f'(CAss "{loop_var}"%string (ANum 0))'
                     cond = f"(BLe (APlus (AVar \"{loop_var}\"%string) (ANum 1)) (ALen \"{obj}\"%string))"
                     char = f'(AIndex "{obj}"%string (AVar "{loop_var}"%string))'
@@ -217,7 +230,7 @@ class ImpTranslator:
                     incr = lambda v: f'(CAss "{v}"%string (APlus (AVar "{v}"%string) (ANum 1)))'
                     decr = lambda v: f'(CAss "{v}"%string (AMinus (AVar "{v}"%string) (ANum 1)))'
                     # Scan left: find first non-whitespace
-                    l = "_l"; r = "_r"; i = "_i"
+                    l = self._fresh_var("l"); r = self._fresh_var("r"); i = self._fresh_var("i")
                     left_cond = f'(BAnd (BLe (APlus (AVar "{l}"%string) (ANum 1)) {ln}) {ws(l)})'
                     left_loop = f'(CWhile {left_cond} (fun _ => True) {incr(l)})'
                     left_init = f'(CAss "{l}"%string (ANum 0))'
@@ -420,7 +433,7 @@ class ImpTranslator:
         tname = self._translate_target(node.value)
         tstart = self.translate_expr(node.slice.lower) if node.slice.lower else "(ANum 0)"
         tend = self.translate_expr(node.slice.upper) if node.slice.upper else f'(ALen "{tname}"%string)'
-        loop_var = "_k"
+        loop_var = self._fresh_var("k")
         init_list = f'(CListNew "{target}"%string)'
         init = f'(CAss "{loop_var}"%string {tstart})'
         cond = f"(BLe (APlus (AVar \"{loop_var}\"%string) (ANum 1)) {tend})"
@@ -467,7 +480,7 @@ class ImpTranslator:
             start = self.translate_expr(args[0]); limit = self.translate_expr(args[1]); step = "(ANum 1)"
         else:
             return None
-        loop_var = "_k"
+        loop_var = self._fresh_var("k")
         init = f'(CAss "{target}"%string {start})'
         cond = f"(BLe (APlus (AVar \"{target}\"%string) {step}) {limit})"
         incr = f'(CAss "{target}"%string (APlus (AVar \"{target}\"%string) {step}))'
@@ -479,7 +492,7 @@ class ImpTranslator:
         """Build for-in loop with a pre-built body string."""
         start_val = "(ANum 0)"
         step_val = "(ANum 1)"
-        loop_var = "_i"
+        loop_var = self._fresh_var("i")
         init = f'(CAss "{loop_var}"%string {start_val})'
         cond = f"(BLe (APlus (AVar \"{loop_var}\"%string) {step_val}) (ALen \"{iter_name}\"%string))"
         elem_load = f'(CAss "{target}"%string (AIndex \"{iter_name}\"%string (AVar \"{loop_var}\"%string)))'
@@ -491,7 +504,7 @@ class ImpTranslator:
         tname = self._translate_target(node.value)
         tstart = self.translate_expr(node.slice.lower) if node.slice.lower else "(ANum 0)"
         tend = self.translate_expr(node.slice.upper) if node.slice.upper else f'(ALen "{tname}"%string)'
-        loop_var = "_k"
+        loop_var = self._fresh_var("k")
         init_list = f'(CListNew "{target}"%string)'
         init = f'(CAss "{loop_var}"%string {tstart})'
         cond = f"(BLe (APlus (AVar \"{loop_var}\"%string) (ANum 1)) {tend})"
@@ -509,7 +522,7 @@ class ImpTranslator:
         valname = self._translate_target(value) if isinstance(value, ast.Name) else "src"
         if not isinstance(value, ast.Name):
             return f"(* untranslated slice assign: {ast.unparse(target)} = {ast.unparse(value)} *)"
-        loop_var = "_k"
+        loop_var = self._fresh_var("k")
         result_cmds = f'(CListNew "{valname}"%string)'
         init = f'(CAss "{loop_var}"%string {tstart})'
         cond = f"(BLe (APlus (AVar \"{loop_var}\"%string) (ANum 1)) {tend})"
@@ -641,7 +654,7 @@ class ImpTranslator:
         """Build a for-in-name loop: for x in name → while i<len(name): x=name[i]; body; i+=1"""
         start_val = "(ANum 0)"
         step_val = "(ANum 1)"
-        loop_var = "_i"
+        loop_var = self._fresh_var("i")
         init = f'(CAss "{loop_var}"%string {start_val})'
         cond = f"(BLe (APlus (AVar \"{loop_var}\"%string) {step_val}) (ALen \"{iter_name}\"%string))"
         body_cmds = self.translate_body(stmt.body) or "CSkip"
@@ -656,7 +669,7 @@ class ImpTranslator:
         """Build for k, v in d.items(): while loop over _keys and _vals."""
         start_val = "(ANum 0)"
         step_val = "(ANum 1)"
-        loop_var = "_i"
+        loop_var = self._fresh_var("i")
         init = f'(CAss "{loop_var}"%string {start_val})'
         cond = f"(BLe (APlus (AVar \"{loop_var}\"%string) {step_val}) (ALen \"{obj}._keys\"%string))"
         body_cmds = self.translate_body(stmt.body) or "CSkip"
