@@ -138,6 +138,18 @@ class ImpTranslator:
                     body = f'(CSeq (CIf {is_upper} (CListSet "{obj}"%string (AVar "{loop_var}"%string) {lowered}) CSkip) (CAss "{loop_var}"%string (APlus (AVar "{loop_var}"%string) (ANum 1))))'
                     loop = f'(CWhile {cond} (fun _ => True) {body})'
                     return f'(CSeq {init} {loop})'
+            if name and name.endswith(".upper") and not value.args:
+                obj = self._get_call_object(value)
+                if obj:
+                    loop_var = "_k"
+                    init = f'(CAss "{loop_var}"%string (ANum 0))'
+                    cond = f"(BLe (APlus (AVar \"{loop_var}\"%string) (ANum 1)) (ALen \"{obj}\"%string))"
+                    char = f'(AIndex "{obj}"%string (AVar "{loop_var}"%string))'
+                    is_lower = f'(BAnd (BLe (ANum 97) {char}) (BLe {char} (ANum 122)))'
+                    uppered = f'(AMinus {char} (ANum 32))'
+                    body = f'(CSeq (CIf {is_lower} (CListSet "{obj}"%string (AVar "{loop_var}"%string) {uppered}) CSkip) (CAss "{loop_var}"%string (APlus (AVar "{loop_var}"%string) (ANum 1))))'
+                    loop = f'(CWhile {cond} (fun _ => True) {body})'
+                    return f'(CSeq {init} {loop})'
             if name and name.endswith(".strip") and not value.args:
                 obj = self._get_call_object(value)
                 if obj:
