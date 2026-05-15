@@ -239,6 +239,13 @@ def first2(lst: list[int]):
         if c<97 or c>122: return 1
         i+=1
     return 0'''),
+    ("check_strip", '''def check_strip(text: str, n: int):
+    assert n>=0
+    old_len=n
+    text.strip()
+    result=len(text)
+    assert result <= old_len
+    return 0'''),
 
     # ── Negative tests ─────────────────────────────────────────────
     ("weak_count", "def weak_count(n: int):\n    assert n>=0\n    count=0;i=0\n    while i<n:\n        assert count>=0;assert i<=n\n        count+=1;i+=1\n    assert count==n\n    return count"),

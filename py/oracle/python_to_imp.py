@@ -138,6 +138,34 @@ class ImpTranslator:
                     body = f'(CSeq (CIf {is_upper} (CListSet "{obj}"%string (AVar "{loop_var}"%string) {lowered}) CSkip) (CAss "{loop_var}"%string (APlus (AVar "{loop_var}"%string) (ANum 1))))'
                     loop = f'(CWhile {cond} (fun _ => True) {body})'
                     return f'(CSeq {init} {loop})'
+            if name and name.endswith(".strip") and not value.args:
+                obj = self._get_call_object(value)
+                if obj:
+                    ln = f'(ALen "{obj}"%string)'
+                    ws = lambda v: f'(BLe (AIndex "{obj}"%string (AVar "{v}"%string)) (ANum 32))'
+                    incr = lambda v: f'(CAss "{v}"%string (APlus (AVar "{v}"%string) (ANum 1)))'
+                    decr = lambda v: f'(CAss "{v}"%string (AMinus (AVar "{v}"%string) (ANum 1)))'
+                    # Scan left: find first non-whitespace
+                    l = "_l"; r = "_r"; i = "_i"
+                    left_cond = f'(BAnd (BLe (APlus (AVar "{l}"%string) (ANum 1)) {ln}) {ws(l)})'
+                    left_loop = f'(CWhile {left_cond} (fun _ => True) {incr(l)})'
+                    left_init = f'(CAss "{l}"%string (ANum 0))'
+                    # Scan right
+                    right_init = f'(CAss "{r}"%string (AMinus {ln} (ANum 1)))'
+                    right_cond = f'(BAnd (BLe (ANum 1) (APlus (AVar "{r}"%string) (ANum 1))) {ws(r)})'
+                    right_loop = f'(CWhile {right_cond} (fun _ => True) {decr(r)})'
+                    # Shift: for _i from 0 to _r-_l, s[_i] = s[_l+_i]
+                    src_idx = f'(APlus (AVar "{l}"%string) (AVar "{i}"%string))'
+                    shift_body = f'(CSeq (CListSet "{obj}"%string (AVar "{i}"%string) (AIndex "{obj}"%string {src_idx})) {incr(i)})'
+                    shift_cond = f'(BLe (APlus (AVar "{i}"%string) (ANum 1)) (APlus (AMinus (AVar "{r}"%string) (AVar "{l}"%string)) (ANum 1)))'
+                    shift_loop = f'(CWhile {shift_cond} (fun _ => True) {shift_body})'
+                    shift_init = f'(CAss "{i}"%string (ANum 0))'
+                    shift = f'(CSeq {shift_init} {shift_loop})'
+                    # Truncate: while len > _r-_l+1, pop
+                    new_len = f'(APlus (AMinus (AVar "{r}"%string) (AVar "{l}"%string)) (ANum 1))'
+                    pop_cond = f'(BLe (APlus {new_len} (ANum 1)) {ln})'
+                    pop_loop = f'(CWhile {pop_cond} (fun _ => True) (CListPop "{obj}"%string))'
+                    return f'(CSeq {left_init} (CSeq {left_loop} (CSeq {right_init} (CSeq {right_loop} (CSeq {shift} {pop_loop})))))'
         return None
 
     def translate_expr(self, node: ast.expr) -> str:
