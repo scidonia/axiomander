@@ -116,6 +116,85 @@ EXAMPLES = [
     # ── nested loops (outer VCG) ──────────────────────────────────
     ("nested_sum", "def nested_sum(n: int):\n    assert n>=0\n    total=0;i=0\n    while i<n:\n        assert total==3*i;assert i<=n\n        j=0\n        while j<3:\n            total+=1;j+=1\n        i+=1\n    result=total\n    assert result==3*n\n    return result"),
 
+    # ── for-in-list ────────────────────────────────────────────────
+    ("for_in_list_sum", "def for_in_list_sum(lst: list[int]):\n    assert len(lst)>=0\n    total=0\n    for x in lst:\n        total+=x\n    result=total\n    assert result>=0\n    return result"),
+    ("for_in_list_count", "def for_in_list_count(lst: list[int]):\n    assert len(lst)>=0\n    count=0\n    for x in lst:\n        count+=1\n    result=count\n    assert result==len(lst)\n    return result"),
+    ("nested_for_in", "def nested_for_in(n: int):\n    assert n>=0\n    outer=[];i=0\n    while i<n: outer.append(i);i+=1\n    inner=[];j=0\n    while j<n: inner.append(j+1);j+=1\n    count=0\n    for a in outer:\n        for b in inner:\n            count+=1\n    result=count\n    assert result==n*n\n    return result"),
+
+    # ── Paperchecker: brace-matching ───────────────────────────────
+    ("find_brace_content", '''def find_brace_content(text: str, n: int, start: int):
+    assert start>=0; assert start<=n
+    depth=1; pos=start
+    while pos<n and depth>0:
+        assert depth>=0; assert pos<=n
+        if text[pos]==123: depth+=1
+        elif text[pos]==125: depth-=1
+        pos+=1
+    result=pos-start
+    assert result<=n
+    return result'''),
+
+    # ── Predicates ─────────────────────────────────────────────────
+    ("use_pred", '''def is_pos(x: int) -> bool:
+    return x > 0
+
+def use_pred(n: int):
+    assert is_pos(n)
+    result=0
+    return result'''),
+    ("clamp2", '''def in_range(val: int, lo: int, hi: int) -> bool:
+    return lo <= val and val <= hi
+
+def clamp2(val: int, lo: int, hi: int):
+    assert lo<=hi
+    if val<lo: result=lo
+    elif val>hi: result=hi
+    else: result=val
+    assert in_range(result, lo, hi)
+    return result'''),
+    ("first2", '''def non_empty(lst: list[int]) -> bool:
+    return len(lst) > 0
+
+def first2(lst: list[int]):
+    assert non_empty(lst)
+    result=lst[0]
+    assert True
+    return result'''),
+
+    # ── Range quantifiers ──────────────────────────────────────────
+    ("build_sorted", '''def build_sorted(n: int):
+    assert n>=0
+    result=[]; i=0
+    while i<n:
+        assert len(result)==i; assert i<=n
+        assert all(result[j]==j for j in range(i))
+        result.append(i); i+=1
+    assert all(result[j]==j for j in range(n))
+    return result'''),
+
+    # ── Semantic contracts ─────────────────────────────────────────
+    ("brace_scan", '''def brace_scan(text: str, n: int):
+    assert n>=0
+    depth=0; i=0
+    while i<n:
+        assert depth>=0; assert i<=n
+        if text[i]==123: depth+=1
+        elif text[i]==125: depth-=1
+        i+=1
+    result=depth
+    assert result>=0
+    return result'''),
+    ("count_bounded", '''def count_bounded(text: str, n: int):
+    assert n>=0
+    i=0; dots=0
+    while i<n:
+        assert dots<=i; assert i<=n
+        if text[i]==46: dots+=1
+        i+=1
+    result=dots
+    assert result<=n
+    return result'''),
+
     # ── list slicing in contracts ─────────────────────────────────
     ("slice_len", "def slice_len(n: int):\n    assert n>=0\n    result=[];i=0\n    while i<n:\n        assert len(result)==i;assert i<=n\n        result.append(i);i+=1\n    assert len(result[0:n])==n\n    return result"),
 
@@ -148,12 +227,40 @@ EXAMPLES = [
     ("in_vocab", "def in_vocab(items: list[int]):\n    assert len(items)>=0\n    vocab=set();vocab.add(1);vocab.add(2);vocab.add(3)\n    i=0\n    while i<len(items):\n        assert i<=len(items)\n        if items[i] not in vocab:return 1\n        i+=1\n    return 0"),
     ("iso_date", "def iso_date(text: str):\n    assert len(text)>=0\n    if len(text)!=10:return 1\n    if text[4]!=45 or text[7]!=45:return 1\n    i=0\n    while i<10:\n        assert i<=10\n        if i!=4 and i!=7:\n            if text[i]<48 or text[i]>57:return 1\n        i+=1\n    return 0"),
     ("unique_items", "def unique_items(items: list[int]):\n    assert len(items)>=0\n    i=0\n    while i<len(items):\n        assert i<=len(items)\n        j=i+1\n        while j<len(items):\n            assert j<=len(items)\n            if items[i]==items[j]:return 1\n            j+=1\n        i+=1\n    return 0"),
+
+    # ── Negative tests ─────────────────────────────────────────────
+    ("weak_count", "def weak_count(n: int):\n    assert n>=0\n    count=0;i=0\n    while i<n:\n        assert count>=0;assert i<=n\n        count+=1;i+=1\n    assert count==n\n    return count"),
+    ("missing_bound", "def missing_bound(n: int):\n    assert n>=0\n    total=0;i=0\n    while i<n:\n        assert total>=0\n        total+=i;i+=1\n    assert total==n*(n-1)//2\n    return total"),
+    ("false_post", "def false_post(n: int):\n    assert n>=0\n    total=0;i=0\n    while i<n:\n        assert total==i*(i-1)//2;assert i<=n\n        total+=i;i+=1\n    assert total>=n*n\n    return total"),
+    ("weak_accum", "def weak_accum(n: int):\n    assert n>=0\n    out=[];i=0\n    while i<n:\n        assert len(out)<=i;assert i<=n\n        out.append(i);i+=1\n    result=len(out)\n    assert result==n\n    return result"),
+    ("weak_sum_inc", "def weak_sum_inc(n: int):\n    assert n>=0\n    total=0;i=0\n    while i<n:\n        assert total>=0;assert i<=n\n        total+=i;i+=1\n    assert total==n*(n+1)//2\n    return total"),
+    ("neg_assign", "def neg_assign(a: int):\n    assert a>=0\n    result=-1\n    assert result>=0\n    return result"),
+    ("weak_for_in_count", "def weak_for_in_count(lst: list[int]):\n    assert len(lst)>=0\n    count=0\n    for x in lst:\n        assert count>=0\n        count+=1\n    result=count\n    assert result==len(lst)\n    return result"),
+    ("weak_for_in_total", "def weak_for_in_total(lst: list[int]):\n    assert len(lst)>=0\n    total=0\n    for x in lst:\n        assert total>=0\n        total+=x\n    result=total\n    assert result==len(lst)\n    return result"),
+    ("count_to_buggy", "def count_to_buggy(n: int):\n    assert n>=0\n    i=0\n    while i<=n:\n        assert i<=n+1\n        i+=1\n    assert i==n\n    return i"),
+    ("count_underrun", "def count_underrun(n: int):\n    assert n>=0\n    i=0\n    while i<n-1:\n        assert i<=n\n        i+=1\n    assert i==n\n    return i"),
+    ("brace_fail", '''def brace_fail(text: str, n: int):
+    assert n>=0
+    depth=0; i=0
+    while i<n:
+        assert depth<=0; assert i<=n
+        if text[i]==123: depth+=1
+        elif text[i]==125: depth-=1
+        i+=1
+    result=depth
+    assert result>=0
+    return result'''),
 ]
+
+NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail"}
 
 
 @pytest.mark.parametrize("name,source", EXAMPLES)
 def test_verification_passes(name, source):
     goal = run_verification(source, name)
     assert goal is not None, f"None return for {name}"
-    assert goal.is_proved(), f"Not proved ({goal.level}): {goal.error_detail[:200]}"
-    assert goal.level == ProofLevel.LEVEL1_LTAC
+    if name in NEGATIVE_TESTS:
+        assert not goal.is_proved(), f"{name} should NOT be proved but it was"
+    else:
+        assert goal.is_proved(), f"Not proved ({goal.level}): {goal.error_detail[:200]}"
+        assert goal.level == ProofLevel.LEVEL1_LTAC
