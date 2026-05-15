@@ -297,16 +297,27 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
         error = result.stderr + result.stdout
         # Check for SMT counterexample in the generated source
         ce_hint = ""
+        ce_dict: dict[str, int] = {}
         if "SMT counterexample:" in coq_source:
             import re
             m = re.search(r'SMT counterexample: (.*?) \*', coq_source)
             if m:
-                ce_hint = f"\n\nSMT counterexample found: {m.group(1)}\nStrengthen the loop invariant to rule out these values."
+                ce_str = m.group(1).strip()
+                ce_hint = f"\n\nSMT counterexample found: {ce_str}\nStrengthen the loop invariant to rule out these values."
+                for pair in ce_str.split(","):
+                    pair = pair.strip()
+                    if "=" in pair:
+                        k, v = pair.split("=", 1)
+                        try:
+                            ce_dict[k.strip()] = int(v.strip())
+                        except ValueError:
+                            pass
         return GoalStatus(name=func_name,
                         goal_statement=f"wp {func_name}_body ...",
-                        level=ProofLevel.UNPROVED,
+                        level=ProofLevel.COUNTEREXAMPLE if ce_dict else ProofLevel.UNPROVED,
+                        counterexample=ce_dict,
                         error_detail=error[-800:] + ce_hint,
-                        suggested_action=Action.RETRY_LLM,
+                        suggested_action=Action.PROPERTY_FALSE if ce_dict else Action.RETRY_LLM,
                         suggestion_text=error[:200],
                         proof_method="wp_reduce")
     finally:
@@ -654,61 +665,136 @@ def _scope_vars(coq_expr: str, params: list[str]) -> str:
     return coq_expr
 
 
+COQ_KEYWORDS = {
+    "end", "match", "fix", "struct", "cofix", "with", "let", "in",
+    "if", "then", "else", "fun", "forall", "exists", "as", "at",
+    "return", "module", "type", "where", "when", "using", "by",
+}
+
+
+def _coq_safe_name(name: str) -> str:
+    """Rename Python variables that collide with Coq keywords."""
+    if name.lower() in COQ_KEYWORDS:
+        return f"{name}_var"
+    return name
+
+
+def _coq_safe_id(name: str) -> str:
+    """Sanitize a name for use as a Coq identifier (no parens, ops, etc)."""
+    return name.replace("(", "_L_").replace(")", "_R_").replace(" + ", "_plus_") \
+               .replace(" - ", "_minus_").replace("*", "_star_").replace("/", "_div_") \
+               .replace("-", "_minus_").replace("+", "_plus_").replace(" ", "_")
+
+
+def _find_closing_paren(s: str, start: int) -> int:
+    """Find the matching ')' for the opening '(' at position `start`."""
+    depth = 0
+    for i in range(start, len(s)):
+        if s[i] == '(':
+            depth += 1
+        elif s[i] == ')':
+            depth -= 1
+            if depth == 0:
+                return i
+    return -1
+
+
 def _unscope_vars(coq_expr: str) -> str:
     """Convert state lookups back to bare Coq variables for VCG.
     s \"x\"%string → x, s \"a.b\"%string → a_b."""
     import re
-    result = re.sub(r's "([^"]+)"%string', r'\1', coq_expr)
+    result = re.sub(r's "([^"]+)"%string', lambda m: _coq_safe_name(m.group(1)), coq_expr)
     result = result.replace('.', '_')
     return result
 
 
 def _vcg_result_scaffold(imp_body: str) -> str:
     """Extract the post-loop result assignment from the IMP body.
-    
-    For `result = len(xs)` → generates `result = xs__len ->` hypothesis.
-    Returns "" if no result assignment found.
+    Uses depth-aware paren matching (no regex on nested structures).
     """
-    import re
-    # Look for the last meaningful CAss to "result" (not the redundant copy)
-    # Pattern: CAss "result"%string (expr)
-    matches = list(re.finditer(
-        r'\(CAss "result"%string\s+(\([^)]+(?:\([^)]*\)[^)]*)*\))',
-        imp_body
-    ))
-    if not matches:
+    needle = '(CAss "result"%string '
+    pos = imp_body.rfind(needle)
+    if pos == -1:
         return ""
-    last = matches[-1].group(1)
-    # If the assignment is just (AVar "result"%string), skip to the previous one
-    if 'AVar "result"' in last and len(matches) > 1:
-        last = matches[-2].group(1)
-    if 'AVar "result"' in last:
-        return ""
-    # Convert the IMP aexp to an unscoped Coq Z expression
-    coq_val = _imp_aexp_to_coq_z(last)
-    if not coq_val:
-        return ""
-    return f"result = {coq_val} ->\n  "
+    start = pos + len(needle)
+    depth = 0
+    idx = start
+    while idx < len(imp_body):
+        if imp_body[idx] == '(':
+            depth += 1
+        elif imp_body[idx] == ')':
+            depth -= 1
+            if depth == 0:
+                aexp_str = imp_body[start:idx+1]
+                if 'AVar "result"' in aexp_str and '(' not in aexp_str[aexp_str.index('AVar "result"')+13:]:
+                    prev = imp_body.rfind(needle, 0, pos)
+                    if prev == -1:
+                        return ""
+                    start2 = prev + len(needle)
+                    depth2 = 0
+                    idx2 = start2
+                    while idx2 < len(imp_body):
+                        if imp_body[idx2] == '(': depth2 += 1
+                        elif imp_body[idx2] == ')':
+                            depth2 -= 1
+                            if depth2 == 0:
+                                aexp_str = imp_body[start2:idx2+1]
+                                break
+                        idx2 += 1
+                coq_val = _imp_aexp_to_coq_z(aexp_str)
+                if not coq_val:
+                    return ""
+                return f"result = {coq_val} ->\n  "
+        idx += 1
+    return ""
 
 
 def _imp_aexp_to_coq_z(aexp_str: str) -> str:
-    """Convert an IMP aexp string to an unscoped Coq Z value.
-    
+    """Convert an IMP aexp string to an unscoped Coq Z expression.
+    Uses paren-depth parsing (no regex on nested structures).
     (ALen "xs"%string) → xs__len
     (AVar "x"%string) → x
     (ANum 5) → 5
+    (APlus a b) → (a + b)
+    (AMinus a b) → (a - b)
     """
-    import re
     aexp_str = aexp_str.strip()
-    m = re.match(r'\(ALen "([^"]+)"%string\)', aexp_str)
-    if m:
-        return f"{m.group(1)}__len"
-    m = re.match(r'\(AVar "([^"]+)"%string\)', aexp_str)
-    if m:
-        return m.group(1)
-    m = re.match(r'\(ANum (\d+)\)', aexp_str)
-    if m:
-        return m.group(1)
+
+    if aexp_str.startswith('(AVar "'):
+        end = aexp_str.index('"%string)')
+        name = aexp_str[7:end]
+        return _coq_safe_name(name)
+
+    if aexp_str.startswith('(ALen "'):
+        end = aexp_str.index('"%string)')
+        name = aexp_str[7:end]
+        return f"{_coq_safe_name(name)}__len"
+
+    if aexp_str.startswith('(ANum '):
+        end = aexp_str.index(')')
+        return aexp_str[6:end]
+
+    op_end = aexp_str.index(' ', 1)
+    op = aexp_str[1:op_end]
+    rest = aexp_str[op_end+1:]
+
+    left_end = _find_closing_paren(rest, 0)
+    left_str = rest[:left_end+1]
+
+    right_start = left_end + 1
+    while right_start < len(rest) and rest[right_start] == ' ':
+        right_start += 1
+    right_str = rest[right_start:-1]
+
+    left = _imp_aexp_to_coq_z(left_str)
+    right = _imp_aexp_to_coq_z(right_str)
+    if not left or not right:
+        return ""
+
+    if op == "APlus":
+        return f"({left} + {right})"
+    if op == "AMinus":
+        return f"({left} - {right})"
     return ""
 
 
@@ -810,13 +896,21 @@ def _vcg_exit_condition(func_node) -> str:
 
 
 def _py_cond_to_vcg_exit(test: ast.expr) -> str:
-    """Translate a Python comparison to a VCG exit condition.
+    r"""Translate a Python comparison to a VCG exit condition.
 
     Exit means the condition evaluated to false.
     `i < n`  → `Z.leb (i + 1) n = false`
     `i <= n` → `Z.leb i n = false`
+    `a and b` → `(exit a) \/ (exit b)`
+    `a or b`  → `(exit a) /\ (exit b)`
     """
     import ast
+    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.And):
+        parts = [_py_cond_to_vcg_exit(v) for v in test.values]
+        return " \\/ ".join(f"({p})" for p in parts)
+    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.Or):
+        parts = [_py_cond_to_vcg_exit(v) for v in test.values]
+        return " /\\ ".join(f"({p})" for p in parts)
     if isinstance(test, ast.Compare) and len(test.ops) == 1 and len(test.comparators) == 1:
         left = _py_expr_to_coq_var(test.left)
         right = _py_expr_to_coq_var(test.comparators[0])
@@ -856,18 +950,28 @@ def _py_expr_to_coq_var(node: ast.expr) -> str:
     """Convert a simple Python expression to a Coq variable name."""
     import ast
     if isinstance(node, ast.Name):
-        return node.id
+        return _coq_safe_name(node.id)
     if isinstance(node, ast.Constant) and isinstance(node.value, int):
         return str(node.value)
     if isinstance(node, ast.Call):
         name = _get_call_name(node)
         if name == "len" and node.args and isinstance(node.args[0], ast.Name):
-            return f"{node.args[0].id}__len"
+            return f"{_coq_safe_name(node.args[0].id)}__len"
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Sub):
         left = _py_expr_to_coq_var(node.left)
         right = _py_expr_to_coq_var(node.right)
         if left != "?" and right != "?":
             return f"({left} - {right})"
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _py_expr_to_coq_var(node.left)
+        right = _py_expr_to_coq_var(node.right)
+        if left != "?" and right != "?":
+            return f"({left} + {right})"
+    if isinstance(node, ast.Subscript):
+        base = _py_expr_to_coq_var(node.value)
+        idx = _py_expr_to_coq_var(node.slice)
+        if base != "?" and idx != "?":
+            return _coq_safe_id(f"{base}_at_{idx}")
     return "?"
 
 
@@ -1023,6 +1127,10 @@ def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: 
             _unscope_vars(r.lint_result.coq_translation)
             for r in posts if r.lint_result.coq_translation
         ) or "True"
+        pre_vcg = " /\\ ".join(
+            _unscope_vars(r.lint_result.coq_translation)
+            for r in pres if r.lint_result.coq_translation
+        ) or "True"
         exit_cond = _loop_exit_condition(loop_node)
         result_scaffold = _vcg_result_scaffold(imp_body)
 
@@ -1052,18 +1160,24 @@ def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: 
                     all_vcg_vars.add(vname)
             vcg_params = " ".join(f"({v} : Z)" for v in sorted(all_vcg_vars))
             n_params = len(all_vcg_vars)
-            intros_pat = " ".join(["?"] * n_params) + " Hinv Hexit" if n_params > 0 else "Hinv Hexit"
-            vcg_section += f"""(* Verification condition: invariant + exit → postcondition{ce_note} *)
+            intros_pat = " ".join(["?"] * n_params) + " Hpre Hinv Hexit" if n_params > 0 else "Hpre Hinv Hexit"
+            vcg_section += f"""(* Verification condition: precondition + invariant + exit -> postcondition{ce_note} *)
 Theorem {name}_vcg_exit_{loop_node.lineno} : forall {vcg_params},
+  ({pre_vcg}) ->
   ({inv_coq}) ->
   {exit_cond} ->
   {result_scaffold}
   ({post_vcg}).
 Proof.
   intros {intros_pat}{' Hres' if result_scaffold.strip() else ''}.
-  apply Z.leb_gt in Hexit.
-  repeat (match goal with [H: _ /\\ _ |- _] => destruct H end).
-  lia.
+  repeat (match goal with
+    | H: _ /\\ _ |- _ => destruct H
+  end).
+  match type of Hexit with
+  | _ \\/ _ => destruct Hexit as [H1 | H2];
+    [rewrite Z.leb_gt in H1; lia | rewrite Z.leb_gt in H2; lia]
+  | _ => rewrite Z.leb_gt in Hexit; lia
+  end.
 Qed.
 """
         if smt_result.is_valid:
@@ -1077,32 +1191,37 @@ Qed.
             ce_note = ""
             if smt_result.counterexample:
                 ce_str = ", ".join(f"{k}={v}" for k, v in smt_result.counterexample.items())
-                ce_note = f" (* SMT counterexample: {ce_str} — strengthen invariant to rule this out *)"
+                ce_note = f" -- SMT counterexample: {ce_str} -- strengthen invariant to rule this out"
             import re
             all_vcg_vars = set()
-            for expr in [inv_coq, post_vcg, exit_cond, result_scaffold]:
+            for expr in [pre_vcg, inv_coq, post_vcg, exit_cond, result_scaffold]:
                 for vname in re.findall(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b', expr):
                     if vname not in {'True', 'False', 'true', 'false', 'Z', 'string', 'and', 'or', 'not', 'fun', 's', 'parray_key', 'leb', 'eqb'}:
                         all_vcg_vars.add(vname)
             all_vcg_vars.add("result")
-            # Always include common loop variables
             for vname in ["i", "n"]:
-                if re.search(rf'\b{vname}\b', inv_coq + " " + exit_cond + " " + post_vcg + " " + result_scaffold):
+                if re.search(rf'\b{vname}\b', pre_vcg + " " + inv_coq + " " + exit_cond + " " + post_vcg + " " + result_scaffold):
                     all_vcg_vars.add(vname)
             vcg_params = " ".join(f"({v} : Z)" for v in sorted(all_vcg_vars))
             n_params = len(all_vcg_vars)
-            intros_pat = " ".join(["?"] * n_params) + " Hinv Hexit" if n_params > 0 else "Hinv Hexit"
-            vcg_section = f"""(* Verification condition: invariant + exit → postcondition{ce_note} *)
+            intros_pat = " ".join(["?"] * n_params) + " Hpre Hinv Hexit" if n_params > 0 else "Hpre Hinv Hexit"
+            vcg_section = f"""(* Verification condition: precondition + invariant + exit -> postcondition{ce_note} *)
 Theorem {name}_vcg_exit : forall {vcg_params},
+  ({pre_vcg}) ->
   ({inv_coq}) ->
   {exit_cond} ->
   {result_scaffold}
   ({post_vcg}).
 Proof.
   intros {intros_pat}{' Hres' if result_scaffold.strip() else ''}.
-  apply Z.leb_gt in Hexit.
-  repeat (match goal with [H: _ /\\ _ |- _] => destruct H end).
-  lia.
+  repeat (match goal with
+    | H: _ /\\ _ |- _ => destruct H
+  end).
+  match type of Hexit with
+  | _ \\/ _ => destruct Hexit as [H1 | H2];
+    [rewrite Z.leb_gt in H1; lia | rewrite Z.leb_gt in H2; lia]
+  | _ => rewrite Z.leb_gt in Hexit; lia
+  end.
 Qed.
 """
 

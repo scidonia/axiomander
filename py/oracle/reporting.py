@@ -52,7 +52,7 @@ class GoalStatus:
     suggestion_text: str = ""
 
     def is_proved(self) -> bool:
-        return self.level != ProofLevel.UNPROVED
+        return self.level not in (ProofLevel.UNPROVED, ProofLevel.COUNTEREXAMPLE)
 
 
 @dataclass
@@ -95,8 +95,11 @@ class PipelineReport:
         else:
             for g in unproved:
                 lines.append(f"### `{g.name}`")
-                lines.append(f"**Action**: {g.suggested_action.value}")
+                lines.append(f"**Action**: {g.suggested_action.value if g.suggested_action else "unknown"}")
                 lines.append(f"**Detail**: {g.suggestion_text}")
+                if g.counterexample:
+                    lines.append(f"**SMT counterexample**: {", ".join(f"`{k}={v}`" for k, v in g.counterexample.items())}")
+                    lines.append(f"> The loop invariant is too weak. Strengthen it to rule out these values.")
                 if g.error_detail:
                     lines.append(f"```\n{g.error_detail[:500]}\n```")
                 if g.dependencies:

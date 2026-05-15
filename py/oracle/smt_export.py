@@ -98,7 +98,8 @@ def _extract_vars(*args: str) -> set[str]:
             from all args, minus the excluded keyword set.
     """
     EXCLUDED = {'true', 'false', 'z', 'string', 'and', 'or', 'not',
-                'fun', 's', 'leb', 'parray_key', 'prop'}
+                'fun', 's', 'leb', 'parray_key', 'prop',
+                'forall', 'exists', 'int', 'ite', 'mod', 'div', 'abs'}
     vars_set = set()
     for expr in args:
         if not expr:
