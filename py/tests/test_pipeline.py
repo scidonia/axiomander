@@ -247,6 +247,30 @@ def first2(lst: list[int]):
     assert result <= old_len
     return 0'''),
 
+    # ── break / continue ───────────────────────────────────────────
+    ("break_find", '''def break_find(n: int):
+    assert n>=0
+    i=0
+    while i<n:
+        assert i<=n
+        if i>=10: break
+        i+=1
+    result=i
+    assert result<=n
+    return result'''),
+    ("continue_skip", '''def continue_skip(n: int):
+    assert n>=0
+    i=0; count=0
+    while i<n:
+        assert count<=i; assert i<=n
+        if i%2==0:
+            i+=1
+            continue
+        count+=1; i+=1
+    result=count
+    assert result<=n
+    return result'''),
+
     # ── Negative tests ─────────────────────────────────────────────
     ("weak_count", "def weak_count(n: int):\n    assert n>=0\n    count=0;i=0\n    while i<n:\n        assert count>=0;assert i<=n\n        count+=1;i+=1\n    assert count==n\n    return count"),
     ("missing_bound", "def missing_bound(n: int):\n    assert n>=0\n    total=0;i=0\n    while i<n:\n        assert total>=0\n        total+=i;i+=1\n    assert total==n*(n-1)//2\n    return total"),

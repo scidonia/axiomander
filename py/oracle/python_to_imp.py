@@ -52,8 +52,67 @@ class ImpTranslator:
         self._invariants: dict[int, str] = {}  # line → invariant string
         self._contract_map: dict[str, tuple[list[str], str, str]] = {}  # name → (params, pre, post)
 
+    def _desugar_break_continue(self, body: list[ast.stmt]) -> list[ast.stmt]:
+        """Preprocess loop body to eliminate break/continue.
+
+        break → _brk=1 + wrap subsequent in if _brk==0
+        continue → _skp=1 + wrap subsequent in if _skp==0 + reset _skp at end
+        """
+        import ast as ast_mod
+        from copy import deepcopy
+
+        has_break = any(isinstance(s, ast_mod.Break) for s in body)
+        has_continue = any(isinstance(s, ast_mod.Continue) for s in body)
+        if not has_break and not has_continue:
+            return body
+
+        result: list[ast.stmt] = []
+        after_break = False
+        after_skip = False
+
+        for stmt in body:
+            if isinstance(stmt, ast_mod.Break):
+                result.append(ast_mod.Assign(
+                    targets=[ast_mod.Name(id='_brk', ctx=ast_mod.Store())],
+                    value=ast_mod.Constant(value=1)))
+                after_break = True
+                continue
+            if isinstance(stmt, ast_mod.Continue):
+                result.append(ast_mod.Assign(
+                    targets=[ast_mod.Name(id='_skp', ctx=ast_mod.Store())],
+                    value=ast_mod.Constant(value=1)))
+                after_skip = True
+                continue
+            s = deepcopy(stmt)
+            if after_break:
+                guard = ast_mod.Compare(
+                    left=ast_mod.Name(id='_brk', ctx=ast_mod.Load()),
+                    ops=[ast_mod.Eq()], comparators=[ast_mod.Constant(value=0)])
+                s = ast_mod.If(test=guard, body=[s], orelse=[])
+            if after_skip:
+                guard = ast_mod.Compare(
+                    left=ast_mod.Name(id='_skp', ctx=ast_mod.Load()),
+                    ops=[ast_mod.Eq()], comparators=[ast_mod.Constant(value=0)])
+                s = ast_mod.If(test=guard, body=[s], orelse=[])
+            result.append(s)
+
+        # Reset skip flag at end of iteration
+        if has_continue:
+            result.append(ast_mod.Assign(
+                targets=[ast_mod.Name(id='_skp', ctx=ast_mod.Store())],
+                value=ast_mod.Constant(value=0)))
+        return result
+
+    def _add_break_to_condition(self, cond_str: str) -> str:
+        """Add _brk flag check to loop condition."""
+        return f'(BAnd {cond_str} (BEq (AVar "_brk"%string) (ANum 0)))'
+
+    def _break_init(self) -> str:
+        return '(CAss "_brk"%string (ANum 0))'
+
     def translate_body(self, body: list[ast.stmt]) -> str:
         """Translate a list of statements into an IMP command sequence."""
+        body = self._desugar_break_continue(body)
         commands = []
         for stmt in body:
             cmd = self.translate_stmt(stmt)
@@ -487,7 +546,11 @@ class ImpTranslator:
         test = self._truthify(stmt.test)
         body = self.translate_body(stmt.body)
         inv = "(fun _ => True)"
-        return f"(CWhile {test} {inv} {body})"
+        loop = f"(CWhile {test} {inv} {body})"
+        # If body had break statements, wrap with break init and guard condition
+        if any(isinstance(s, ast.Break) for s in stmt.body):
+            loop = f"(CSeq {self._break_init()} (CWhile {self._add_break_to_condition(test)} {inv} {body}))"
+        return loop
 
     def _truthify(self, node: ast.expr) -> str:
         """Convert a Python expression to an IMP bexp for use in condition context.
