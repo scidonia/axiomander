@@ -43,24 +43,23 @@
 - [x] Subscript in exit conditions (e.g. `stack[len(stack)-1]`) + `_coq_safe_id` sanitization
 - [x] Paperchecker example: `find_brace_content` (brace-matching with depth counter)
 - [x] Data contracts: char-set, sorted list, controlled vocabulary, ISO date, uniqueness
-- [x] **User-defined predicates — Phase 1: simple inlining** (non-recursive, non-looping, single return)
-- [x] User-defined predicates — `_param_coq_map` for correct Coq variable naming (list→lst__len)
-- [x] User-defined predicates — `PredicateCallExpr` IR node for opaque (looping/recursive)
+- [x] **User-defined predicates — simple inlining** (non-recursive, non-looping, single return expressions)
+- [x] Opaque predicates (looping/recursive) rejected with actionable guidance
 - [x] Range quantifiers in invariants: `all(p(x) for x in range(n))` + SMT NIA logic switch
 - [x] SMT quantifier variable extraction fix (forall/exists/int excluded from declare-fun)
 - [x] Negative tests: weak invariants → SMT counterexamples; body → WP contradiction
 - [x] Off-by-one loop detection (wrong while condition → SMT counterexample)
 - [x] Semantic contracts: `depth >= 0` (no unmatched bracket) + `dots <= i` (count bounded)
-- [x] pytest test harness — **60 tests** (46 positive + 14 negative)
+- [x] `old()` via `param_old = param` convention (zero new syntax) + linter guard against misuse
+- [x] pytest test harness — **59 tests** (47 positive + 12 negative)
 
 ---
 
 ## Todo — Predicates (Phase 2)
 
-- [ ] **Fix opaque predicates** — current `_holds` is vacuous (WP of while = invariant = True). Need proper verification:
-  - Option A: Inline predicate's loop invariant(s) as the mathematical property
-  - Option B: Verify predicate separately, use its theorem as lemma in callers
-  - Predicates without invariants should be rejected (can't determine what they mean)
+- [ ] **Looping/recursive predicates** — currently rejected with guidance. Need either:
+  - Invariant extraction: inline predicate's loop invariant(s) as the mathematical property
+  - Separate verification: verify predicate itself, use its theorem as lemma in callers
 - [ ] Self-recursive predicates (CCall in IMP body for predicate calling itself)
 - [ ] Mutually recursive predicates
 
@@ -69,7 +68,7 @@
 ## Todo — Expressiveness
 
 ### Two-state predicates
-- [ ] `old()` / `\old(x)` — reference pre-state value in postcondition
+- [x] `old()` — `param_old = param` convention works, linter guards against misuse
 - [ ] Frame conditions — "this function only modifies X, Y, Z"
 - [ ] Relational properties — "output is a permutation of input", "output ⊆ input"
 
