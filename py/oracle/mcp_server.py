@@ -216,6 +216,14 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
     params = [name for name, _ in _func_params(func_node)]
     expanded, class_fields, _, init_state, record_section = _expand_params(tree, params, func_node)
 
+    old_err = _check_old_captures(func_node, params)
+    if old_err:
+        return GoalStatus(name=func_name, goal_statement="",
+                          level=ProofLevel.UNPROVED,
+                          error_detail=old_err,
+                          suggested_action=Action.REFACTOR,
+                          suggestion_text=old_err)
+
     # Lint with expanded params (so result, account.balance are scoped correctly)
     linter_pre = ContractLinter(expanded, "precondition")
     linter_post = ContractLinter(expanded, "postcondition")
@@ -520,6 +528,61 @@ def _is_list_param(annotation) -> bool:
         if isinstance(annotation.value, ast.Name) and annotation.value.id == "list":
             return True
     return False
+
+
+def _check_old_captures(func_node, params: list[str]) -> str:
+    """Check *_old variables are only used in captures and asserts.
+
+    Convention: `x_old = x` at function start captures pre-state value.
+    _old variables may only appear in:
+      - The initial capture assignment: `x_old = param`
+      - `assert` statements (contracts)
+    Any other use (mutation, computation, conditional) is an error.
+    Returns error message or "".
+    """
+    import ast
+    param_set = set(params)
+    captured: dict[str, int] = {}
+
+    for stmt in func_node.body:
+        # Check captures: `x_old = param`
+        if isinstance(stmt, ast.Assign):
+            for target in stmt.targets:
+                if isinstance(target, ast.Name) and target.id.endswith("_old"):
+                    name = target.id
+                    if name in captured:
+                        return (f"Line {stmt.lineno}: '{name}' already captured "
+                                f"as old-value at line {captured[name]}")
+                    if isinstance(stmt.value, ast.Name) and stmt.value.id in param_set:
+                        captured[name] = stmt.lineno
+                    else:
+                        return (f"Line {stmt.lineno}: '{name}' must capture a "
+                                f"parameter: `{name} = param`")
+        # Allow asserts (contracts reference old values)
+        elif isinstance(stmt, ast.Assert):
+            continue
+        elif isinstance(stmt, (ast.Expr, ast.Return)):
+            continue
+        else:
+            # Any other statement — reject if it mentions a captured _old variable
+            for n in ast.walk(stmt):
+                if isinstance(n, ast.Name) and n.id in captured:
+                    return (f"Line {stmt.lineno}: '{n.id}' is an old-value "
+                            f"capture (line {captured[n.id]}) and must only "
+                            f"appear in `assert` statements")
+
+    # Assignments: also check the value side for _old usage
+    for stmt in func_node.body:
+        if isinstance(stmt, ast.Assign) and not any(
+            isinstance(t, ast.Name) and t.id.endswith("_old") and t.id in captured
+            for t in stmt.targets
+        ):
+            for n in ast.walk(stmt.value):
+                if isinstance(n, ast.Name) and n.id in captured:
+                    return (f"Line {stmt.lineno}: '{n.id}' is an old-value "
+                            f"capture (line {captured[n.id]}) and must only "
+                            f"appear in `assert` statements")
+    return ""
 
 
 def _build_contract_map(tree) -> dict[str, tuple[list[str], str, str]]:

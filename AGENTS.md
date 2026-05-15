@@ -171,3 +171,10 @@ Best used after wp_reduce has cleared the structural layer.
 - Dream (for web server — optional, needs system deps)
 - coq-hammer (for SMT integration)
 - Python ≥ 3.10 (for py/ side)
+
+## Session Rules
+
+1. **Commit often.** After each meaningful unit of work (a feature, a bugfix, a test pass), create a commit. Long sessions accumulate changes that are easily lost. Commit messages should be concise and describe the "why."
+2. **Never `git checkout --` on multiple files.** That reverts everything indiscriminately. Instead, use `git checkout -- <single-file>` or `git stash` to preserve context. If a file is corrupted by a bad edit, restore only that file.
+3. **Verify tests pass after each change.** Run `uv run pytest py/tests/test_pipeline.py -q` before declaring a unit of work done.
+4. **Check `git status` before destructive git operations.** Know what you're about to lose.

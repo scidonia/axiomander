@@ -3,118 +3,109 @@
 ## Done
 
 - [x] IMP language + WP calculus + soundness (Coq)
-- [x] `wp_reduce` / `wp_prove` automation tactics (unfold aeval/beval)
+- [x] `wp_reduce` / `wp_prove` structural automation (2 tactics, ~12 lines total)
 - [x] `ABool : bexp → aexp` explicit cast (mutual induction aexp/bexp)
-- [x] Structural `wp_prove` recursion (split for /\, left||right for \/, destruct for ABool)
-- [x] Coq-hammer integration (cvc4 + eprover)
-- [x] `--hint hammer` CLI flag
-- [x] SMT VCG export (cvc4) — counterexample feedback for weak invariants
+- [x] SMT VCG export (cvc4 subprocess, counterexample extraction)
 - [x] Contract IR (Pydantic discriminated unions) — Coq + SMT-LIB compilation
-- [x] coq-lsp + coqpyt installed; `coqpyt_session.py` for live proof interaction
-- [x] LLM oracle wired to coqpyt (replaces coqc subprocess)
-- [x] Python contract linter (`assert` → IR → Coq + SMT)
-- [x] Python → IMP body translator (full arg lists, ABool, truthiness)
+- [x] LLM oracle wired to coqpyt (interactive proof validation)
+- [x] Python contract linter (`assert` → IR → Coq), zero imports
+- [x] Python → IMP body translator (assign, if/else, while, for, return, truthiness, augmented assignment)
 - [x] MCP server `check-file` / `check-function` with `hint` param (v0.3.0)
-- [x] opencode integration — working MCP config
-- [x] MCP crash guard — try/except keeps server alive
+- [x] opencode MCP integration
 - [x] VCG while-exit obligation generation + SMT/Lia proofs
 - [x] Multi-loop VCG (nested/sequential heuristic)
-- [x] Conditional branch handling (if/else, nested, BOr)
-- [x] Auto-generated proof template (intros + wp_reduce + conditional split)
-- [x] Pydantic model encoding (Record types, field access, store/load)
-- [x] Class param expansion (account → account_balance)
-- [x] Type annotation extraction (int→Z, bool→bool, str→Z-array, list→Z-array)
-- [x] For-loop range translation (1/2/3-arg, negative step, dynamic step detection)
-- [x] for-in-string (`for c in text:`) — while+index with AIndex/ALen
-- [x] for-in-tuple (`for n in *args:`) — vararg support via _func_params
-- [x] for-in-field (`for x in obj.field:`) — via _build_for_in_name
-- [x] List operations: ALen, AIndex, CListNew, CListAppend, CListSet, CListPop
-- [x] List slicing in contracts: len(lst[i:j]), len(lst[:j]), len(lst[i:])
-- [x] Dict operations: CDictSet, CDictGet, CDictEnsureList, CDictAppend, CDictAppendKv
-- [x] Dict iteration: `for v in d.values()`, `for k in d.keys()`
-- [x] Set operations: set(), set.add(), x in set (modeled as dict w/ dummy value)
-- [x] String parameter support (Z-array encoding, `len(s)`, `s[i]`)
-- [x] Boolean assignment (`x = a or b` → ABool wrapping)
-- [x] Truthiness conversion (`if lst:`, `if x:`, `if s:` → BLe/BEq)
-- [x] Function call verification (CCall with AST-based contract lookup)
-- [x] all() / any() predicates — SMT quantifiers over lists
-- [x] VCG variable extraction fix (exit_cond, scaffold, false/true exclusion)
-- [x] pytest test harness — 26 tests, direct pipeline calls
-- [x] Dogfooding: _balanced, _parse_tactics proven Level 1; _extract_vars rewritten w/o regex
-- [x] Type discipline: annotations as contracts, asserts for what types can't express
-- [x] Counterexample extraction from SMT for weak invariants
-- [x] Full Python arg lists (posonly, kwonly, vararg)
-
-## In Progress
-
-(none)
-
-## Todo — Collections & Language
-
-### List / Array
-- [x] `ALen`, `AIndex` constructors + `aeval` cases
-- [x] `CListNew`, `CListAppend`, `CListSet`, `CListPop` + WP/ceval
-- [x] `len(lst)`, `lst[i]`, `lst.append(e)`, `lst.pop()` in contracts
-- [x] `lst = []`, `lst = [a, b]` literal translation
-- [x] `len(lst[i:j])`, `len(lst[:j])`, `len(lst[i:])` — SliceLenExpr in IR
-- [ ] `ASlice` constructor for IMP (actual list slicing in body)
-- [ ] `for x in lst:` (general for-in-list, currently only Name iters)
-
-### Dictionaries
-- [x] `CDictSet`, `CDictGet`, `CDictEnsureList`, `CDictAppend`, `CDictAppendKv` + WP/ceval
-- [x] `ADictLen`, `ADictCount` + `aeval` cases
-- [x] `d[key]`, `key in d`, `d[key] = val`, `d[key].append(v)`
-- [x] `len(d)` via `DictCountExpr`
-- [x] `for v in d.values()`, `for k in d.keys()` iteration
-- [ ] `for k, v in d.items()` — tuple unpacking in for-loops
-
-### Sets
-- [x] `set()`, `s.add(x)`, `x in s` — modeled via CDictSet with dummy value
-
-### Strings
-- [x] `len(s)`, `s[i]` via list encoding
-- [x] String parameter support (Z-array ordinals)
-- [ ] String comparison `s == "literal"` (need string type in state)
-- [ ] `s.strip()`, `s.split()`, string concatenation
-
-### For Loops
-- [x] `for i in range(n)`, `range(start, stop)`, `range(start, stop, step)`
-- [x] Negative-step for-range (`range(n-1, -1, -1)`)
+- [x] Pydantic model encoding (Record types, field access)
+- [x] Class param expansion, type annotation extraction
+- [x] For-loop range (1/2/3-arg, negative step)
 - [x] for-in-string (`for c in text:`)
 - [x] for-in-tuple (`for n in *args:`)
 - [x] for-in-field (`for x in obj.field:`)
-- [ ] `for x in lst:` (general for-in-list — currently only Name iters)
-- [ ] Termination measure extraction
-
-### Comprehensions
-- [ ] List comprehension: `[f(x) for x in lst if p(x)]`
-- [ ] Dict comprehension: `{k: v for x in lst}`
-- [ ] Set comprehension
-
-### Predicates
-- [x] `all(p(x) for x in lst)` — SMT quantifier
-- [x] `any(p(x) for x in lst)` — SMT quantifier
-- [ ] `sum(lst)`, `min(lst)`, `max(lst)` in contracts
-
-## Todo — Completeness
-
-- [x] SMT export (cvc4 subprocess, no Coq reconstruction needed)
-- [x] Counterexample extraction (SMT model → invariant guidance)
-- [x] Function composition (CCall with contract registry)
-- [x] Type inference from Python annotations
+- [x] **for-in-list** (`for x in lst:`) — via `_build_for_in_name`, nested and simple
+- [x] List ops: ALen, AIndex, CListNew, CListAppend, CListSet, CListPop
+- [x] List slicing in contracts (SliceLenExpr) and body (slice copy)
+- [x] Dict ops: CDictSet, CDictGet, CDictEnsureList, CDictAppend, CDictAppendKv, ADictLen, ADictCount
+- [x] Dict iteration: `for v in d.values()`, `for k in d.keys()`, `for k,v in d.items()`
+- [x] Set ops: set(), set.add(), x in set (dict-as-set model)
+- [x] String parameter support (Z-array encoding, len, index, `==` literal comparison)
+- [x] Boolean assignment, truthiness conversion
+- [x] Function call verification (CCall with AST-based contract registry)
+- [x] all() / any() predicates (SMT quantifiers), **including `range(n)` iterators**
+- [x] min() / max() / sum() in contracts
+- [x] List comprehension: `[f(x) for x in range(n)]`
 - [x] Full Python arg lists (posonly, kwonly, vararg)
-- [x] Multi-loop VCG (nested/sequential heuristic)
-- [ ] Loop termination measures
-- [ ] Exception handling (try/except as black holes)
-- [ ] Side-effect detection (flag impure calls)
-- [ ] Incremental verification (re-verify changed functions)
-- [ ] `for x in lst:` proper iteration (for-in-list general)
-- [ ] String comparison `s == "literal"`
+- [x] SMT counterexample extraction + `GoalStatus.counterexample` dict
+- [x] SMT counterexample surfaced in MCP output
+- [x] ProofLevel.COUNTEREXAMPLE and Action.PROPERTY_FALSE
+- [x] VCG preconditions passed as hypotheses
+- [x] Coq keyword renaming (`end` → `end_var`, etc.)
+- [x] BAnd/Or exit condition extraction (De Morgan for while conds)
+- [x] Result scaffold depth-aware parser (replaces regex)
+- [x] Subscript in exit conditions (e.g. `stack[len(stack)-1]`) + `_coq_safe_id` sanitization
+- [x] Paperchecker example: `find_brace_content` (brace-matching with depth counter)
+- [x] Data contracts: char-set, sorted list, controlled vocabulary, ISO date, uniqueness
+- [x] **User-defined predicates — Phase 1: simple inlining** (non-recursive, non-looping, single return)
+- [x] User-defined predicates — `_param_coq_map` for correct Coq variable naming (list→lst__len)
+- [x] User-defined predicates — `PredicateCallExpr` IR node for opaque (looping/recursive)
+- [x] Range quantifiers in invariants: `all(p(x) for x in range(n))` + SMT NIA logic switch
+- [x] SMT quantifier variable extraction fix (forall/exists/int excluded from declare-fun)
+- [x] Negative tests: weak invariants → SMT counterexamples; body → WP contradiction
+- [x] Off-by-one loop detection (wrong while condition → SMT counterexample)
+- [x] Semantic contracts: `depth >= 0` (no unmatched bracket) + `dots <= i` (count bounded)
+- [x] pytest test harness — **60 tests** (46 positive + 14 negative)
+
+---
+
+## Todo — Predicates (Phase 2)
+
+- [ ] **Fix opaque predicates** — current `_holds` is vacuous (WP of while = invariant = True). Need proper verification:
+  - Option A: Inline predicate's loop invariant(s) as the mathematical property
+  - Option B: Verify predicate separately, use its theorem as lemma in callers
+  - Predicates without invariants should be rejected (can't determine what they mean)
+- [ ] Self-recursive predicates (CCall in IMP body for predicate calling itself)
+- [ ] Mutually recursive predicates
+
+---
+
+## Todo — Expressiveness
+
+### Two-state predicates
+- [ ] `old()` / `\old(x)` — reference pre-state value in postcondition
+- [ ] Frame conditions — "this function only modifies X, Y, Z"
+- [ ] Relational properties — "output is a permutation of input", "output ⊆ input"
+
+### Contract language
+- [ ] Implication in contracts: `A → B` (conditional guarantees)
+- [ ] Quantified invariants: `forall i, 0 <= i < len(lst) → lst[i] <= lst[i+1]` (general quantifiers, not just all/any)
+- [ ] Contract inheritance at call sites (frame composition across calls)
+- [ ] Multiple loop VCGs (currently only outermost/last loop gets VCG)
+- [ ] VCG carries pre-loop state context (avoid redundant invariants for unchanging facts)
+
+### Data types & operations
+- [ ] `ASlice` constructor for IMP (list slicing in body)
+- [ ] Float/reals (currently only Z)
+- [ ] String methods: `strip()`, `split()`, `replace()`, `lower()`, concatenation
+- [ ] `for x in lst if p(x)` filter clauses in comprehensions
+- [ ] Dict/set comprehensions
+- [ ] `break` / `continue` in loops
+
+### Proof strength
+- [ ] Induction in VCG (invariant + exit → post isn't always enough)
+- [ ] Non-linear arithmetic counterexample extraction (currently falls through to unproved)
+- [ ] Termination measures
+- [ ] Supercompiler / symbolic evaluation of WP for concrete inputs (make `_holds` meaningful)
+
+---
 
 ## Todo — Polish
 
-- [x] pytest test harness (26 tests, direct pipeline)
 - [ ] Better error reporting (map coqc errors to Python source lines)
+- [ ] Eliminate regex in VCG variable extraction (`re.findall` → proper AST/IR walk)
+- [ ] Delete dead code: `vcg_exit` Ltac, duplicate `return` in `_translate_for`, dead copy-paste blocks
+- [ ] `_fresh_var` generator for loop counters (eliminate `_i` / `_k` hardcoding)
+- [ ] LLM oracle reliability (better prompt, more retries, proof repair)
 - [ ] Documentation — user guide, API reference
 - [ ] Performance — cache Coq compilation
-- [ ] CI integration — GitHub Action
+- [ ] CI — GitHub Action
+- [ ] Exception handling (try/except as black holes)
+- [ ] Side-effect detection (flag impure calls)
+- [ ] Incremental verification (re-verify changed functions only)
