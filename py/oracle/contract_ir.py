@@ -62,6 +62,9 @@ class BinOp(BaseModel):
         is_float_cmp = scoped and self.op in ('=', '<>') and (
             hasattr(self.right, 'kind') and self.right.kind == 'float'
         )
+        is_tuple_cmp = scoped and self.op in ('=', '<>') and (
+            hasattr(self.right, 'kind') and self.right.kind == 'tuple'
+        )
         if scoped and self.op in ('+', '-', '*', '/', 'mod', '<', '<=', '>', '>=', '=', '<>'):
             if is_str_cmp:
                 if left.startswith('s "'):
@@ -69,6 +72,9 @@ class BinOp(BaseModel):
             elif is_float_cmp:
                 if left.startswith('s "'):
                     left = f'asFloat ({left})'
+            elif is_tuple_cmp:
+                if left.startswith('s "'):
+                    return f"(value_eqb ({left}) {right} = true)"
             else:
                 if left.startswith('s "'):
                     left = f'asZ ({left})'
@@ -297,5 +303,27 @@ class StrLitExpr(BaseModel):
         return f'"{self.value}"'
 
 
-# Discriminated union
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr]
+class TupleExpr(BaseModel):
+    """Tuple literal for contracts: result == (1, 2)."""
+    kind: Literal["tuple"] = "tuple"
+    elements: list["Expr"] = Field(default_factory=list)
+
+    def to_coq(self, scoped: bool = False) -> str:
+        def wrap_val(e):
+            s = e.to_coq(scoped)
+            if hasattr(e, 'kind'):
+                if e.kind == 'int':
+                    return f"(VZ {s})"
+                if e.kind == 'strlit':
+                    return f"(VString {s})"
+                if e.kind == 'float':
+                    return f"(VFloat {s})"
+            return s
+        els = " :: ".join(wrap_val(e) for e in self.elements) if self.elements else ""
+        return f"(VTuple ({els} :: nil))" if els else "(VTuple nil)"
+
+    def to_smt(self) -> str:
+        return "0"
+
+
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr]

@@ -418,10 +418,8 @@ class ImpTranslator:
             return "(ANum 0)"  # f-string → opaque aexp
 
         if isinstance(node, ast.Tuple):
-            # Return first element of tuple as representative value
-            if node.elts:
-                return self.translate_expr(node.elts[0])
-            return "(ANum 0)"
+            elements = " :: ".join(self.translate_expr(e) for e in node.elts) if node.elts else ""
+            return f"(ATuple ({elements} :: nil))" if elements else "(ATuple nil)"
 
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
             # Path / subpath → opaque expression (Path division)

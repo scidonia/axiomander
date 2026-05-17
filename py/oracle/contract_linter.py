@@ -14,9 +14,10 @@ from pathlib import Path
 from typing import Optional
 
 from .contract_ir import (
-    Expr, Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr,
-    DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr,
-    MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr,
+    Expr, Var, IntLit, BoolLit, BinOp, Logical,
+    LenExpr, IndexExpr, DictLenExpr, DictCountExpr,
+    AllExpr, AnyExpr, SliceLenExpr,
+    MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr,
 )
 
 
@@ -228,6 +229,11 @@ class ContractLinter(ast.NodeVisitor):
             # Float literals → FloatExpr (Z-encoded, scaled * 100)
             return FloatExpr(value=int(node.value * 100))
         return IntLit(value=0)
+
+    def visit_Tuple(self, node: ast.Tuple) -> Expr:
+        elements = [self.visit(e) for e in node.elts]
+        elements = [e for e in elements if e is not None]
+        return TupleExpr(elements=elements)
 
     def visit_Name(self, node: ast.Name) -> Expr:
         return Var(name=node.id)

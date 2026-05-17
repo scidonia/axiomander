@@ -446,6 +446,19 @@ def frame_triple_compose(n: int):
         out = 0
     assert out == 1
     return out'''),
+
+    # ── VTuple ──────────────────────────────────────────────────────
+    ("tuple_eq", '''def tuple_eq():
+    a = (1, 2)
+    b = (1, 2)
+    result = a == b
+    assert result == 1
+    return result'''),
+    ("tuple_store", '''def tuple_store():
+    t = (3, 5)
+    result = t
+    assert result == (3, 5)
+    return result'''),
 ]
 
 NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail"}

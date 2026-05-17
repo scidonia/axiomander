@@ -1,4 +1,4 @@
-Require Import ZArith String List.
+Require Import ZArith String List Bool.
 Import ListNotations.
 
 Open Scope Z_scope.
@@ -15,7 +15,8 @@ Inductive value : Type :=
   | VUnit
   | VString (s : string)
   | VFloat (f : Z)   (* float value encoded as scaled integer *)
-  | VNone.
+  | VNone
+  | VTuple (ts : list value).
 
 (** State: a total mapping from variables to values. *)
 Definition state := var -> value.
@@ -86,6 +87,24 @@ Definition asFloat (v : value) : Z :=
 (** Inject bool as Z for ABool compatibility. *)
 Definition boolToZ (b : bool) : Z := if b then 1%Z else 0%Z.
 
+(** Structural equality on values — dispatches on type tags. *)
+Fixpoint value_eqb (v1 v2 : value) : bool :=
+  match v1, v2 with
+  | VZ z1, VZ z2 => Z.eqb z1 z2
+  | VBool b1, VBool b2 => Bool.eqb b1 b2
+  | VString s1, VString s2 => String.eqb s1 s2
+  | VFloat f1, VFloat f2 => Z.eqb f1 f2
+  | VNone, VNone => true
+  | VTuple ts1, VTuple ts2 =>
+      (fix list_eqb vs1 vs2 :=
+         match vs1, vs2 with
+         | nil, nil => true
+         | v1'::vs1', v2'::vs2' => value_eqb v1' v2' && list_eqb vs1' vs2'
+         | _, _ => false
+         end) ts1 ts2
+  | _, _ => false
+  end.
+
 (** ** Arithmetic and Boolean Expressions (mutually recursive) *)
 Inductive aexp : Type :=
   | ANum (n : Z)
@@ -103,6 +122,7 @@ Inductive aexp : Type :=
   | AString (s : string)
   | AFloat (f : Z)   (* float literal, Z-encoded *)
   | ANone            (* None literal *)
+  | ATuple (es : list aexp)  (* tuple literal *)
 with bexp : Type :=
   | BTrue
   | BFalse
@@ -158,6 +178,7 @@ Fixpoint aeval (a : aexp) (s : state) : value :=
   | AString lit => VString lit
   | AFloat f => VFloat f
   | ANone => VNone
+  | ATuple es => VTuple (map (fun e => aeval e s) es)
   | APlus a1 a2 =>
       match aeval a1 s, aeval a2 s with
       | VFloat f1, VFloat f2 => VFloat (f1 + f2)
@@ -191,15 +212,7 @@ with beval (b : bexp) (s : state) : bool :=
   match b with
   | BTrue => true
   | BFalse => false
-  | BEq a1 a2 =>
-      match aeval a1 s, aeval a2 s with
-      | VZ z1, VZ z2 => Z.eqb z1 z2
-      | VString s1, VString s2 => String.eqb s1 s2
-      | VFloat f1, VFloat f2 => Z.eqb f1 f2
-      | VBool b1, VBool b2 => Bool.eqb b1 b2
-      | VNone, VNone => true
-      | _, _ => false
-      end
+  | BEq a1 a2 => value_eqb (aeval a1 s) (aeval a2 s)
   | BLe a1 a2 =>
       match aeval a1 s, aeval a2 s with
       | VFloat f1, VFloat f2 => Z.leb f1 f2
