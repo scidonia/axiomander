@@ -8,6 +8,29 @@ Users annotate Python functions with `@requires`, `@ensures`, `@invariant` decor
 The pipeline translates these into weakest-precondition proof obligations in Coq.
 SMT solvers clear the easy goals; an LLM oracle generates proofs for the rest.
 
+## Design Philosophy
+
+Axiomander aims to be **the gold standard for verification systems**.
+Every architectural decision must be *the right way* from the ground up.
+No half-baked approaches. No shortcuts that paper over a fundamental mismatch.
+If a feature requires two representations, unify them. If a type system is
+incomplete, extend it fully rather than encoding around the gaps.
+The goal is not to pass tests — it's to build a sound, composable,
+and extensible verification stack that holds up under real-world use.
+
+**Ground rules:**
+- Python's runtime type system must be reflected in the `value` type.
+  Coercion rules must follow Python's semantics (float+int→float, etc.).
+- Contracts are plain `assert` statements — zero imports, zero decorators.
+- The WP calculus is the single source of truth, proven sound in Coq.
+- Frame conditions are explicit, enforced, and derive from the callee's
+  declared `reads`/`writes`, not from implementation details.
+- `simpl`/`cbn` reduction is controlled — Fixpoint reduction must not
+  expand structural comparisons (`In`, `clobber`) before lemmas fire.
+- Immutable values (VList, VTuple, VDict) are structural, like Dafny's
+  `seq` and F*'s `list`. Mutable operations (append, pop) work on a
+  separate heap representation that parallels the value.
+
 ## Directory Layout
 
 ```

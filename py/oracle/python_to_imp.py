@@ -911,9 +911,9 @@ class ImpTranslator:
         step_val = "(ANum 1)"
         loop_var = self._fresh_var("i")
         init = f'(CAss "{loop_var}"%string {start_val})'
-        cond = f"(BLe (APlus (AVar \"{loop_var}\"%string) {step_val}) (ALen \"{iter_name}\"%string))"
+        cond = f"(BLe (APlus (AVar \"{loop_var}\"%string) {step_val}) (ALen (AVar \"{iter_name}\"%string)))"
         body_cmds = self.translate_body(stmt.body) or "CSkip"
-        elem_load = f'(CAss "{target}"%string (AIndex \"{iter_name}\"%string (AVar \"{loop_var}\"%string)))'
+        elem_load = f'(CAss "{target}"%string (AIndex (AVar \"{iter_name}\"%string) (AVar \"{loop_var}\"%string)))'
         incr = f'(CAss "{loop_var}"%string (APlus (AVar \"{loop_var}\"%string) {step_val}))'
         inv = self._invariants.get(stmt.lineno, "(fun _ => True)")
         loop_body = f"(CSeq {elem_load} (CSeq {body_cmds} {incr}))"

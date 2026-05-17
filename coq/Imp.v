@@ -126,6 +126,7 @@ Inductive aexp : Type :=
   | AIndex (a : aexp) (idx : aexp)  (* nth element of a list *)
   | AAppend (a : aexp) (e : aexp)   (* append element, returns new VList *)
   | APop (a : aexp)             (* pop last element, returns new VList *)
+  | ASet (a : aexp) (idx : aexp) (val : aexp)  (* set element at index, returns new VList *)
   | ADictLen (name : var) (key_e : aexp)
   | ADictCount (name : var)
   | ABool (b : bexp)
@@ -169,6 +170,14 @@ Fixpoint removelast (xs : list value) : list value :=
   | nil => nil
   | _ :: nil => nil
   | x :: xs' => x :: removelast xs'
+  end.
+
+(** Set element at index in a list. *)
+Fixpoint set_nth (xs : list value) (n : nat) (v : value) : list value :=
+  match xs, n with
+  | nil, _ => nil
+  | _ :: xs', O => v :: xs'
+  | x :: xs', S n' => x :: set_nth xs' n' v
   end.
 
 Definition dict_key (name : var) (key : Z) : var :=
@@ -232,6 +241,8 @@ Fixpoint aeval (a : aexp) (s : state) : value :=
       nth (Z.to_nat (asZ (aeval idx s))) xs VNone
   | AAppend a e => VList (asList (aeval a s) ++ [aeval e s])
   | APop a => VList (removelast (asList (aeval a s)))
+  | ASet a idx val =>
+      VList (set_nth (asList (aeval a s)) (Z.to_nat (asZ (aeval idx s))) (aeval val s))
   | ADictLen name key_e => VZ (asZ (s (parray_len_key (dict_key name (asZ (aeval key_e s))))))
   | ADictCount name => VZ (asZ (s (dict_count_key name)))
   | ABool b => VZ (if beval b s then 1%Z else 0%Z)
