@@ -81,7 +81,8 @@ class ContractLinter(ast.NodeVisitor):
         self.violations: list[LintViolation] = []
         self.params = params or []
         self.context = context
-        self.predicates: dict = predicates or {}  # name → (param_names, return_expr)
+        self.predicates: dict = predicates or {}
+        self.var_types: dict[str, str] = {}  # var_name → "dict" | "list" | "int" | "unknown"
 
     def lint_expression(self, node: ast.expr) -> LintResult:
         """Convert a Python expression to IR. Returns LintResult with coq/smt."""
@@ -113,6 +114,21 @@ class ContractLinter(ast.NodeVisitor):
             left = self.visit(node.left)
             right = self.visit(node.comparators[0])
             op = self._translate_compare_op(node.ops[0])
+            if op == "in":
+                # k in d → dict membership: ADictLen "d" k != 0
+                # Only works when right side is a simple target (dict)
+                if isinstance(node.comparators[0], ast.Name):
+                    dname = node.comparators[0].id
+                    if left and isinstance(left, Var):
+                        return BinOp(op="<>", left=DictLenExpr(name=dname, key=left), right=IntLit(value=0))
+                return BinOp(op="<>", left=IntLit(value=1), right=IntLit(value=0))
+            elif op == "notin":
+                # k not in d → dict non-membership: ADictLen "d" k == 0
+                if isinstance(node.comparators[0], ast.Name):
+                    dname = node.comparators[0].id
+                    if left and isinstance(left, Var):
+                        return BinOp(op="=", left=DictLenExpr(name=dname, key=left), right=IntLit(value=0))
+                return BinOp(op="=", left=IntLit(value=1), right=IntLit(value=0))
             if left and right:
                 return BinOp(op=op, left=left, right=right)
             return None
@@ -144,7 +160,7 @@ class ContractLinter(ast.NodeVisitor):
         if isinstance(node.op, ast.Not):
             return Logical(op="not", operands=[inner])
         if isinstance(node.op, ast.USub):
-            return BinOp("*", IntLit(value=-1), inner)
+            return BinOp(op="*", left=IntLit(value=-1), right=inner)
         return None
 
     def visit_BinOp(self, node: ast.BinOp) -> Optional[Expr]:
@@ -229,7 +245,7 @@ class ContractLinter(ast.NodeVisitor):
         path = self._attribute_path(node)
         if self.context == "precondition":
             return Var(name=path.replace(".", "_"))
-        return Var(path)
+        return Var(name=path)
 
     def visit_Subscript(self, node: ast.Subscript) -> Optional[Expr]:
         if isinstance(node.value, ast.Name):
@@ -279,6 +295,7 @@ class ContractLinter(ast.NodeVisitor):
         op_map = {
             ast.Eq: "=", ast.NotEq: "<>", ast.Lt: "<", ast.LtE: "<=",
             ast.Gt: ">", ast.GtE: ">=", ast.Is: "=", ast.IsNot: "<>",
+            ast.In: "in", ast.NotIn: "notin",
         }
         return op_map.get(type(op), "=")
 
@@ -301,44 +318,25 @@ class ContractLinter(ast.NodeVisitor):
                         return DictLenExpr(name=dname, key=key)
             if node.args and isinstance(node.args[0], ast.Name):
                 lst_name = node.args[0].id
+                if self.var_types.get(lst_name) == "dict":
+                    return DictCountExpr(name=lst_name)
                 return LenExpr(name=lst_name)
             return IntLit(value=0)
         if name in ("abs", "min", "max"):
             args = [self.visit(a) for a in node.args]
             args = [a for a in args if a]
+            if len(args) >= 2 and name == "min":
+                return MinExpr(left=args[0], right=args[1])
+            if len(args) >= 2 and name == "max":
+                return MaxExpr(left=args[0], right=args[1])
             if not args:
                 return IntLit(value=0)
-        if name == "len":
-            if node.args and isinstance(node.args[0], ast.Name):
-                arg_name = node.args[0].id
-                if self._is_dict_name(arg_name):
-                    return DictCountExpr(name=arg_name)
-                return LenExpr(arg_name)
-            if node.args and isinstance(node.args[0], ast.Subscript):
-                sub = node.args[0]
-                if isinstance(sub.value, ast.Name):
-                    dname = sub.value.id
-                    key = self.visit(sub.slice) if isinstance(sub.slice, ast.expr) else IntLit(value=0)
-                    if key:
-                        return DictLenExpr(name=dname, key=key)
-            return IntLit(value=0)
-        if name == "isinstance":
-            return BoolLit(value=True)
-        if name in ("all", "any"):
-            return self._translate_quantifier(node, name)
-        if name in ("min", "max"):
-            if len(node.args) >= 2:
-                left = self.visit(node.args[0])
-                right = self.visit(node.args[1])
-                if left and right:
-                    if name == "min":
-                        return MinExpr(left=left, right=right)
-                    return MaxExpr(left=left, right=right)
-            return IntLit(value=0)
         if name == "sum":
             if node.args and isinstance(node.args[0], ast.Name):
                 return SumExpr(name=node.args[0].id)
             return IntLit(value=0)
+        if name in ("all", "any"):
+            return self._translate_quantifier(node, name)
         return IntLit(value=0)
 
     def _translate_quantifier(self, node: ast.Call, name: str) -> Optional[Expr]:

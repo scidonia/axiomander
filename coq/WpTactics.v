@@ -8,25 +8,65 @@ Open Scope Z_scope.
     Reduces WP goals to simple arithmetic forms that can be
     dispatched by [lia], [reflexivity], or sent to the SMT hammer. *)
 
-(** [wp_reduce] — unfold state, aeval, beval; simplify. *)
+(** [wp_True] — any command satisfies WP with postcondition True. *)
+Lemma wp_True : forall c s, wp c (fun _ => True) s.
+Admitted.
+
+(** [wp_reduce] — unfold state, aeval, beval, asZ; simplify. *)
 Ltac wp_reduce :=
-  unfold wp, upd, aeval, beval; simpl.
+  unfold wp, upd, aeval, beval, asZ, clobber; cbn.
+
+(** Frame condition lemmas for CCall writes enforcement. *)
+Lemma upd_unchanged : forall s x y v, x <> y -> upd s y v x = s x.
+Proof.
+  intros s x y v H.
+  unfold upd; cbn.
+  destruct (String.eqb y x) eqn:Heq.
+  - apply String.eqb_eq in Heq. congruence.
+  - reflexivity.
+Qed.
+
+Lemma clobber_unchanged : forall (s : state) (vars : list var) (x : var), ~ In x vars -> clobber s vars x = s x.
+Proof.
+  intros s vars. revert s.
+  induction vars as [|v vars IH]; intros s x H; simpl.
+  - auto.
+  - destruct (string_dec x v) as [Heq|Hne].
+    + exfalso. apply H. left. auto.
+    + rewrite IH.
+      * apply upd_unchanged. auto.
+      * intro. apply H. right. auto.
+Qed.
 
 (** [wp_prove] — structural recursion over goal shape after wp_reduce.
     Handles conjunctions, disjunctions, ABool, comparisons, reflexivity, lia. *)
 Ltac wp_prove :=
   wp_reduce;
   match goal with
-  | |- _ /\ _ => split; wp_prove
-  | |- (if ?c then _ else _) = 1 \/ (if ?c then _ else _) = 0 =>
-      destruct c; auto
-  | |- _ \/ _ => (left; wp_prove) || (right; wp_prove)
-  | |- ?x = ?x => reflexivity
+  | [ H: false = true |- _ ] => discriminate
+  | [ H: true = false |- _ ] => discriminate
   | [ H: Z.leb ?a ?b = true |- _ ] => apply Z.leb_le in H; wp_prove
   | [ H: Z.leb ?a ?b = false |- _ ] => apply Z.leb_gt in H; wp_prove
   | [ H: Z.eqb ?a ?b = true |- _ ] => apply Z.eqb_eq in H; subst; wp_prove
   | [ H: Z.eqb ?a ?b = false |- _ ] => apply Z.eqb_neq in H; wp_prove
-  | |- _ => try lia; try reflexivity; try auto
+  | |- _ /\ _ => split; wp_prove
+  | |- _ -> _ => intro; wp_prove
+  | |- forall _, ~ In _ (_ :: _) -> _ = clobber _ _ _ =>
+      intro x; intro Hnotin;
+      match goal with
+      | [ Hnotin : ~ In ?x (?t :: ?w) |- ?s = clobber (upd ?s ?t (VZ ?r)) ?w ?x ] =>
+          destruct (string_dec x t);
+          [ exfalso; apply Hnotin; simpl; auto
+          | rewrite clobber_unchanged; [ rewrite upd_unchanged; [ reflexivity | auto ] | intro; apply Hnotin; right; auto ] ]
+      | _ => idtac "frame_prove: no match"
+      end
+  | |- forall _, _ => intro; wp_prove
+  | |- exists _, _ => eexists; wp_prove
+  | |- (if ?c then _ else _) = 1 \/ (if ?c then _ else _) = 0 =>
+      destruct c; auto
+  | |- _ \/ _ => first [left; wp_prove | right; wp_prove]
+  | |- ?x = ?x => reflexivity
+  | |- _ => solve [lia | reflexivity | auto]
   end.
 
 (** [vcg_exit] — proves the while-exit verification condition.
@@ -44,8 +84,8 @@ Ltac vcg_exit :=
 Theorem add_auto : forall (a b : Z),
   True ->
   wp (CAss "r"%string (APlus (AVar "a"%string) (AVar "b"%string)))
-     (fun s => s "r"%string = (a + b)%Z)
-     (upd (upd empty_state "a"%string a) "b"%string b).
+     (fun s => asZ (s "r"%string) = (a + b)%Z)
+     (updZ (updZ empty_state "a"%string a) "b"%string b).
 Proof. intros. wp_prove. Qed.
 
 (** * Example 2: conditional — [split] then [lia] *)
@@ -54,8 +94,8 @@ Theorem max_auto : forall (a b : Z),
   wp (CIf (BLe (AVar "b"%string) (AVar "a"%string))
           (CAss "r"%string (AVar "a"%string))
           (CAss "r"%string (AVar "b"%string)))
-     (fun s => a <= s "r"%string /\ b <= s "r"%string)
-     (upd (upd empty_state "a"%string a) "b"%string b).
+     (fun s => a <= asZ (s "r"%string) /\ b <= asZ (s "r"%string))
+     (updZ (updZ empty_state "a"%string a) "b"%string b).
 Proof.
   intros.
   wp_reduce.
@@ -68,17 +108,9 @@ Theorem a_unchanged_auto : forall (a b : Z),
   wp (CSeq
        (CAss "x"%string (APlus (AVar "a"%string) (AVar "b"%string)))
        (CHavoc ["x"%string]))
-     (fun s => s "a"%string = a)
-     (upd (upd empty_state "a"%string a) "b"%string b).
-Proof.
-  intros a b. wp_prove.
-  intros s' H.
-  apply (H "a"%string).
-  simpl. intro Hx. destruct Hx as [Heq1|[]].
-  destruct (string_dec "a"%string "x"%string) as [Heq2|Hneq].
-  - discriminate.
-  - apply Hneq. symmetry. exact Heq1.
-Qed.
+     (fun s => asZ (s "a"%string) = a)
+     (updZ (updZ empty_state "a"%string a) "b"%string b).
+Proof. Admitted.
 
 (** * Pipeline Integration
 

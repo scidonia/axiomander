@@ -1,14 +1,14 @@
 {
   "mcpServers": {
-    "verify-contracts": {
+    "axiomander": {
       "command": "python3",
       "args": [
         "-m", "oracle.mcp_server"
       ],
-      "cwd": "/home/gavin/dev/Personal/refactoring-robots",
+      "cwd": "/home/gavin/dev/Scidonia/axiomander",
       "env": {
-        "PYTHONPATH": "/home/gavin/dev/Personal/refactoring-robots/py",
-        "REFACTORING_ROBOTS_ROOT": "/home/gavin/dev/Personal/refactoring-robots",
+        "PYTHONPATH": "/home/gavin/dev/Scidonia/axiomander/py",
+        "AXIOMANDER_ROOT": "/home/gavin/dev/Scidonia/axiomander",
         "PATH": "/home/gavin/.opam/rocq-9/bin:/usr/bin:/bin"
       }
     }

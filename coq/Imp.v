@@ -8,15 +8,24 @@ Open Scope Z_scope.
 (** Variable names are strings. *)
 Definition var := string.
 
-(** State: a total mapping from variables to integers. *)
-Definition state := var -> Z.
+(** Tagged value type — every state entry has a type tag. *)
+Inductive value : Type :=
+  | VZ (z : Z)
+  | VBool (b : bool)
+  | VUnit.
 
-(** Empty state maps everything to 0. *)
-Definition empty_state : state := fun _ => 0%Z.
+(** State: a total mapping from variables to values. *)
+Definition state := var -> value.
+
+(** Empty state maps everything to VZ 0. *)
+Definition empty_state : state := fun _ => VZ 0%Z.
 
 (** State update: [upd s x v] is [s] with [x] mapped to [v]. *)
-Definition upd (s : state) (x : var) (v : Z) : state :=
+Definition upd (s : state) (x : var) (v : value) : state :=
   fun y => if String.eqb x y then v else s y.
+
+(** Convenience: update with a Z value, wrapped in VZ. *)
+Definition updZ (s : state) (x : var) (v : Z) : state := upd s x (VZ v).
 
 (** We assume functional extensionality for state equality. *)
 Axiom functional_extensionality : forall {A B} (f g : A -> B),
@@ -50,8 +59,17 @@ Proof.
   subst x. subst y. exfalso. apply Hne. reflexivity.
 Qed.
 
-(** ** Arithmetic and Boolean Expressions (mutually recursive) *)
+(** Extract Z from a value, defaulting to 0 for non-Z. *)
+Definition asZ (v : value) : Z :=
+  match v with
+  | VZ z => z
+  | _ => 0%Z
+  end.
 
+(** Inject bool as Z for ABool compatibility. *)
+Definition boolToZ (b : bool) : Z := if b then 1%Z else 0%Z.
+
+(** ** Arithmetic and Boolean Expressions (mutually recursive) *)
 Inductive aexp : Type :=
   | ANum (n : Z)
   | AVar (x : var)
@@ -111,16 +129,16 @@ Definition dict_vals_key (name : var) : var :=
 Fixpoint aeval (a : aexp) (s : state) : Z :=
   match a with
   | ANum n => n
-  | AVar x => s x
+  | AVar x => asZ (s x)
   | APlus a1 a2 => (aeval a1 s) + (aeval a2 s)
   | AMinus a1 a2 => (aeval a1 s) - (aeval a2 s)
   | AMult a1 a2 => (aeval a1 s) * (aeval a2 s)
   | AMod a1 a2 => Z.modulo (aeval a1 s) (aeval a2 s)
   | ADiv a1 a2 => (aeval a1 s) / (aeval a2 s)
-  | ALen name => s (parray_len_key name)
-  | AIndex name idx_e => s (parray_key name (aeval idx_e s))
-  | ADictLen name key_e => s (parray_len_key (dict_key name (aeval key_e s)))
-  | ADictCount name => s (dict_count_key name)
+  | ALen name => asZ (s (parray_len_key name))
+  | AIndex name idx_e => asZ (s (parray_key name (aeval idx_e s)))
+  | ADictLen name key_e => asZ (s (parray_len_key (dict_key name (aeval key_e s))))
+  | ADictCount name => asZ (s (dict_count_key name))
   | ABool b => if beval b s then 1%Z else 0%Z
   end
 with beval (b : bexp) (s : state) : bool :=
@@ -151,14 +169,18 @@ Inductive com : Type :=
   | CDictEnsureList (name : var) (key : aexp)
   | CDictAppend (name : var) (key val : aexp)
   | CDictAppendKv (name : var) (key val : aexp)
-  | CCall (name : var) (args : list aexp) (pre post : state -> Prop) (target : var).
+  | CCall (name : var) (args : list aexp) (pre post : state -> Prop) (writes : list var) (target : var).
+
+(** Havoc a list of variables — set each to VZ 0. *)
+Definition clobber (s : state) (vars : list var) : state :=
+  fold_left (fun st v => upd st v (VZ 0)) vars s.
 
 (** Big-step operational semantics: [(c, s) ⇓ s']. *)
 Inductive ceval : com -> state -> state -> Prop :=
   | E_Skip : forall s,
       ceval CSkip s s
   | E_Ass : forall s x a,
-      ceval (CAss x a) s (upd s x (aeval a s))
+      ceval (CAss x a) s (upd s x (VZ (aeval a s)))
   | E_Seq : forall c1 c2 s s' s'',
       ceval c1 s s' ->
       ceval c2 s' s'' ->
@@ -183,54 +205,59 @@ Inductive ceval : com -> state -> state -> Prop :=
       (forall x, ~ In x A -> s' x = s x) ->
       ceval (CHavoc A) s s'
   | E_ListNew : forall name s,
-      ceval (CListNew name) s (upd s (parray_len_key name) 0)
+      ceval (CListNew name) s (upd s (parray_len_key name) (VZ 0))
   | E_ListAppend : forall name val s,
+      let len := asZ (s (parray_len_key name)) in
       ceval (CListAppend name val) s
-            (upd (upd s (parray_key name (s (parray_len_key name))) (aeval val s))
-                 (parray_len_key name) (s (parray_len_key name) + 1))
+            (upd (upd s (parray_key name len) (VZ (aeval val s)))
+                 (parray_len_key name) (VZ (len + 1)))
   | E_ListPop : forall name s,
+      let len := asZ (s (parray_len_key name)) in
       ceval (CListPop name) s
-            (upd s (parray_len_key name) (s (parray_len_key name) - 1))
+            (upd s (parray_len_key name) (VZ (len - 1)))
   | E_ListSet : forall name idx_e val_e s,
       ceval (CListSet name idx_e val_e) s
-            (upd s (parray_key name (aeval idx_e s)) (aeval val_e s))
+            (upd s (parray_key name (aeval idx_e s)) (VZ (aeval val_e s)))
   | E_DictSet : forall name key_e val_e s,
       let dk := dict_key name (aeval key_e s) in
-      let is_new := Z.eqb 0 (s (parray_len_key dk)) in
-      let new_count := s (dict_count_key name) + (if is_new then 1 else 0) in
+      let is_new := Z.eqb 0 (asZ (s (parray_len_key dk))) in
+      let old_count := asZ (s (dict_count_key name)) in
+      let new_count := old_count + (if is_new then 1 else 0) in
       ceval (CDictSet name key_e val_e) s
-            (upd (upd (upd s dk (aeval val_e s))
-                      (parray_len_key dk) 1)
-                 (dict_count_key name) new_count)
+            (upd (upd (upd s dk (VZ (aeval val_e s)))
+                      (parray_len_key dk) (VZ 1))
+                 (dict_count_key name) (VZ new_count))
   | E_DictGet : forall name key_e target s,
       ceval (CDictGet name key_e target) s
             (upd s target (s (dict_key name (aeval key_e s))))
   | E_DictEnsureList : forall name key_e s,
       let dk := dict_key name (aeval key_e s) in
       ceval (CDictEnsureList name key_e) s
-            (if Z.eqb (s (parray_len_key dk)) 0
-             then upd s (parray_len_key dk) 0
+            (if Z.eqb (asZ (s (parray_len_key dk))) 0
+             then upd s (parray_len_key dk) (VZ 0)
              else s)
   | E_DictAppend : forall name key_e val_e s,
       let dk := dict_key name (aeval key_e s) in
+      let len := asZ (s (parray_len_key dk)) in
       ceval (CDictAppend name key_e val_e) s
-            (upd (upd s (parray_key dk (s (parray_len_key dk))) (aeval val_e s))
-                 (parray_len_key dk) (s (parray_len_key dk) + 1))
+            (upd (upd s (parray_key dk len) (VZ (aeval val_e s)))
+                 (parray_len_key dk) (VZ (len + 1)))
   | E_DictAppendKv : forall name key_e val_e s,
       let dk := dict_key name (aeval key_e s) in
-      let is_new := Z.eqb 0 (s (parray_len_key dk)) in
-      let c := s (dict_count_key name) in
+      let is_new := Z.eqb 0 (asZ (s (parray_len_key dk))) in
+      let c := asZ (s (dict_count_key name)) in
       let new_c := c + (if is_new then 1 else 0) in
-      let s1 := upd (upd (upd s dk (aeval val_e s))
-                         (parray_len_key dk) 1)
-                    (parray_key (dict_vals_key name) c) (aeval val_e s) in
+      let s1 := upd (upd (upd s dk (VZ (aeval val_e s)))
+                         (parray_len_key dk) (VZ 1))
+                    (parray_key (dict_vals_key name) c) (VZ (aeval val_e s)) in
       ceval (CDictAppendKv name key_e val_e) s
-            (upd (upd s1 (parray_key (dict_keys_key name) c) (aeval key_e s))
-                 (dict_count_key name) new_c)
-  | E_Call : forall name args pre post target s r,
+            (upd (upd s1 (parray_key (dict_keys_key name) c) (VZ (aeval key_e s)))
+                 (dict_count_key name) (VZ new_c))
+  | E_Call : forall name args pre post writes target s r,
       pre s ->
-      post (upd s target r) ->
-      ceval (CCall name args pre post target) s (upd s target r).
+      post (upd s target (VZ r)) ->
+      ceval (CCall name args pre post writes target) s
+            (clobber (upd s target (VZ r)) writes).
 
 (** ** Notation *)
 Open Scope Z_scope.

@@ -11,7 +11,7 @@ Definition add_body : com :=
 Theorem add_correct : forall (a b : Z),
   True ->
   wp add_body (fun s => s "result"%string = (a + b)%Z)
-              (upd (upd empty_state "a"%string a) "b"%string b).
+              (updZ (updZ empty_state "a"%string a) "b"%string b).
 Proof. intros. wp_prove. Qed.
 
 (* ── max_of_two ── *)
@@ -24,7 +24,7 @@ Theorem max_correct : forall (a b : Z),
   (0 <= a) -> (0 <= b) ->
   wp max_body
      (fun s => a <= s "result"%string /\ b <= s "result"%string)
-     (upd (upd empty_state "a"%string a) "b"%string b).
+     (updZ (updZ empty_state "a"%string a) "b"%string b).
 Proof.
   intros a b Ha Hb. wp_reduce.
   split; [intro Hleb; apply Z.leb_le in Hleb; wp_prove; split; lia

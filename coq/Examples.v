@@ -9,8 +9,8 @@ Definition add_body : com :=
 
 Theorem add_correct : forall (a b : Z),
   True ->
-  wp add_body (fun s => s "result"%string = (a + b)%Z)
-              (upd (upd empty_state "a"%string a) "b"%string b).
+  wp add_body (fun s => asZ (s "result"%string) = (a + b)%Z)
+              (updZ (updZ empty_state "a"%string a) "b"%string b).
 Proof.
   intros. unfold wp, add_body, upd. simpl. reflexivity.
 Qed.
@@ -23,8 +23,8 @@ Definition abs_val_body : com :=
 
 Theorem abs_val_correct : forall (n : Z),
   0 <= n ->
-  wp abs_val_body (fun s => 0 <= s "result"%string)
-                  (upd empty_state "n"%string n).
+  wp abs_val_body (fun s => 0 <= asZ (s "result"%string))
+                  (updZ empty_state "n"%string n).
 Proof.
   intros n Hle.
   unfold wp, abs_val_body, upd. simpl.
@@ -42,8 +42,8 @@ Definition max_body : com :=
 Theorem max_correct : forall (a b : Z),
   0 <= a -> 0 <= b ->
   wp max_body
-     (fun s => a <= s "result"%string /\ b <= s "result"%string)
-     (upd (upd empty_state "a"%string a) "b"%string b).
+     (fun s => a <= asZ (s "result"%string) /\ b <= asZ (s "result"%string))
+     (updZ (updZ empty_state "a"%string a) "b"%string b).
 Proof.
   intros a b Ha Hb.
   unfold wp, max_body, upd. simpl.
@@ -54,7 +54,7 @@ Qed.
 
 (** * Example 4: sum_to(n) — loop with invariant *)
 Definition sum_invariant (n : Z) (s : state) : Prop :=
-  s "acc"%string = s "i"%string * (s "i"%string + 1) / 2 /\ s "i"%string <= n.
+  asZ (s "acc"%string) = asZ (s "i"%string) * (asZ (s "i"%string) + 1) / 2 /\ asZ (s "i"%string) <= n.
 
 Definition sum_body (n : Z) : com :=
   let init_acc := CAss "acc"%string (ANum 0) in
@@ -71,7 +71,7 @@ Theorem sum_correct : forall (n : Z),
   0 <= n ->
   wp (sum_body n)
      (fun s => s "result"%string = n * (n + 1) / 2)
-     (upd empty_state "n"%string n).
+     (updZ empty_state "n"%string n).
 Proof.
   intros n Hn.
   unfold sum_body, wp, upd. simpl.

@@ -1,14 +1,18 @@
 [project]
-name = "verify-contracts"
-version = "0.2.0"
-description = "Verify Python assert-based contracts using Coq + SMT + LLM"
+name = "axiomander"
+version = "0.4.0"
+description = "Hoare-logic verification pipeline for Python — assert contracts → Coq + SMT + LLM"
 requires-python = ">=3.10"
 dependencies = [
     "typer>=0.9",
+    "pygls>=1.0",
+    "lsprotocol",
+    "cattrs",
+    "pydantic>=2.0",
 ]
 
 [project.scripts]
-verify-contracts-mcp = "py.oracle.mcp_server:main"
+axiomander-mcp = "oracle.mcp_server:main"
 
 [build-system]
 requires = ["setuptools>=64"]
@@ -17,3 +21,8 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["py", "py.*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

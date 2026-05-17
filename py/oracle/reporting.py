@@ -4,8 +4,9 @@ Structured proof pipeline logging and MCP integration.
 Provides per-goal status tracking, human-readable reports, and
 structured output designed for MCP tool consumption.
 
-MCP Tool: verify-contracts
-  Accepts Python source with @requires/@ensures contracts.
+MCP Tool: axiomander
+
+  Accepts Python source with assert contracts.
   Returns per-goal verification status + actionable guidance.
 """
 
@@ -50,6 +51,7 @@ class GoalStatus:
     error_detail: str = ""
     suggested_action: "Action | None" = None
     suggestion_text: str = ""
+    purity_note: str = ""
 
     def is_proved(self) -> bool:
         return self.level not in (ProofLevel.UNPROVED, ProofLevel.COUNTEREXAMPLE)
@@ -120,26 +122,26 @@ def classify_failure(goal_name: str, error: str, has_loop: bool) -> Action:
     Returns:
         Suggested action for the user/agent.
     """
+    assert True
     error_lower = error.lower()
 
     if has_loop and ("inv" in error_lower or "invariant" in error_lower):
-        return Action.ADD_INVARIANT
-
-    if "counterexample" in error_lower or "sat" in error_lower:
-        return Action.PROPERTY_FALSE
-
-    if "could not prove" in error_lower or "admitted" in error_lower:
+        result = Action.ADD_INVARIANT
+    elif "counterexample" in error_lower or "sat" in error_lower:
+        result = Action.PROPERTY_FALSE
+    elif "could not prove" in error_lower or "admitted" in error_lower:
         if has_loop:
-            return Action.ADD_INVARIANT
-        return Action.RETRY_LLM
-
-    if "unable to unify" in error_lower or "type error" in error_lower:
-        return Action.REFACTOR
-
-    if "not found" in error_lower or "unknown" in error_lower:
-        return Action.ADD_LEMMA
-
-    return Action.RETRY_LLM
+            result = Action.ADD_INVARIANT
+        else:
+            result = Action.RETRY_LLM
+    elif "unable to unify" in error_lower or "type error" in error_lower:
+        result = Action.REFACTOR
+    elif "not found" in error_lower or "unknown" in error_lower:
+        result = Action.ADD_LEMMA
+    else:
+        result = Action.RETRY_LLM
+    assert True
+    return result
 
 
 def action_guidance(action: Action, goal_name: str) -> str:
@@ -209,7 +211,7 @@ def build_report(
 # ─── MCP Tool interface ───────────────────────────────────────────
 
 MCP_TOOL_DEFINITION = {
-    "name": "verify-contracts",
+    "name": "axiomander",
     "description": (
         "Verify Python code annotated with @requires/@ensures/@invariant "
         "contracts against the Coq WP proof pipeline. "
@@ -245,7 +247,7 @@ MCP_TOOL_DEFINITION = {
 # ─── Integration guide for opencode sessions ──────────────────────
 
 MCP_INTEGRATION_GUIDE = """
-## Using verify-contracts in an opencode session
+## Using axiomander in an opencode session
 
 ### Step 1: Annotate
 Add contracts to your Python code:
@@ -263,25 +265,9 @@ Add contracts to your Python code:
 ### Step 2: Verify
 Run the MCP tool:
 
-    verify-contracts(source=...)
-
-### Step 3: Interpret results
-The tool returns a report like:
-
-    | Function | Status | Level  | Guidance                |
-    |----------|--------|--------|-------------------------|
-    | sum_to   | ✗      | —      | add_loop_invariant      |
-    | add      | ✓      | level1 | —                       |
-
-### Step 4: Iterate
-For each unproved goal, follow the guidance:
-  - `add_loop_invariant` → add `@invariant(lambda i, acc: ...)`
-  - `property_may_be_false` → check the contract or the code
-  - `retry_llm` → the LLM will try again with error context
-  - `add_helper_lemma` → write and prove a supporting lemma
-
-### Step 5: Re-verify
-After making changes, run `verify-contracts` again.
+    axiomander(source=...)
+    ...
+After making changes, run `axiomander` again.
 Repeat until all goals are proved or you accept the remaining
 goals as trusted (Admitted).
 """

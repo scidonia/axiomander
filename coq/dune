@@ -1,5 +1,5 @@
 (coq.theory
   (name Imp)
-  (package refactoring-robots)
+  (package axiomander)
   (synopsis "IMP language, WP calculus, Pydantic models, black holes")
   (modules Imp Wp Pydantic PydanticExamples Examples BlackHoles Auth AuthExamples WpTactics Generated BinarySearch DemoAccount))

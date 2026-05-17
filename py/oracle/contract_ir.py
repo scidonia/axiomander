@@ -54,7 +54,14 @@ class BinOp(BaseModel):
     def to_coq(self, scoped: bool = False) -> str:
         op_map = {"/": "/", "mod": "mod"}
         coq_op = op_map.get(self.op, self.op)
-        return f"({self.left.to_coq(scoped)} {coq_op} {self.right.to_coq(scoped)})"
+        left = self.left.to_coq(scoped)
+        right = self.right.to_coq(scoped)
+        if scoped and self.op in ('+', '-', '*', '/', 'mod', '<', '<=', '>', '>=', '=', '<>'):
+            if left.startswith('s "'):
+                left = f'asZ ({left})'
+            if right.startswith('s "'):
+                right = f'asZ ({right})'
+        return f"({left} {coq_op} {right})"
 
     def to_smt(self) -> str:
         op_map = {"mod": "mod", "/": "div"}
@@ -191,7 +198,7 @@ class SliceLenExpr(BaseModel):
 
     def to_coq(self, scoped: bool = False) -> str:
         s = self.start.to_coq(False) if self.start else "0"
-        e = self.end.to_coq(False) if self.end else f's "{self.name}._len"%string' if scoped else f"{self.name}__len"
+        e = self.end.to_coq(False) if self.end else f'asZ (s "{self.name}._len"%string)' if scoped else f"{self.name}__len"
         return f"({e} - {s})"
 
     def to_smt(self) -> str:
@@ -207,7 +214,14 @@ class MinExpr(BaseModel):
     right: "Expr"
 
     def to_coq(self, scoped: bool = False) -> str:
-        return f"(Z.min ({self.left.to_coq(scoped)}) ({self.right.to_coq(scoped)}))"
+        left = self.left.to_coq(scoped)
+        right = self.right.to_coq(scoped)
+        if scoped:
+            if left.startswith('s "'):
+                left = f'asZ ({left})'
+            if right.startswith('s "'):
+                right = f'asZ ({right})'
+        return f"(Z.min ({left}) ({right}))"
 
     def to_smt(self) -> str:
         return f"(ite (< {self.left.to_smt()} {self.right.to_smt()}) {self.left.to_smt()} {self.right.to_smt()})"
@@ -220,7 +234,14 @@ class MaxExpr(BaseModel):
     right: "Expr"
 
     def to_coq(self, scoped: bool = False) -> str:
-        return f"(Z.max ({self.left.to_coq(scoped)}) ({self.right.to_coq(scoped)}))"
+        left = self.left.to_coq(scoped)
+        right = self.right.to_coq(scoped)
+        if scoped:
+            if left.startswith('s "'):
+                left = f'asZ ({left})'
+            if right.startswith('s "'):
+                right = f'asZ ({right})'
+        return f"(Z.max ({left}) ({right}))"
 
     def to_smt(self) -> str:
         return f"(ite (> {self.left.to_smt()} {self.right.to_smt()}) {self.left.to_smt()} {self.right.to_smt()})"

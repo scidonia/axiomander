@@ -2,7 +2,7 @@
 
 ## Project
 
-Refactoring Robots is a Hoare-logic verification pipeline for Python.
+Axiomander is a Hoare-logic verification pipeline for Python.
 
 Users annotate Python functions with `@requires`, `@ensures`, `@invariant` decorators.
 The pipeline translates these into weakest-precondition proof obligations in Coq.
@@ -32,7 +32,7 @@ dune exec server/server.exe
 
 # Full verification pipeline
 eval $(opam env)
-cd /path/to/refactoring-robots
+cd /path/to/axiomander
 PYTHONPATH=. python3 -m py.oracle.pipeline py/examples/demo.py
 
 # Set LLM API key for Level 3 oracle
@@ -60,6 +60,7 @@ export ORACLE_MODEL="deepseek-chat"
 - Decorators in `py/contracts/`
 - Use `ast` module for WP transformation (no third-party parsers)
 - Type hints on all public functions
+- **Never use regex on parse-tree strings.** When you need to extract names or analyze structure, walk the AST or IR tree — it has the grammar's semantics built in. Regex on Coq/IMP strings is fragile: `re.findall(r'\b(\w+)\b', "asZ (s x)")` extracts `asZ` as a "variable". The IR's `Var(name='x')` node tells you `x` is a variable without false positives.
 
 ## Key Design Decisions
 

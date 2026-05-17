@@ -153,7 +153,7 @@ def prove_interactive(goal: str, bd: Path, max_steps: int = 5) -> tuple[bool, li
 
 
 def test():
-    bd = Path("/home/gavin/dev/Personal/refactoring-robots/_build/default/coq")
+    bd = Path("/home/gavin/dev/Scidonia/axiomander/_build/default/coq")
     
     # Test basic
     ok, steps, err = prove_interactive("forall a b, a + b = b + a.", bd)

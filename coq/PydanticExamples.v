@@ -13,9 +13,9 @@ Definition distance_sq_body : com :=
 Theorem distance_sq_correct : forall (px py : Z),
   px >= 0 -> py >= 0 ->
   wp distance_sq_body
-     (fun s => s "result"%string
-            = s "p.x"%string * s "p.x"%string
-            + s "p.y"%string * s "p.y"%string)
+  (fun s => asZ (s "result"%string)
+          = asZ (s "p.x"%string) * asZ (s "p.x"%string)
+          + asZ (s "p.y"%string) * asZ (s "p.y"%string))
      (init_point_state px py).
 Proof.
   intros. unfold wp, distance_sq_body, init_point_state, store_field, flat_key; simpl. reflexivity.

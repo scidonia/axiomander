@@ -55,23 +55,23 @@ Definition point_valid (p : Point) : Prop :=
 Definition flat_key (pfx f : string) : string :=
   pfx ++ "."%string ++ f.
 
-Definition store_field (pfx f : string) (v : Z) (s : state) : state :=
+Definition store_field (pfx f : string) (v : value) (s : state) : state :=
   upd s (flat_key pfx f) v.
 
 Definition load_field (pfx f : string) (s : state) : Z :=
-  s (flat_key pfx f).
+  asZ (s (flat_key pfx f)).
 
 Definition store_point (p : Point) (pfx : string) (s : state) : state :=
-  let s1 := store_field pfx "y"%string (p.(point_y)) s in
-  store_field pfx "x"%string (p.(point_x)) s1.
+  let s1 := store_field pfx "y"%string (VZ (p.(point_y))) s in
+  store_field pfx "x"%string (VZ (p.(point_x))) s1.
 
 Definition load_point (pfx : string) (s : state) : Point :=
   mk_point (load_field pfx "x"%string s) (load_field pfx "y"%string s).
 
 (** Convenience: initialise a state with a Point's fields. *)
 Definition init_point_state (px py : Z) : state :=
-  let s := store_field "p"%string "y"%string py empty_state in
-  store_field "p"%string "x"%string px s.
+  let s := store_field "p"%string "y"%string (VZ py) empty_state in
+  store_field "p"%string "x"%string (VZ px) s.
 
 (** ** Validation in WP contracts
 
@@ -92,10 +92,10 @@ Definition point_pre (s : state) : Prop :=
 *)
 
 Definition optional_tag (pfx f : string) (s : state) : Z :=
-  s (flat_key pfx (f ++ ".tag"%string)).
+  asZ (s (flat_key pfx (f ++ ".tag"%string))).
 
 Definition optional_val (pfx f : string) (s : state) : Z :=
-  s (flat_key pfx (f ++ ".val"%string)).
+  asZ (s (flat_key pfx (f ++ ".val"%string))).
 
 Definition load_optional (pfx f : string) (s : state) : option Z :=
   if Z.eqb (optional_tag pfx f s) 0

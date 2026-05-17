@@ -46,7 +46,7 @@ def run_verification(source: str, func_name: str) -> GoalStatus | None:
                 node=stmt, lineno=stmt.lineno, col_offset=stmt.col_offset,
                 classification=cls, lint_result=lr,
             ))
-    os.environ.setdefault("REFACTORING_ROBOTS_ROOT", str(BUILD_DIR.parent.parent))
+    os.environ.setdefault("AXIOMANDER_ROOT", str(BUILD_DIR.parent.parent))
     return _verify_function(source, func_name, None)
 
 
@@ -271,6 +271,98 @@ def first2(lst: list[int]):
     assert result<=n
     return result'''),
 
+    # ── Frame conditions (Dafny-style) ─────────────────────────────
+    # requires a >= 0 && b >= 0
+    # modifies {}  — pure, reads only params, caller's state untouched
+    ("frame_old_unchanged", '''def inc(x: int):
+    assert x>=0
+    result=x+1
+    assert result==x+1
+    return result
+
+def frame_old_unchanged(a: int):
+    assert a>=0
+    old_a = a
+    discard = inc(5)
+    result = a
+    assert result == old_a
+    return result'''),
+    # requires a >= 0 && b >= 0
+    # modifies {result}  — each callee writes only its own result
+    # ensures result == a + b + 2
+    ("frame_two_calls", '''def inc(x: int):
+    assert x>=0
+    result=x+1
+    assert result==x+1
+    return result
+
+def frame_two_calls(a: int, b: int):
+    assert a>=0; assert b>=0
+    old_a = a; old_b = b
+    a2 = inc(a)
+    b2 = inc(b)
+    assert a == old_a; assert b == old_b
+    result = a2 + b2
+    assert result == a + b + 2
+    return result'''),
+    # requires n >= 0 && n % 2 == 0
+    # modifies {result}
+    # ensures result == n  — old(n) = result + result  (half + half = n)
+    ("frame_old_equals_result", '''def half(x: int):
+    assert x%2==0
+    result=x//2
+    assert result*2==x
+    return result
+
+def frame_old_equals_result(n: int):
+    assert n>=0; assert n%2==0
+    snapshot = n
+    h = half(n)
+    assert n == snapshot
+    result = h + h
+    assert result == n
+    return result'''),
+    # Three callees, each writes only result — prove triple composition.
+    # requires n >= 0
+    # modifies {result}
+    # ensures result == 3*n + 1
+    ("frame_triple_compose", '''def plus_one(x: int):
+    assert x>=0
+    result=x+1
+    assert result==x+1
+    return result
+def times_two(x: int):
+    assert x>=0
+    result=x*2
+    assert result==x*2
+    return result
+
+def frame_triple_compose(n: int):
+    assert n>=0
+    a = plus_one(n)
+    b = times_two(n)
+    assert n == n
+    result = a + b
+    assert result == 3*n + 1
+    return result'''),
+    # Frame via stub — pop writes {lst}, caller's x should be framed out.
+    ("frame_stub_pop", '''def frame_stub_pop(x: int):
+    assert x>=0
+    old_x = x
+    v = pop([x])
+    assert x == old_x
+    result = v + x
+    assert result >= old_x
+    return result'''),
+    # Two stubs with disjoint writes — no cross-interference.
+    ("frame_stub_disjoint", '''def frame_stub_disjoint(x: int):
+    assert x>=0
+    a = pop([x])
+    b = len([x, x+1])
+    result = a + b
+    assert result >= 2
+    return result'''),
+
     # ── Negative tests ─────────────────────────────────────────────
     ("weak_count", "def weak_count(n: int):\n    assert n>=0\n    count=0;i=0\n    while i<n:\n        assert count>=0;assert i<=n\n        count+=1;i+=1\n    assert count==n\n    return count"),
     ("missing_bound", "def missing_bound(n: int):\n    assert n>=0\n    total=0;i=0\n    while i<n:\n        assert total>=0\n        total+=i;i+=1\n    assert total==n*(n-1)//2\n    return total"),
@@ -292,6 +384,17 @@ def first2(lst: list[int]):
         i+=1
     result=depth
     assert result>=0
+    return result'''),
+    # Frame violation — pop writes {lst}, caller asserts lst unchanged.
+    # TODO: enable when clobber enforcement is added to CCall WP.
+    # Currently passes because the frame conjunct is not yet active.
+    ("frame_fail_pop", '''def frame_fail_pop(x: int):
+    assert x>=0
+    lst = [x, x+1]
+    old_lst = lst
+    v = pop(lst)
+    result = lst
+    assert result == old_lst
     return result'''),
 ]
 

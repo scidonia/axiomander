@@ -38,9 +38,12 @@ class FunctionAnalysis:
     has_loops: bool = False
     has_conditionals: bool = False
     has_side_effects: bool = False
+    has_impure_calls: bool = False
+    impure_calls: list[str] = field(default_factory=list)
+    frame_fields: list[str] = field(default_factory=list)
     existing_asserts: list[str] = field(default_factory=list)
     suggested_adornments: list[AdornmentAdvice] = field(default_factory=list)
-    verification_status: str = "not_attempted"  # "proved", "failed", "not_attempted"
+    verification_status: str = "not_attempted"
     failure_detail: str = ""
     llm_guidance: str = ""
 
@@ -79,12 +82,10 @@ def analyze_function(source: str, func_name: str | None = None) -> FunctionAnaly
         if isinstance(node, ast.If):
             analysis.has_conditionals = True
         if isinstance(node, ast.Call):
-            # Check for side effects (simplified)
             name = _get_call_name(node)
             if name and name not in _PURE:
                 analysis.has_side_effects = True
         if isinstance(node, ast.Assert):
-            # Classify
             classification = _classify_in_function(func_node, node)
             analysis.existing_asserts.append(
                 f"Line {node.lineno} [{classification}]: {ast.unparse(node)}"
@@ -95,6 +96,21 @@ def analyze_function(source: str, func_name: str | None = None) -> FunctionAnaly
                 analysis.has_postconditions = True
             elif classification == "invariant":
                 analysis.has_invariants = True
+
+    # Purity analysis
+    from .purity_analyzer import analyze_purity as _analyze_purity
+    class_fields_map: dict[str, list[str]] = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ClassDef):
+            fields = []
+            for s in n.body:
+                if isinstance(s, ast.AnnAssign) and isinstance(s.target, ast.Name):
+                    fields.append(s.target.id)
+            if fields:
+                class_fields_map[n.name] = fields
+    purity = _analyze_purity(func_node, tree, {}, class_fields_map)
+    analysis.has_impure_calls = not purity.is_pure
+    analysis.impure_calls = list(dict.fromkeys(purity.impure_calls))
 
     # Generate adornment suggestions
     analysis.suggested_adornments = _suggest_adornments(func_node, analysis)
@@ -110,28 +126,7 @@ def analyze_file(source: str) -> FileAnalysis:
 
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef):
-            # Extract just this function's source
-            func_source = ast.unparse(node) if hasattr(ast, "unparse") else ""
-            analysis = FunctionAnalysis(name=node.name)
-
-            for child in ast.walk(node):
-                if isinstance(child, (ast.While, ast.For)):
-                    analysis.has_loops = True
-                if isinstance(child, ast.If):
-                    analysis.has_conditionals = True
-                if isinstance(child, ast.Assert):
-                    classification = _classify_in_function(node, child)
-                    analysis.existing_asserts.append(
-                        f"Line {child.lineno} [{classification}]: {ast.unparse(child)}"
-                    )
-                    if classification == "precondition":
-                        analysis.has_preconditions = True
-                    elif classification == "postcondition":
-                        analysis.has_postconditions = True
-                    elif classification == "invariant":
-                        analysis.has_invariants = True
-
-            analysis.suggested_adornments = _suggest_adornments(node, analysis)
+            analysis = analyze_function(source, node.name)
             funcs.append(analysis)
 
     # Build summary
