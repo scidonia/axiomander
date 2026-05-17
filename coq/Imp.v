@@ -147,6 +147,10 @@ Definition dict_vals_key (name : var) : var :=
   (name ++ "._vals")%string.
 
 (** Evaluation of arithmetic and boolean expressions. *)
+
+(** Float scale factor: Python floats → Z encoding.  3.14 → 314, 1.5 → 150. *)
+Definition float_scale : Z := 100.
+
 Fixpoint aeval (a : aexp) (s : state) : value :=
   match a with
   | ANum n => VZ n
@@ -154,9 +158,27 @@ Fixpoint aeval (a : aexp) (s : state) : value :=
   | AString lit => VString lit
   | AFloat f => VFloat f
   | ANone => VNone
-  | APlus a1 a2 => VZ (asZ (aeval a1 s) + asZ (aeval a2 s))
-  | AMinus a1 a2 => VZ (asZ (aeval a1 s) - asZ (aeval a2 s))
-  | AMult a1 a2 => VZ (asZ (aeval a1 s) * asZ (aeval a2 s))
+  | APlus a1 a2 =>
+      match aeval a1 s, aeval a2 s with
+      | VFloat f1, VFloat f2 => VFloat (f1 + f2)
+      | VFloat f, VZ z => VFloat (f + z * float_scale)
+      | VZ z, VFloat f => VFloat (z * float_scale + f)
+      | v1, v2 => VZ (asZ v1 + asZ v2)
+      end
+  | AMinus a1 a2 =>
+      match aeval a1 s, aeval a2 s with
+      | VFloat f1, VFloat f2 => VFloat (f1 - f2)
+      | VFloat f, VZ z => VFloat (f - z * float_scale)
+      | VZ z, VFloat f => VFloat (z * float_scale - f)
+      | v1, v2 => VZ (asZ v1 - asZ v2)
+      end
+  | AMult a1 a2 =>
+      match aeval a1 s, aeval a2 s with
+      | VFloat f1, VFloat f2 => VFloat (f1 * f2 / float_scale)
+      | VFloat f, VZ z => VFloat (f * z)
+      | VZ z, VFloat f => VFloat (z * f)
+      | v1, v2 => VZ (asZ v1 * asZ v2)
+      end
   | AMod a1 a2 => VZ (Z.modulo (asZ (aeval a1 s)) (asZ (aeval a2 s)))
   | ADiv a1 a2 => VZ (asZ (aeval a1 s) / asZ (aeval a2 s))
   | ALen name => VZ (asZ (s (parray_len_key name)))

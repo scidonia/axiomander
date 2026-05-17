@@ -425,6 +425,12 @@ def frame_triple_compose(n: int):
     result = a == b
     assert result == 1
     return result'''),
+    # Float parameter — value stored correctly in init_state.
+    ("float_param", '''def float_param(x: float):
+    assert x >= 0.0
+    result = x
+    assert result == x
+    return result'''),
 
     # ── VNone ──────────────────────────────────────────────────────
     ("none_assign", '''def none_assign():

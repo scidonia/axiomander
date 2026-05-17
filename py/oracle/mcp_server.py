@@ -1279,12 +1279,15 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
     # Build a map of param name → Coq type from function annotations
     param_types: dict[str, str] = {}
     list_params: set[str] = set()
+    float_params: set[str] = set()
     if func_node:
         for arg, annot in _func_params(func_node):
             coq_type = _py_type_to_coq(annot)
             param_types[arg] = coq_type
             if _is_list_param(annot):
                 list_params.add(arg)
+            if _is_float_param(annot):
+                float_params.add(arg)
 
     class_fields = {}
     record_section = ""
@@ -1323,7 +1326,10 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
         else:
             expanded.append(p)
             parts.append(f"({p} : {coq_type})")
-            init_state = f'(upd {init_state} "{p}"%string (VZ {p}))'
+            if p in float_params:
+                init_state = f'(upd {init_state} "{p}"%string (VFloat {p}))'
+            else:
+                init_state = f'(upd {init_state} "{p}"%string (VZ {p}))'
 
     for p in params:
         cls_name = next((c for c in class_fields if c.lower() == p.lower()), None)
@@ -1388,6 +1394,21 @@ def _is_list_param(annotation) -> bool:
     if isinstance(annotation, ast.Subscript):
         if isinstance(annotation.value, ast.Name) and annotation.value.id == "list":
             return True
+    return False
+
+
+def _is_float_param(annotation) -> bool:
+    """Check if a type annotation is float (or Optional[float], etc.)."""
+    if annotation is None:
+        return False
+    if isinstance(annotation, ast.Name) and annotation.id == "float":
+        return True
+    if isinstance(annotation, ast.Subscript):
+        if isinstance(annotation.value, ast.Name):
+            if annotation.value.id in ("Optional", "Union"):
+                args = annotation.slice if isinstance(annotation.slice, ast.Tuple) else [annotation.slice]
+                if args and isinstance(args[0], ast.expr):
+                    return _is_float_param(args[0])
     return False
 
 
