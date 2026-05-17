@@ -47,15 +47,23 @@ Qed.
 Opaque In.
 
 Ltac frame_prove_target :=
-  intro x; intro Hnotin;
+  intro x; intro Hin;
   match goal with
-  | [ Hnotin : ~ (In ?x (?t :: ?w)) |- ?sx = clobber (upd ?s ?t (VZ ?r)) ?w ?x ] =>
-      destruct (string_dec x t);
-      [ exfalso; apply Hnotin; unfold In; left; auto
-      | rewrite clobber_unchanged; [ rewrite upd_unchanged; [ reflexivity | auto ] | unfold In; intro Hin; apply Hnotin; right; auto ] ]
-  | [ Hnotin : ~ (?t = ?x \/ _) |- ?sx = (upd ?s ?t (VZ ?r)) ?x ] =>
-      destruct (string_dec x t);
-      [ exfalso; apply Hnotin; left; auto
+  | [ Hin : ~ In ?x0 (?t :: ?w) |- _ = clobber (upd _ ?t (VZ _)) ?w ?x0 ] =>
+      destruct (string_dec x0 t);
+      [ exfalso; apply Hin; unfold In; left; auto
+      | rewrite clobber_unchanged; [ rewrite upd_unchanged; [ reflexivity | auto ] | intro; apply Hin; unfold In; right; auto ] ]
+  | [ Hin : ~ In ?x0 (?t :: ?w) |- _ ] =>
+      destruct (string_dec x0 t);
+      [ exfalso; apply Hin; unfold In; left; auto
+      | rewrite clobber_unchanged; [ rewrite upd_unchanged; [ reflexivity | auto ] | intro; apply Hin; unfold In; right; auto ] ]
+  | [ Hin : ~ (?t = ?x0 \/ _) |- _ = (upd _ ?t (VZ _)) ?x0 ] =>
+      destruct (string_dec x0 t);
+      [ exfalso; apply Hin; left; auto
+      | rewrite upd_unchanged; [ reflexivity | auto ] ]
+  | [ Hin : ~ (?t = ?x0 \/ _) |- _ ] =>
+      destruct (string_dec x0 t);
+      [ exfalso; apply Hin; left; auto
       | rewrite upd_unchanged; [ reflexivity | auto ] ]
   | _ => idtac "frame_prove: no match"
   end.
