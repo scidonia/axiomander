@@ -14,7 +14,7 @@ Admitted.
 
 (** [wp_reduce] — unfold state, aeval, beval, asZ; simplify. *)
 Ltac wp_reduce :=
-  unfold wp, aeval, beval, asZ, asString, asFloat; simpl.
+  unfold wp, aeval, beval, asZ, asString, asFloat; cbn -[In clobber].
 
 (** Frame condition lemmas for CCall writes enforcement. *)
 Lemma upd_unchanged : forall s x y v, x <> y -> upd s y v x = s x.
@@ -93,12 +93,14 @@ Ltac wp_prove :=
   | [ H: Z.eqb ?a ?b = false |- _ ] => apply Z.eqb_neq in H; wp_prove
   | |- _ /\ _ => split; wp_prove
   | |- _ -> _ => intro; wp_prove
+  | |- forall _, ~ In _ (_ :: _) -> _ = clobber (upd _ _ (VZ _)) _ _ => apply wp_ccall_frame
   | |- forall _, _ => intro; wp_prove
   | |- exists _, _ => eexists; wp_prove
   | |- (if ?c then _ else _) = 1 \/ (if ?c then _ else _) = 0 =>
       destruct c; auto
   | |- _ \/ _ => first [left; wp_prove | right; wp_prove]
   | |- ?x = ?x => reflexivity
+  | |- context[clobber ?s nil] => rewrite (clobber_nil s); wp_prove
   | |- _ => solve [lia | reflexivity | auto]
   end.
 

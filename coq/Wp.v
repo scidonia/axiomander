@@ -66,7 +66,9 @@ Fixpoint wp (c : com) (Q : assertion) : assertion :=
                Q (upd (upd s1 (parray_key (dict_keys_key name) c) (aeval key_e s))
                       (dict_count_key name) (VZ new_c))
   | CCall name args pre post writes target =>
-      fun s => pre s /\ (forall r, post (upd s target (VZ r)) -> Q (upd s target (VZ r)))
+      fun s => pre s /\ (forall r, post (upd s target (VZ r)) ->
+        Q (clobber (upd s target (VZ r)) writes) /\
+        (forall x, ~ In x (target :: writes) -> s x = (clobber (upd s target (VZ r)) writes) x))
   end.
 
 (** ** Soundness — [wp c Q] implies the Hoare triple {wp c Q} c {Q}. *)
