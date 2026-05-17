@@ -821,23 +821,23 @@ def tool_frame_report(args: dict) -> str:
                 self.generic_visit(node)
 
             def visit_Call(self, node):
-                # collect callee frame effects but don't count callee name as a write
                 if isinstance(node.func, _ast.Name):
                     callee = node.func.id
-                    if callee in contract_map:
-                        _, _, _, c_reads, c_writes = contract_map[callee]
-                        if c_reads or c_writes:
-                            callee_effects.append(
-                                f"  ↳ `{callee}()` reads {{{', '.join(c_reads) or '—'}}} "
-                                f"writes {{{', '.join(c_writes) or '—'}}}"
-                            )
-                    elif callee in stub_loader.known_functions:
+                    # Stub contracts — explicit reads/writes
+                    if callee in stub_loader.known_functions:
                         sc = stub_loader.get_contract_info(callee)
                         if sc:
                             callee_effects.append(
                                 f"  ↳ `{callee}()` reads {{{', '.join(sc.reads) or '—'}}} "
                                 f"writes {{{', '.join(sc.writes) or '—'}}}"
                             )
+                    elif callee in contract_map:
+                        _, _, _, c_reads, c_writes = contract_map[callee]
+                        callee_effects.append(
+                            f"  ↳ `{callee}()` reads {{{', '.join(c_reads) or '—'}}} "
+                            f"writes {{{', '.join(c_writes) or 'result'}}}"
+                        )
+                    # else: unknown — not reported
                 # visit call args (but not the callee name)
                 for arg in node.args:
                     self.visit(arg)
