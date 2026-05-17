@@ -105,6 +105,49 @@ Add to your `~/.config/opencode/opencode.json`:
 | 2 — SMT | cvc4 subprocess (QF_NIA) | Non-linear VCG, division, multiplication |
 | 3 — LLM oracle | DeepSeek via coqpyt | Complex invariants, quantifiers |
 
+## Frame Conditions
+
+Functions carry implicit frame conditions via `CCall` with a `writes` set. The verifier proves that variables outside a callee's declared writes are unchanged across the call. Callers can snapshot values before a call and assert they survive.
+
+```python
+def inc(x: int):
+    assert x >= 0
+    result = x + 1           # writes: {result}
+    return result
+
+def frame_old_unchanged(a: int):
+    assert a >= 0
+    old_a = a                # snapshot
+    discard = inc(5)
+    assert a == old_a        # frame: inc didn't touch 'a'
+    return a
+```
+
+Library functions declare `reads`/`writes` in `.pyi` stubs:
+
+```python
+# stubs/builtins.pyi
+def pop(lst: list) -> int:
+    """requires: True
+    ensures:  True
+    reads:    lst
+    writes:   lst"""         # pop mutates the list
+```
+
+MCP tool `frame-report` shows contracts and frame conditions for any function:
+
+```
+## `frame_stub_pop`
+### Preconditions
+  assert x>=0
+### Postconditions
+  assert result >= old_x
+### Frame
+  preserves: {x}
+### Callee Effects
+  ↳ `pop()` reads {lst} writes {lst}
+```
+
 ## Testing
 
 ```bash
@@ -112,7 +155,7 @@ eval $(opam env)
 PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 ```
 
-34 tests covering the full feature set.
+70 tests covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, range quantifiers, frame conditions, and stub integration.
 
 ## Architecture
 
@@ -122,16 +165,23 @@ py/
     contract_linter.py   # Python AST → IR (Coq + SMT targets)
     contract_ir.py       # Expression IR (Pydantic models)
     python_to_imp.py     # Python AST → IMP commands
-    mcp_server.py        # MCP server (check-file, check-function)
+    mcp_server.py        # MCP server + all tools
+    purity_analyzer.py   # Purity detection + frame condition generation
+    stub_loader.py       # .pyi stub parser for library contracts
+    cache.py             # Incremental verification cache + dependency graph
     smt_export.py        # Coq → SMT-LIB export
     client.py            # LLM oracle client
     coqpyt_session.py    # Interactive Coq proof session
     reporting.py         # Goal status + report generation
 
 coq/
-  Imp.v                  # IMP language + aexp/bexp (mutual), ae/beval, com, ceval
-  Wp.v                   # WP calculus + VCG definitions
-  WpTactics.v            # wp_reduce/wp_prove automation
+  Imp.v                  # IMP language (value: VZ | VBool | VUnit), clobber
+  Wp.v                   # WP calculus with CCall writes enforcement
+  WpTactics.v            # wp_reduce/wp_prove/frame_prove automation
+  Pydantic.v             # Pydantic model support (store_field, load_field)
+stubs/
+  builtins.pyi           # Stub contracts for pop, add, get, len, etc.
+  math_stubs.pyi         # Stub contracts for math functions
 ```
 
 ## Contract Discipline
