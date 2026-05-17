@@ -14,7 +14,7 @@ Admitted.
 
 (** [wp_reduce] — unfold state, aeval, beval, asZ; simplify. *)
 Ltac wp_reduce :=
-  unfold wp, aeval, beval, asZ, asString, asFloat; cbn.
+  unfold wp, aeval, beval, asZ, asString, asFloat; simpl.
 
 (** Frame condition lemmas for CCall writes enforcement. *)
 Lemma upd_unchanged : forall s x y v, x <> y -> upd s y v x = s x.
@@ -43,13 +43,16 @@ Proof.
       * intro. apply H. right. auto.
 Qed.
 
+(** Prevent [simpl] from eliminating [In] — the frame pattern matches it. *)
+Opaque In.
+
 Ltac frame_prove_target :=
   intro x; intro Hnotin;
   match goal with
   | [ Hnotin : ~ (In ?x (?t :: ?w)) |- ?sx = clobber (upd ?s ?t (VZ ?r)) ?w ?x ] =>
       destruct (string_dec x t);
-      [ exfalso; apply Hnotin; simpl; auto
-      | rewrite clobber_unchanged; [ rewrite upd_unchanged; [ reflexivity | auto ] | intro; apply Hnotin; right; auto ] ]
+      [ exfalso; apply Hnotin; unfold In; left; auto
+      | rewrite clobber_unchanged; [ rewrite upd_unchanged; [ reflexivity | auto ] | unfold In; intro Hin; apply Hnotin; right; auto ] ]
   | [ Hnotin : ~ (?t = ?x \/ _) |- ?sx = (upd ?s ?t (VZ ?r)) ?x ] =>
       destruct (string_dec x t);
       [ exfalso; apply Hnotin; left; auto
