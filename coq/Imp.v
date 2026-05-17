@@ -16,7 +16,8 @@ Inductive value : Type :=
   | VString (s : string)
   | VFloat (f : Z)   (* float value encoded as scaled integer *)
   | VNone
-  | VTuple (ts : list value).
+  | VTuple (ts : list value)
+  | VList (xs : list value).
 
 (** State: a total mapping from variables to values. *)
 Definition state := var -> value.
@@ -102,6 +103,13 @@ Fixpoint value_eqb (v1 v2 : value) : bool :=
          | v1'::vs1', v2'::vs2' => value_eqb v1' v2' && list_eqb vs1' vs2'
          | _, _ => false
          end) ts1 ts2
+  | VList xs1, VList xs2 =>
+      (fix list_eqb vs1 vs2 :=
+         match vs1, vs2 with
+         | nil, nil => true
+         | v1'::vs1', v2'::vs2' => value_eqb v1' v2' && list_eqb vs1' vs2'
+         | _, _ => false
+         end) xs1 xs2
   | _, _ => false
   end.
 
@@ -114,8 +122,10 @@ Inductive aexp : Type :=
   | AMult (a1 a2 : aexp)
   | AMod (a1 a2 : aexp)
   | ADiv (a1 a2 : aexp)
-  | ALen (name : var)
-  | AIndex (name : var) (idx : aexp)
+  | ALen (a : aexp)              (* length of a list/string value *)
+  | AIndex (a : aexp) (idx : aexp)  (* nth element of a list *)
+  | AAppend (a : aexp) (e : aexp)   (* append element, returns new VList *)
+  | APop (a : aexp)             (* pop last element, returns new VList *)
   | ADictLen (name : var) (key_e : aexp)
   | ADictCount (name : var)
   | ABool (b : bexp)
@@ -123,6 +133,7 @@ Inductive aexp : Type :=
   | AFloat (f : Z)   (* float literal, Z-encoded *)
   | ANone            (* None literal *)
   | ATuple (es : list aexp)  (* tuple literal *)
+  | AList (es : list aexp)   (* list literal *)
 with bexp : Type :=
   | BTrue
   | BFalse
@@ -133,7 +144,11 @@ with bexp : Type :=
   | BOr (b1 b2 : bexp)
   | BIsNone (x : var).
 
-(** Convert Z to string for array key encoding. *)
+(** Extract list from a value, defaulting to empty. *)
+Definition asList (v : value) : list value :=
+  match v with VList xs => xs | _ => nil end.
+
+(** Convert Z to string for dict key encoding. *)
 Fixpoint pos_to_string (p : positive) : string :=
   match p with
   | xH => "1"%string
@@ -148,14 +163,22 @@ Definition z_to_string (z : Z) : string :=
   | Zneg p => ("-" ++ pos_to_string p)%string
   end.
 
+(** Remove the last element of a list. *)
+Fixpoint removelast (xs : list value) : list value :=
+  match xs with
+  | nil => nil
+  | _ :: nil => nil
+  | x :: xs' => x :: removelast xs'
+  end.
+
+Definition dict_key (name : var) (key : Z) : var :=
+  (name ++ ".v." ++ z_to_string key)%string.
+
 Definition parray_key (name : var) (idx : Z) : var :=
   (name ++ "." ++ z_to_string idx)%string.
 
 Definition parray_len_key (name : var) : var :=
   (name ++ "._len")%string.
-
-Definition dict_key (name : var) (key : Z) : var :=
-  (name ++ ".v." ++ z_to_string key)%string.
 
 Definition dict_count_key (name : var) : var :=
   (name ++ "._count")%string.
@@ -179,6 +202,7 @@ Fixpoint aeval (a : aexp) (s : state) : value :=
   | AFloat f => VFloat f
   | ANone => VNone
   | ATuple es => VTuple (map (fun e => aeval e s) es)
+  | AList es => VList (map (fun e => aeval e s) es)
   | APlus a1 a2 =>
       match aeval a1 s, aeval a2 s with
       | VFloat f1, VFloat f2 => VFloat (f1 + f2)
@@ -202,8 +226,12 @@ Fixpoint aeval (a : aexp) (s : state) : value :=
       end
   | AMod a1 a2 => VZ (Z.modulo (asZ (aeval a1 s)) (asZ (aeval a2 s)))
   | ADiv a1 a2 => VZ (asZ (aeval a1 s) / asZ (aeval a2 s))
-  | ALen name => VZ (asZ (s (parray_len_key name)))
-  | AIndex name idx_e => VZ (asZ (s (parray_key name (asZ (aeval idx_e s)))))
+  | ALen a => VZ (Z.of_nat (length (asList (aeval a s))))
+  | AIndex a idx =>
+      let xs := asList (aeval a s) in
+      nth (Z.to_nat (asZ (aeval idx s))) xs VNone
+  | AAppend a e => VList (asList (aeval a s) ++ [aeval e s])
+  | APop a => VList (removelast (asList (aeval a s)))
   | ADictLen name key_e => VZ (asZ (s (parray_len_key (dict_key name (asZ (aeval key_e s))))))
   | ADictCount name => VZ (asZ (s (dict_count_key name)))
   | ABool b => VZ (if beval b s then 1%Z else 0%Z)
@@ -232,10 +260,6 @@ Inductive com : Type :=
   | CIf (b : bexp) (c1 c2 : com)
   | CWhile (b : bexp) (inv : state -> Prop) (c : com)
   | CHavoc (vars : list var)
-  | CListNew (name : var)
-  | CListAppend (name : var) (val : aexp)
-  | CListPop (name : var)
-  | CListSet (name : var) (idx val : aexp)
   | CDictSet (name : var) (key val : aexp)
   | CDictGet (name : var) (key : aexp) (target : var)
   | CDictEnsureList (name : var) (key : aexp)
@@ -276,20 +300,6 @@ Inductive ceval : com -> state -> state -> Prop :=
   | E_Havoc : forall A s s',
       (forall x, ~ In x A -> s' x = s x) ->
       ceval (CHavoc A) s s'
-  | E_ListNew : forall name s,
-      ceval (CListNew name) s (upd s (parray_len_key name) (VZ 0))
-  | E_ListAppend : forall name val s,
-      let len := asZ (s (parray_len_key name)) in
-      ceval (CListAppend name val) s
-            (upd (upd s (parray_key name len) (aeval val s))
-                 (parray_len_key name) (VZ (len + 1)))
-  | E_ListPop : forall name s,
-      let len := asZ (s (parray_len_key name)) in
-      ceval (CListPop name) s
-            (upd s (parray_len_key name) (VZ (len - 1)))
-  | E_ListSet : forall name idx_e val_e s,
-      ceval (CListSet name idx_e val_e) s
-            (upd s (parray_key name (asZ (aeval idx_e s))) (aeval val_e s))
   | E_DictSet : forall name key_e val_e s,
       let dk := dict_key name (asZ (aeval key_e s)) in
       let is_new := Z.eqb 0 (asZ (s (parray_len_key dk))) in
