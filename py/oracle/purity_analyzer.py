@@ -169,7 +169,7 @@ def generate_frame_conditions(
             for f in class_fields[cls]:
                 if (param, f) not in mentioned_fields and (param, f) not in mutated_fields:
                     frame_conditions.append(
-                        f's "{param}.{f}"%string = {param}_{f}'
+                        f'asZ (s "{param}.{f}"%string) = {param}_{f}'
                     )
 
     return frame_conditions
