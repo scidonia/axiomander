@@ -40,7 +40,19 @@ Proof.
     + exfalso. apply H. left. auto.
     + rewrite IH.
       * apply upd_unchanged. auto.
-      * intro. apply H. right. auto.
+       * intro. apply H. right. auto.
+Qed.
+
+(** Single lemma for the CCall frame conjunct — avoids fragile Ltac pattern matching. *)
+Lemma wp_ccall_frame : forall (s : state) (target : var) (writes : list var) (r : Z) (x : var),
+  ~ In x (target :: writes) -> s x = (clobber (upd s target (VZ r)) writes) x.
+Proof.
+  intros s target writes r x Hnotin.
+  destruct (string_dec x target) as [Heq|Hne].
+  - exfalso. apply Hnotin. left. auto.
+  - rewrite clobber_unchanged.
+    + rewrite upd_unchanged. reflexivity. auto.
+    + intro Hin. apply Hnotin. right. auto.
 Qed.
 
 (** Prevent [simpl] from eliminating [In] — the frame pattern matches it. *)
