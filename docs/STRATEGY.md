@@ -99,7 +99,7 @@ Goal
 
 | Tool | Approach | User code changes |
 |------|----------|-------------------|
-| Refactoring Robots | assert contracts → Coq proofs | Zero (just asserts) |
+| Axiomander | assert contracts → Coq proofs | Zero (just asserts) |
 | Axiomander | assert contracts → Z3 SMT | Zero (just asserts) |
 | Dafny | Annotation language → Boogie | New language |
 | F* | Dependent types → SMT | New language |

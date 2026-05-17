@@ -1,4 +1,4 @@
-# verify-contracts
+# axiomander
 
 A Hoare-logic verification pipeline for Python. Write contracts as plain `assert` statements. The pipeline translates them into IMP, formalises proof obligations in Coq, dispatches easy goals to SMT (cvc4), and falls back to an LLM oracle.
 
@@ -18,8 +18,8 @@ Python assert contracts
 ## Quick Start
 
 ```bash
-git clone https://github.com/anomalyco/refactoring-robots
-cd refactoring-robots
+git clone https://github.com/scidonia/axiomander
+cd axiomander
 uv pip install -e .
 
 # Run the test suite
@@ -54,13 +54,13 @@ def sum_to(n):
 
 ```bash
 # Analyze a file for contract opportunities
-verify-contracts-mcp check-file path/to/file.py
+axiomander-mcp check-file path/to/file.py
 
 # Verify a single function
-verify-contracts-mcp check-function --function add path/to/file.py
+axiomander-mcp check-function --function add path/to/file.py
 
 # Verify with hammer hint (SMT ATP fallback)
-verify-contracts-mcp check-function --function add --hint hammer path/to/file.py
+axiomander-mcp check-function --function add --hint hammer path/to/file.py
 ```
 
 ## MCP Integration
@@ -68,14 +68,14 @@ verify-contracts-mcp check-function --function add --hint hammer path/to/file.py
 Add to your `~/.config/opencode/opencode.json`:
 
 ```json
-"verify-contracts": {
+"axiomander": {
   "type": "local",
-  "command": ["bash", "-c", "eval $(opam env) 2>/dev/null; exec verify-contracts-mcp"],
+  "command": ["bash", "-c", "eval $(opam env) 2>/dev/null; exec axiomander-mcp"],
   "enabled": true,
   "environment": {
     "DEEPSEEK_API_KEY": "{env:DEEPSEEK_API_KEY}",
-    "REFACTORING_ROBOTS_ROOT": "/path/to/refactoring-robots",
-    "PYTHONPATH": "/path/to/refactoring-robots/py"
+    "AXIOMANDER_ROOT": "/path/to/axiomander",
+    "PYTHONPATH": "/path/to/axiomander/py"
   }
 }
 ```

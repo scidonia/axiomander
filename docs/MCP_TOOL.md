@@ -13,7 +13,7 @@ def add(a: int, b: int) -> int:
     return result
 ```
 
-No `@requires`, no `@ensures`, no `from verify_contracts import ...`.
+No `@requires`, no `@ensures`, no `from axiomander import ...`.
 Just Python `assert`, which every developer already knows.
 
 ## Architecture
@@ -41,7 +41,7 @@ User's Python (zero deps)
                    ▼
 ┌──────────────────────────────────────────┐
 │  MCP server                              │
-│  Tool: verify-contracts                  │
+│  Tool: axiomander                       │
 │  Returns: per-goal status + guidance     │
 └──────────────────────────────────────────┘
 ```
@@ -80,7 +80,7 @@ Axiomander classifies `assert` statements by position:
 ```
 1. User writes Python with assert-based contracts
        ↓
-2. Agent calls MCP tool: verify-contracts
+2. Agent calls MCP tool: axiomander
        ↓
 3. Server returns:
      ✓ add       — proved (level1)
@@ -91,7 +91,7 @@ Axiomander classifies `assert` statements by position:
            assert acc == i * (i + 1) // 2   ← added
            i += 1; acc += i
        ↓
-5. Agent calls verify-contracts again
+5. Agent calls axiomander again
        ↓
 6. Server returns:
      ✓ sum_to    — proved (level1)
@@ -99,7 +99,7 @@ Axiomander classifies `assert` statements by position:
 
 ## Implementation plan
 
-1. Add Axiomander as a dependency of refactoring-robots (it's pip-installable)
+1. Axiomander's assertion_finder provides contract discovery (no external dependency needed)
 2. Write a Python→Coq translator that takes Axiomander's WP output (`ast.expr`) and produces Coq theorem statements
 3. Wire up the 3-tier pipeline to consume Axiomander's results
 4. The MCP server calls `axiomander.verification.orchestrator` for contract discovery, then routes WP to our Coq pipeline

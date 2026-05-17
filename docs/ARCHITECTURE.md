@@ -2,7 +2,7 @@
 
 ## Overview
 
-Refactoring Robots is a verification pipeline for Python. Users annotate Python functions with Hoare-logic contracts using decorators. The pipeline translates these into proof obligations formalised in Coq, dispatches them through SMT solvers, and falls back to an LLM oracle for the hard cases.
+Axiomander is a verification pipeline for Python. Users annotate Python functions with Hoare-logic contracts using decorators. The pipeline translates these into proof obligations formalised in Coq, dispatches them through SMT solvers, and falls back to an LLM oracle for the hard cases.
 
 ## Pipeline Stages
 
