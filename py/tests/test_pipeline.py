@@ -387,7 +387,6 @@ def frame_triple_compose(n: int):
     return result'''),
     # Frame violation — pop writes {lst}, caller asserts lst unchanged.
     # TODO: enable when clobber enforcement is added to CCall WP.
-    # Currently passes because the frame conjunct is not yet active.
     ("frame_fail_pop", '''def frame_fail_pop(x: int):
     assert x>=0
     lst = [x, x+1]
@@ -395,6 +394,22 @@ def frame_triple_compose(n: int):
     v = pop(lst)
     result = lst
     assert result == old_lst
+    return result'''),
+
+    # ── VString (Phase 1) ──────────────────────────────────────────
+    # String literal created and compared internally — no parameter needed.
+    ("str_literal_eq", '''def str_literal_eq():
+    result = "hello"
+    assert result == "hello"
+    return result'''),
+    # String literal with condition.
+    ("str_literal_cond", '''def str_literal_cond():
+    s = "hello"
+    if s == "hello":
+        result = 1
+    else:
+        result = 0
+    assert result == 1
     return result'''),
 ]
 

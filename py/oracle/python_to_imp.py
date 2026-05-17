@@ -354,7 +354,8 @@ class ImpTranslator:
             if val is None:
                 return f"(ANum 0)"
             if isinstance(val, str):
-                return f"(ANum {hash(val) % 10000})"
+                escaped = val.replace('\\', '\\\\').replace('"', '\\"')
+                return f'(AString "{escaped}"%string)'
             return f"(ANum 0) (* unhandled constant: {val} *)"
 
         if isinstance(node, ast.Name):
@@ -966,7 +967,7 @@ class ImpTranslator:
                 end = s.index('"%string)')
                 name = s[7:end]  # extract name between (AVar " and "%string)
                 return f'asZ (s "{name}"%string)'
-            return f'aeval ({s}) s'
+            return f'asZ (aeval ({s}) s)'
 
         start_z = to_z_val(start_val)
         limit_z = to_z_val(limit_val)

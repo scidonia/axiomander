@@ -2258,7 +2258,7 @@ Open Scope Z_scope.
 Definition {name}_body : com :=
   {imp_body}.
 
-Theorem {name}_correct : forall {params_coq},
+Theorem {name}_correct{f' : forall {params_coq},' if params_coq.strip() else ' :'} 
   ({pre_coq}) ->
   wp {name}_body
      (fun s => {post_coq})

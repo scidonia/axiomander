@@ -14,7 +14,7 @@ Admitted.
 
 (** [wp_reduce] — unfold state, aeval, beval, asZ; simplify. *)
 Ltac wp_reduce :=
-  unfold wp, upd, aeval, beval, asZ, clobber; cbn.
+  unfold wp, upd, aeval, beval, asZ, asString, clobber; cbn.
 
 (** Frame condition lemmas for CCall writes enforcement. *)
 Lemma upd_unchanged : forall s x y v, x <> y -> upd s y v x = s x.

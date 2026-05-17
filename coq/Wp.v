@@ -15,7 +15,7 @@ Fixpoint wp (c : com) (Q : assertion) : assertion :=
   | CSkip =>
       Q
   | CAss x a =>
-      fun s => Q (upd s x (VZ (aeval a s)))
+      fun s => Q (upd s x (aeval a s))
   | CSeq c1 c2 =>
       wp c1 (wp c2 Q)
   | CIf b c1 c2 =>
@@ -29,41 +29,41 @@ Fixpoint wp (c : com) (Q : assertion) : assertion :=
       fun s => Q (upd s (parray_len_key name) (VZ 0))
   | CListAppend name val =>
       fun s => let len := asZ (s (parray_len_key name)) in
-               Q (upd (upd s (parray_key name len) (VZ (aeval val s)))
+               Q (upd (upd s (parray_key name len) (aeval val s))
                       (parray_len_key name) (VZ (len + 1)))
   | CListPop name =>
       fun s => Q (upd s (parray_len_key name) (VZ (asZ (s (parray_len_key name)) - 1)))
   | CListSet name idx_e val_e =>
-      fun s => Q (upd s (parray_key name (aeval idx_e s)) (VZ (aeval val_e s)))
+      fun s => Q (upd s (parray_key name (asZ (aeval idx_e s))) (aeval val_e s))
   | CDictSet name key_e val_e =>
-      fun s => let dk := dict_key name (aeval key_e s) in
+      fun s => let dk := dict_key name (asZ (aeval key_e s)) in
                let is_new := Z.eqb 0 (asZ (s (parray_len_key dk))) in
                let old_count := asZ (s (dict_count_key name)) in
                let new_count := old_count + (if is_new then 1 else 0) in
-               Q (upd (upd (upd s dk (VZ (aeval val_e s)))
+               Q (upd (upd (upd s dk (aeval val_e s))
                            (parray_len_key dk) (VZ 1))
                       (dict_count_key name) (VZ new_count))
   | CDictGet name key_e target =>
-      fun s => Q (upd s target (s (dict_key name (aeval key_e s))))
+      fun s => Q (upd s target (s (dict_key name (asZ (aeval key_e s)))))
   | CDictEnsureList name key_e =>
-      fun s => let dk := dict_key name (aeval key_e s) in
+      fun s => let dk := dict_key name (asZ (aeval key_e s)) in
                Q (if Z.eqb (asZ (s (parray_len_key dk))) 0
                   then upd s (parray_len_key dk) (VZ 0)
                   else s)
   | CDictAppend name key_e val_e =>
-      fun s => let dk := dict_key name (aeval key_e s) in
+      fun s => let dk := dict_key name (asZ (aeval key_e s)) in
                let len := asZ (s (parray_len_key dk)) in
-               Q (upd (upd s (parray_key dk len) (VZ (aeval val_e s)))
+               Q (upd (upd s (parray_key dk len) (aeval val_e s))
                       (parray_len_key dk) (VZ (len + 1)))
   | CDictAppendKv name key_e val_e =>
-      fun s => let dk := dict_key name (aeval key_e s) in
+      fun s => let dk := dict_key name (asZ (aeval key_e s)) in
                let is_new := Z.eqb 0 (asZ (s (parray_len_key dk))) in
                let c := asZ (s (dict_count_key name)) in
                let new_c := c + (if is_new then 1 else 0) in
-               let s1 := upd (upd (upd s dk (VZ (aeval val_e s)))
+               let s1 := upd (upd (upd s dk (aeval val_e s))
                                   (parray_len_key dk) (VZ 1))
-                             (parray_key (dict_vals_key name) c) (VZ (aeval val_e s)) in
-               Q (upd (upd s1 (parray_key (dict_keys_key name) c) (VZ (aeval key_e s)))
+                             (parray_key (dict_vals_key name) c) (aeval val_e s) in
+               Q (upd (upd s1 (parray_key (dict_keys_key name) c) (aeval key_e s))
                       (dict_count_key name) (VZ new_c))
   | CCall name args pre post writes target =>
       fun s => pre s /\ (forall r, post (upd s target (VZ r)) -> Q (upd s target (VZ r)))

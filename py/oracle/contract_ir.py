@@ -56,11 +56,18 @@ class BinOp(BaseModel):
         coq_op = op_map.get(self.op, self.op)
         left = self.left.to_coq(scoped)
         right = self.right.to_coq(scoped)
+        is_str_cmp = scoped and self.op in ('=', '<>') and (
+            hasattr(self.right, 'kind') and self.right.kind == 'strlit'
+        )
         if scoped and self.op in ('+', '-', '*', '/', 'mod', '<', '<=', '>', '>=', '=', '<>'):
-            if left.startswith('s "'):
-                left = f'asZ ({left})'
-            if right.startswith('s "'):
-                right = f'asZ ({right})'
+            if is_str_cmp:
+                if left.startswith('s "'):
+                    left = f'asString ({left})'
+            else:
+                if left.startswith('s "'):
+                    left = f'asZ ({left})'
+                if right.startswith('s "'):
+                    right = f'asZ ({right})'
         return f"({left} {coq_op} {right})"
 
     def to_smt(self) -> str:
@@ -265,10 +272,11 @@ class StrLitExpr(BaseModel):
     value: str
 
     def to_coq(self, scoped: bool = False) -> str:
-        return str(hash(self.value) % 10000)
+        escaped = self.value.replace('\\', '\\\\').replace('"', '\\"')
+        return f'"{escaped}"%string'
 
     def to_smt(self) -> str:
-        return str(hash(self.value) % 10000)
+        return f'"{self.value}"'
 
 
 # Discriminated union
