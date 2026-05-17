@@ -59,10 +59,16 @@ class BinOp(BaseModel):
         is_str_cmp = scoped and self.op in ('=', '<>') and (
             hasattr(self.right, 'kind') and self.right.kind == 'strlit'
         )
+        is_float_cmp = scoped and self.op in ('=', '<>') and (
+            hasattr(self.right, 'kind') and self.right.kind == 'float'
+        )
         if scoped and self.op in ('+', '-', '*', '/', 'mod', '<', '<=', '>', '>=', '=', '<>'):
             if is_str_cmp:
                 if left.startswith('s "'):
                     left = f'asString ({left})'
+            elif is_float_cmp:
+                if left.startswith('s "'):
+                    left = f'asFloat ({left})'
             else:
                 if left.startswith('s "'):
                     left = f'asZ ({left})'
@@ -266,6 +272,18 @@ class SumExpr(BaseModel):
         return f"{self.name}__sum"
 
 
+class FloatExpr(BaseModel):
+    """Float literal for contracts: result == 3.14. Z-encoded (scaled * 100)."""
+    kind: Literal["float"] = "float"
+    value: int  # Z-encoded integer
+
+    def to_coq(self, scoped: bool = False) -> str:
+        return str(self.value)
+
+    def to_smt(self) -> str:
+        return str(self.value)
+
+
 class StrLitExpr(BaseModel):
     """String literal for comparison: s == \"value\"."""
     kind: Literal["strlit"] = "strlit"
@@ -280,4 +298,4 @@ class StrLitExpr(BaseModel):
 
 
 # Discriminated union
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr]
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr]

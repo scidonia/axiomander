@@ -356,6 +356,10 @@ class ImpTranslator:
             if isinstance(val, str):
                 escaped = val.replace('\\', '\\\\').replace('"', '\\"')
                 return f'(AString "{escaped}"%string)'
+            if isinstance(val, float):
+                # Encode as scaled Z: 3.14 → 314 (scale factor 100)
+                scaled = int(val * 100)
+                return f"(AFloat {scaled})"
             return f"(ANum 0) (* unhandled constant: {val} *)"
 
         if isinstance(node, ast.Name):

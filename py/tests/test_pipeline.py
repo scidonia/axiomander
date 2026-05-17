@@ -411,6 +411,20 @@ def frame_triple_compose(n: int):
         result = 0
     assert result == 1
     return result'''),
+
+    # ── VFloat (Phase 1) ────────────────────────────────────────────
+    ("float_literal_eq", '''def float_literal_eq():
+    x = 3.14
+    result = x
+    assert result == 3.14
+    return result'''),
+    # Float equality via == (no arithmetic needed)
+    ("float_eq", '''def float_eq():
+    a = 1.5
+    b = 1.5
+    result = a == b
+    assert result == 1
+    return result'''),
 ]
 
 NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail"}
