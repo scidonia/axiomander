@@ -846,13 +846,10 @@ def tool_frame_report(args: dict) -> str:
 
         Visitor().visit(fn)
         reads -= writes  # variables both read and written are writes
-        # Frame: result is always written (return value). Parameters are read.
-        # Locals like i, acc, old_x are internal proof detail, not frame conditions.
-        frame_reads = sorted(reads & params)
-        frame_writes = sorted(writes & ({"result"} | params))
-        # Every function implicitly writes result even if the AST doesn't name it
-        if not frame_writes or "result" not in frame_writes:
-            frame_writes = sorted(set(frame_writes) | {"result"})
+        # Frame: what matters is whether parameters are modified, and what callees touch.
+        # 'result' is always written — not worth reporting.
+        params_touched = sorted(writes & params)
+        params_untouched = sorted((reads & params) - writes)
 
         # Contract map info
         cm_entry = contract_map.get(fn.name)
@@ -889,10 +886,11 @@ def tool_frame_report(args: dict) -> str:
             lines.append("")
 
         lines.append("### Frame")
-        r = ', '.join(frame_reads) or '—'
-        w = ', '.join(frame_writes) or '—'
-        lines.append(f"  reads:  {{{r}}}")
-        lines.append(f"  writes: {{{w}}}")
+        t = ', '.join(params_touched) or '—'
+        u = ', '.join(params_untouched) or '—'
+        if params_touched:
+            lines.append(f"  modifies: {{{t}}}")
+        lines.append(f"  preserves: {{{u}}}")
         if cm_reads or cm_writes:
             lines.append(f"  declared (stub): reads {{{', '.join(cm_reads) or '—'}}}, "
                          f"writes {{{', '.join(cm_writes) or '—'}}}")
