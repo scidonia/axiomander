@@ -425,6 +425,21 @@ def frame_triple_compose(n: int):
     result = a == b
     assert result == 1
     return result'''),
+
+    # ── VNone ──────────────────────────────────────────────────────
+    ("none_assign", '''def none_assign():
+    x = None
+    result = x == None
+    assert result == 1
+    return result'''),
+    ("none_is", '''def none_is():
+    result = None
+    if result is None:
+        out = 1
+    else:
+        out = 0
+    assert out == 1
+    return out'''),
 ]
 
 NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail"}

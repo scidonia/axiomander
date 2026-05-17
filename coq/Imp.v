@@ -14,7 +14,8 @@ Inductive value : Type :=
   | VBool (b : bool)
   | VUnit
   | VString (s : string)
-  | VFloat (f : Z).  (* float value encoded as scaled integer *)
+  | VFloat (f : Z)   (* float value encoded as scaled integer *)
+  | VNone.
 
 (** State: a total mapping from variables to values. *)
 Definition state := var -> value.
@@ -101,6 +102,7 @@ Inductive aexp : Type :=
   | ABool (b : bexp)
   | AString (s : string)
   | AFloat (f : Z)   (* float literal, Z-encoded *)
+  | ANone            (* None literal *)
 with bexp : Type :=
   | BTrue
   | BFalse
@@ -108,7 +110,8 @@ with bexp : Type :=
   | BLe (a1 a2 : aexp)
   | BNot (b : bexp)
   | BAnd (b1 b2 : bexp)
-  | BOr (b1 b2 : bexp).
+  | BOr (b1 b2 : bexp)
+  | BIsNone (x : var).
 
 (** Convert Z to string for array key encoding. *)
 Fixpoint pos_to_string (p : positive) : string :=
@@ -150,6 +153,7 @@ Fixpoint aeval (a : aexp) (s : state) : value :=
   | AVar x => s x
   | AString lit => VString lit
   | AFloat f => VFloat f
+  | ANone => VNone
   | APlus a1 a2 => VZ (asZ (aeval a1 s) + asZ (aeval a2 s))
   | AMinus a1 a2 => VZ (asZ (aeval a1 s) - asZ (aeval a2 s))
   | AMult a1 a2 => VZ (asZ (aeval a1 s) * asZ (aeval a2 s))
@@ -171,6 +175,7 @@ with beval (b : bexp) (s : state) : bool :=
       | VString s1, VString s2 => String.eqb s1 s2
       | VFloat f1, VFloat f2 => Z.eqb f1 f2
       | VBool b1, VBool b2 => Bool.eqb b1 b2
+      | VNone, VNone => true
       | _, _ => false
       end
   | BLe a1 a2 =>
@@ -178,6 +183,7 @@ with beval (b : bexp) (s : state) : bool :=
       | VFloat f1, VFloat f2 => Z.leb f1 f2
       | _, _ => Z.leb (asZ (aeval a1 s)) (asZ (aeval a2 s))
       end
+  | BIsNone x => match s x with VNone => true | _ => false end
   | BNot b' => negb (beval b' s)
   | BAnd b1 b2 => (beval b1 s) && (beval b2 s)
   | BOr b1 b2 => (beval b1 s) || (beval b2 s)

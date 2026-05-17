@@ -352,7 +352,7 @@ class ImpTranslator:
             if isinstance(val, int):
                 return f"(ANum {val})"
             if val is None:
-                return f"(ANum 0)"
+                return "(ANone)"
             if isinstance(val, str):
                 escaped = val.replace('\\', '\\\\').replace('"', '\\"')
                 return f'(AString "{escaped}"%string)'
