@@ -14,7 +14,7 @@ Admitted.
 
 (** [wp_reduce] — unfold state, aeval, beval, asZ; simplify. *)
 Ltac wp_reduce :=
-  unfold wp, upd, aeval, beval, asZ, asString, asFloat, clobber; cbn.
+  unfold wp, aeval, beval, asZ, asString, asFloat; cbn.
 
 (** Frame condition lemmas for CCall writes enforcement. *)
 Lemma upd_unchanged : forall s x y v, x <> y -> upd s y v x = s x.
@@ -24,6 +24,11 @@ Proof.
   destruct (String.eqb y x) eqn:Heq.
   - apply String.eqb_eq in Heq. congruence.
   - reflexivity.
+Qed.
+
+Lemma clobber_nil : forall s, clobber s nil = s.
+Proof.
+  intros s. unfold clobber. reflexivity.
 Qed.
 
 Lemma clobber_unchanged : forall (s : state) (vars : list var) (x : var), ~ In x vars -> clobber s vars x = s x.
@@ -38,6 +43,20 @@ Proof.
       * intro. apply H. right. auto.
 Qed.
 
+Ltac frame_prove_target :=
+  intro x; intro Hnotin;
+  match goal with
+  | [ Hnotin : ~ (In ?x (?t :: ?w)) |- ?sx = clobber (upd ?s ?t (VZ ?r)) ?w ?x ] =>
+      destruct (string_dec x t);
+      [ exfalso; apply Hnotin; simpl; auto
+      | rewrite clobber_unchanged; [ rewrite upd_unchanged; [ reflexivity | auto ] | intro; apply Hnotin; right; auto ] ]
+  | [ Hnotin : ~ (?t = ?x \/ _) |- ?sx = (upd ?s ?t (VZ ?r)) ?x ] =>
+      destruct (string_dec x t);
+      [ exfalso; apply Hnotin; left; auto
+      | rewrite upd_unchanged; [ reflexivity | auto ] ]
+  | _ => idtac "frame_prove: no match"
+  end.
+
 (** [wp_prove] — structural recursion over goal shape after wp_reduce.
     Handles conjunctions, disjunctions, ABool, comparisons, reflexivity, lia. *)
 Ltac wp_prove :=
@@ -51,15 +70,6 @@ Ltac wp_prove :=
   | [ H: Z.eqb ?a ?b = false |- _ ] => apply Z.eqb_neq in H; wp_prove
   | |- _ /\ _ => split; wp_prove
   | |- _ -> _ => intro; wp_prove
-  | |- forall _, ~ In _ (_ :: _) -> _ = clobber _ _ _ =>
-      intro x; intro Hnotin;
-      match goal with
-      | [ Hnotin : ~ In ?x (?t :: ?w) |- ?s = clobber (upd ?s ?t (VZ ?r)) ?w ?x ] =>
-          destruct (string_dec x t);
-          [ exfalso; apply Hnotin; simpl; auto
-          | rewrite clobber_unchanged; [ rewrite upd_unchanged; [ reflexivity | auto ] | intro; apply Hnotin; right; auto ] ]
-      | _ => idtac "frame_prove: no match"
-      end
   | |- forall _, _ => intro; wp_prove
   | |- exists _, _ => eexists; wp_prove
   | |- (if ?c then _ else _) = 1 \/ (if ?c then _ else _) = 0 =>

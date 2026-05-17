@@ -2,113 +2,126 @@
 
 ## Done
 
-- [x] IMP language + WP calculus + soundness (Coq)
-- [x] `wp_reduce` / `wp_prove` structural automation (2 tactics, ~12 lines total)
-- [x] `ABool : bexp → aexp` explicit cast (mutual induction aexp/bexp)
-- [x] SMT VCG export (cvc4 subprocess, counterexample extraction)
-- [x] Contract IR (Pydantic discriminated unions) — Coq + SMT-LIB compilation
-- [x] LLM oracle wired to coqpyt (interactive proof validation)
-- [x] Python contract linter (`assert` → IR → Coq), zero imports
-- [x] Python → IMP body translator (assign, if/else, while, for, return, truthiness, augmented assignment)
+### Core pipeline
+- [x] IMP language — value-typed state model: `VZ | VBool | VUnit | VString | VFloat`
+- [x] WP calculus with `aeval → value` (box/unbox dispatch), `beval` type-aware comparison
+- [x] `wp_reduce` / `wp_prove` structural automation (unfolds asZ/asString/asFloat/clobber)
 - [x] VCG while-exit obligation generation + SMT/Lia proofs
-- [x] Multi-loop VCG (nested/sequential heuristic)
-- [x] Pydantic model encoding (Record types, field access)
-- [x] Class param expansion, type annotation extraction
-- [x] Negative tests: weak invariants → SMT counterexamples; body → WP contradiction
-- [x] pytest test harness — **63 tests**
-- [x] **Rebrand**: refactoring-robots → axiomander (opam, dune, docs, env vars, opencode config)
-- [x] **MCP tools**: check-file, check-function, verify-function, verify-changed, verify-impacted, explain-cache
-- [x] **CLI parity**: all 6 MCP tools exposed via Typer CLI
-- [x] **Incremental cache**: body/contract/callee-contract discipline, dependency graph, transitive invalidation
-- [x] **Purity analyzer**: black hole detection for impure calls, KNOWN_PURE builtins, stub contract awareness
-- [x] **Frame conditions**: implicit field preservation for annotated class fields (by omission), old-value field captures
-- [x] **Library stubs** (`.pyi`): requires/ensures/reads/writes docstring contracts, merge with source asserts
-- [x] **wp_prove CIf handling**: automatic Z.leb/Z.eqb condition case splitting
-- [x] **LSP server**: pygls v2, didOpen/didChange/didSave → debounced verification → publishDiagnostics
-- [x] **Type annotation → Coq type mapping**: `int` → Z, `str` → list, `list[T]` → list
+- [x] Pydantic model encoding (Record types, `store_field`, `load_field`, frame condition generation)
+- [x] Python contract linter (`assert` → IR → Coq + SMT-LIB)
+- [x] Python → IMP body translator (assign, if/else, while, for, return, augmented assignment, break/continue)
+- [x] 74 tests: arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, range quantifiers, frame conditions, stub integration
+- [x] LLM oracle wired to coqpyt (interactive proof validation)
+
+### MCP server + tools
+- [x] check-file, check-function, verify-function, verify-changed, verify-impacted, explain-cache
+- [x] `frame-report` — pre/post/inv contracts + modifies/preserves + callee effects
+- [x] CLI parity: all tools exposed via Typer CLI
+
+### Caching
+- [x] Incremental verification cache (body/contract/callee-contract discipline)
+- [x] Dependency graph + transitive invalidation
+
+### Frame conditions
+- [x] Library stubs (`.pyi`): requires/ensures/reads/writes docstring contracts
+- [x] Stub merge with source asserts (source pre/post take precedence, reads/writes union)
+- [x] `CCall` carries `writes : list var` through the pipeline
+- [x] `clobber` semantics — ceval zeros out callee writes variables
+- [x] Frame lemmas: `clobber_unchanged`, `upd_unchanged`
+- [x] Implicit field preservation for class fields (generate_frame_conditions)
+- [x] `asZ` wrapping fix for frame conditions
+
+### Purity & black holes
+- [x] Purity analyzer: black hole detection for impure calls
+- [x] `CHavoc` for impure calls
+
+### VString (Phase 1)
+- [x] `VString : string → value` constructor
+- [x] `AString` aexp, `asString` extractor
+- [x] `BEq` type dispatch: `String.eqb` for string equality
+- [x] `StrLitExpr` IR node — Coq string literals in contracts
+- [x] `BinOp.to_coq` — `asString` wrapping for string comparisons
+- [x] Tests: `str_literal_eq`, `str_literal_cond` (internal strings work)
+- [ ] String parameter storage (currently replaced by `s__len`, not stored as value)
+
+### VFloat (Phase 1)
+- [x] `VFloat : Z → value` constructor (Z-encoded, scale factor 100)
+- [x] `AFloat` aexp, `asFloat` extractor
+- [x] `BEq` type dispatch: `Z.eqb` for float equality
+- [x] `BLe` type dispatch: `VFloat/VFloat` comparison
+- [x] `FloatExpr` IR node
+- [x] `BinOp.to_coq` — `asFloat` wrapping for float comparisons
+- [x] Tests: `float_literal_eq`, `float_eq` (store/compare, equality via ==)
+- [ ] Float arithmetic (`a + b`, `a < b` with mixed VFloat/VZ operands) — needs per-type dispatch in `APlus` etc.
+- [ ] Float parameter storage (same issue as strings)
 
 ---
 
-## Todo — Dogfood blockers (what we hit trying to verify our own code)
+## In Progress
 
-These are the features that prevented `check-function` from working on cached
-axiomander source files when we tried to contract them:
+### Frame enforcement
+- [ ] Wire `clobber` + frame conjunct into `CCall` WP rule
+- [ ] Fix `wp_reduce` to handle `String.eqb` without ASCII explosion (currently blocks enforcement)
+- [ ] Negative frame test that actually fails when callee writes to caller's variable
+- [ ] Per-type dispatch in `APlus`, `AMinus`, etc. for `VFloat` operands
 
-### Method calls on self
-- [x] `self.method(args)` → CCall translation. Currently only standalone functions work.
-- [x] Object-level contracts: `self` as a parameter with pre/post/invariant asserts.
-- [x] Class methods in `_build_contract_map` (walk ClassDef bodies for FunctionDef nodes).
-
-### Python expressions outside IMP subset
-- [x] Ternary: `x if cond else y` — translated to `CIf(cond, CAss(target, x), CAss(target, y))`.
-- [x] Constructor calls with arguments: `list(expr)` → CListNew, `set(expr)` → deferred.
-- [x] `and`/`or` with non-boolean semantics: `x or y` → `CIf(x, x, y)`, `x and y` → `CIf(x, y, x)`.
-
-### Imports and module resolution
-- [x] Relative/external imports — silently skipped in IMP translation (see note below).
-  - Note: imports inside function bodies are skipped; module-level imports are ignored.
-  - Resolution of imported names for contract lookup is not yet implemented.
-
-### String operations
-- [x] `str.lower()`, `str.strip()` — already supported via while-loop encoding.
-- [x] String concatenation: `s1 + s2` → while-loop CListAppend (creates new array, copies both).
-- [ ] `str.split()` — not implemented.
-
-### Control flow
-- [x] `break` / `continue` in nested positions — recursive `_has_break_continue` + `_desugar_break_continue`.
-
-### Contracts for complex types
-- [x] `Optional[T]`, `Union[T, ...]`, `dict[K,V]`, `typing.List`, `typing.Dict` → Coq type mapping in `_py_type_to_coq`.
-- [ ] Pydantic/BaseModel support for `@dataclass`-style classes beyond `ast.ClassDef` with `AnnAssign`.
-- [ ] Float type: currently maps to `Z` (truncating). Needs `PrimFloat.float` in Coq IMP model.
-
-### List comprehension with filter
-- [x] `[f(x) for x in lst if p(x)]` — filter clauses (gen.ifs) already supported in `_translate_list_comp`.
+### LSP + tooling
+- [ ] Better error reporting (map coqc errors to Python source lines)
+- [ ] LLM oracle reliability (better prompt, more retries, proof repair)
+- [ ] CI — GitHub Action
 
 ---
 
-## Todo — Expressiveness
+## Next — Python Runtime Type System
 
-### Two-state predicates
-- [x] `old()` — `param_old = param` convention works, linter guards against misuse
-- [x] Frame conditions — implicit field preservation for class fields (by omission)
-- [ ] Relational properties — "output is a permutation of input", "output ⊆ input"
+The `value` type needs to match Python's runtime. Priority order:
+
+### High (ubiquitous, trivial to add)
+- [ ] **`VNone`** — `None` currently maps to `VZ 0`. Adding `VNone` to `value` + dispatch in `BEq`/`BLe` would verify `is None`/`is not None` correctly. Same pattern as VFloat.
+- [ ] **Type annotation mapping**: `float` → `float` (not `Z`), `None` → proper type, `bool` → proper type
+
+### Medium (need container semantics)
+- [ ] **`VList (list value)`** — currently encoded as heap array (`parray_key`). Value constructor enables `xs == ys`, concatenation, value-typed indexing.
+- [ ] **`VDict (list (value * value))`** — similar to list. Enables `k in d` as value dispatch, not ghost-length check.
+- [ ] **`VTuple (list value)`** — immutable list. `(1, "hello")` becomes `VTuple [VZ 1; VString "hello"]`.
+- [ ] **`VSet (list value)`** — dict without values. Dedup on insert via value equality.
+
+### Hard (need new IMP constructs)
+- [ ] **`VComplex (re im : Z)`** — two-component float. Arithmetic is domain-specific.
+- [ ] **`VGenerator`** — lazy evaluation. Would need state-capture semantics.
+- [ ] **`VFunction` / `VMethod`** — first-class functions. Would need closure model.
+
+---
+
+## Next — Effects & I/O
+
+- [ ] **Filesystem ghost state** — `read_text`/`write_text` modeled as ghost map updates
+- [ ] **Path traversal safety proofs** — `_resolve_local_path` never escapes root
+- [ ] **OCC (optimistic concurrency control)** verification — hash-checked writes
+- [ ] **Two-phase commit** — temp write doesn't clobber main until commit
+- [ ] **Database ghost state** — SQL queries as ghost reads, transactions as ghost writes
+- [ ] **Network stubs** — `httpx.get` as opaque axiom with timeout/non-response possibilities
+
+---
+
+## Backlog
 
 ### Contract language
 - [ ] Implication in contracts: `A → B` (conditional guarantees)
-- [ ] Branch-specific postconditions — different branches need different guarantees (the `guard_pattern` problem)
-- [ ] Quantified invariants: `forall i, 0 <= i < len(lst) → lst[i] <= lst[i+1]` (general quantifiers, not just all/any)
-- [ ] Contract inheritance at call sites (frame composition across calls)
+- [ ] Branch-specific postconditions
+- [ ] Quantified invariants: `forall i, 0 <= i < len(lst) → lst[i] <= lst[i+1]`
+- [ ] Relational properties: "output is a permutation of input", "output ⊆ input"
 - [ ] Multiple loop VCGs (currently only outermost/last loop gets VCG)
-- [ ] VCG carries pre-loop state context (avoid redundant invariants for unchanging facts)
-
-### Data types & operations
-- [ ] `ASlice` constructor for IMP (list slicing in body)
-- [ ] Float/reals (currently only Z)
-- [ ] String methods: `strip()`, `split()`, `replace()`, `lower()`, concatenation
-- [ ] `for x in lst if p(x)` filter clauses in comprehensions
-- [ ] Dict/set comprehensions
 
 ### Proof strength
-- [ ] Induction in VCG (invariant + exit → post isn't always enough)
-- [ ] Non-linear arithmetic counterexample extraction (currently falls through to unproved)
+- [ ] Induction in VCG
+- [ ] Non-linear arithmetic counterexample extraction
 - [ ] Termination measures
 - [ ] Supercompiler / symbolic evaluation of WP for concrete inputs
 
----
-
-## Todo — Polish
-
-- [x] Incremental verification cache (re-verify changed functions only)
-- [x] Purity analysis / black hole detection
-- [x] Library stub support (`.pyi` with requires/ensures/reads/writes)
-- [x] LSP server for real-time diagnostics
-- [ ] Better error reporting (map coqc errors to Python source lines)
-- [ ] Eliminate regex in VCG variable extraction (`re.findall` → proper AST/IR walk)
-- [ ] Delete dead code: `vcg_exit` Ltac, duplicate `return` in `_translate_for`, dead copy-paste blocks
-- [ ] `_fresh_var` generator for loop counters (eliminate `_i` / `_k` hardcoding)
-- [ ] LLM oracle reliability (better prompt, more retries, proof repair)
+### Polish
+- [ ] Delete dead code: `vcg_exit` Ltac, duplicate `return` in `_translate_for`
+- [ ] `_fresh_var` generator for loop counters
 - [ ] Documentation — user guide, API reference
-- [ ] CI — GitHub Action
 - [ ] Exception handling (try/except as black holes)
-- [ ] Branch-specific postconditions (the `guard_pattern` / `conditional_with_computation` problem)
+- [ ] Pydantic/BaseModel support for `@dataclass`-style classes
