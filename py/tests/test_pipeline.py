@@ -466,6 +466,14 @@ def frame_triple_compose(n: int):
     result = d
     assert result == {1: 2, 3: 4}
     return result'''),
+
+    # ── VBytes / VSet ──────────────────────────────────────────────
+    ("bytes_eq", '''def bytes_eq():
+    a = b"abc"
+    b = b"abc"
+    result = a == b
+    assert result == 1
+    return result'''),
 ]
 
 NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail"}
