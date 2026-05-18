@@ -499,6 +499,19 @@ def frame_triple_compose(n: int):
     result = 0
     assert implies(x > 0, result == 1)
     return result'''),
+    # Negative: append-in-loop builds wrong list — currently blocked by
+    # purity black hole on list.append (proves anything). Move to NEGATIVE
+    # once append is recognized as a tracked heap operation.
+    ("list_wrong_build", '''def list_wrong_build(n: int):
+    assert n >= 0
+    result = []
+    i = 0
+    while i < n:
+        result.append(i + 2)
+        i += 1
+    sz = len(result)
+    assert sz == n + 1
+    return 0 '''),
     # Negative: tuple equality fails when contents differ.
     ("tuple_neq_fail", '''def tuple_neq_fail():
     a = (1, 2)

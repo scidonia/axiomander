@@ -43,12 +43,23 @@ def clamp(val, lo, hi):
     assert implies(val > hi, result == hi)  # "if too high, clamped to hi"
     return result
 
-# Dicts — structural equality with value dispatch
-def dict_literal_eq():
-    d = {1: 2, 3: 4}
-    result = d
-    assert result == {1: 2, 3: 4}           # structural dict equality via value_eqb
-    return result
+# Dicts + key operations — test membership, insert, aggregate
+def count_groups(mappings):
+    assert len(mappings) > 0                 # precondition: non-empty
+    result = {}
+    i = 0
+    count = 0
+    while i < len(mappings):
+        assert count == i                     # invariant: processed count
+        assert i <= len(mappings)
+        key = mappings[i]
+        if key not in result:                  # membership test
+            result[key] = []                  # insert new key
+        result[key].append(1)                 # mutate value
+        count += 1
+        i += 1
+    assert count == len(mappings)            # postcondition: all elements counted
+    return count
 
 # Quantifiers — all() with generator expressions
 def build_sorted(n):
