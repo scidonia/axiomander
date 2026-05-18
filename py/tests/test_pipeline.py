@@ -499,9 +499,79 @@ def frame_triple_compose(n: int):
     result = 0
     assert implies(x > 0, result == 1)
     return result'''),
+    # Negative: tuple equality fails when contents differ.
+    ("tuple_neq_fail", '''def tuple_neq_fail():
+    a = (1, 2)
+    b = (1, 3)
+    result = a == b
+    assert result == 1
+    return result'''),
+    # Negative: float comparison fails.
+    ("float_neq_fail", '''def float_neq_fail():
+    result = 3.14 == 2.71
+    assert result == 1
+    return result'''),
+    # Negative: quantifier violation — all() fails.
+    ("quantifier_fail", '''def quantifier_fail():
+    xs = [1, 2, 0]
+    result = all(x > 0 for x in xs)
+    assert result == 1
+    return result'''),
+    # Negative: frame violation — callee writes lst, caller uses it.
+    ("frame_touch_fail", '''def frame_touch_fail(x: int):
+    assert x >= 0
+    val = x
+    discard = pop([val])
+    result = val
+    assert result == x + 1
+    return result'''),
+    # Negative: class field frame violation — mutate field, assert unchanged.
+    ("class_frame_fail", '''class Counter: value: int
+def class_frame_fail(c: Counter):
+    assert True
+    c.value = c.value + 1
+    result = c.value
+    assert result == c.value - 1
+    return result'''),
+    # Negative: wrong arithmetic invariant.
+    ("wrong_inv", '''def wrong_inv(n: int):
+    assert n >= 0
+    total = 0
+    i = 0
+    while i < n:
+        assert total == i * i
+        assert i <= n
+        total += i
+        i += 1
+    assert total == n * (n - 1) // 2
+    return total'''),
+    # Negative: VList built with wrong elements.
+    # Negative: implication where premise IS possible, conclusion fails.
+    ("implies_false_premise", '''def implies_false_premise(a: int):
+    assert a >= 0
+    result = a
+    assert implies(a == 0, result > 100)
+    return result'''),
+    # Negative: any() quantifier violation.
+    ("any_fail", '''def any_fail():
+    xs = [0, 0, 0]
+    result = any(x > 0 for x in xs)
+    assert result == 1
+    return result'''),
+    # Negative: sorted but with wrong invariant.
+    ("sorted_fail", '''def sorted_fail(n: int):
+    assert n >= 0
+    result = []
+    i = 0
+    while i < n:
+        assert len(result) == i + 3
+        result.append(i)
+        i += 1
+    assert len(result) == n
+    return result'''),
 ]
 
-NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail"}
+NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail"}
 
 
 @pytest.mark.parametrize("name,source", EXAMPLES)
