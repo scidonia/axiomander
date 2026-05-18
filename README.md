@@ -29,25 +29,58 @@ PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 
 ## Usage
 
+Contracts are plain `assert` statements — the verifier classifies them by position:
+
 ```python
-def add(a, b):
-    assert True              # precondition
-    result = a + b
-    assert result == a + b   # postcondition
+# Implication — conditional guarantees via implies()
+def clamp(val, lo, hi):
+    assert lo <= hi                         # precondition
+    if val < lo: result = lo
+    elif val > hi: result = hi
+    else: result = val
+    assert lo <= result <= hi               # postcondition
+    assert implies(val < lo, result == lo)  # branch-precise: "if too low, clamped to lo"
+    assert implies(val > hi, result == hi)  # "if too high, clamped to hi"
     return result
 
-def sum_to(n):
-    assert n >= 0            # precondition
-    acc = 0
+# Dicts — structural equality with value dispatch
+def dict_literal_eq():
+    d = {1: 2, 3: 4}
+    result = d
+    assert result == {1: 2, 3: 4}           # structural dict equality via value_eqb
+    return result
+
+# Quantifiers — all() with generator expressions
+def build_sorted(n):
+    assert n >= 0                            # precondition
+    result = []
     i = 0
     while i < n:
-        assert acc == i * (i + 1) // 2   # invariant
-        assert i <= n                     # invariant
-        i = i + 1
-        acc = acc + i
-    assert acc == n * (n + 1) // 2       # postcondition
-    assert i == n                         # postcondition
-    return acc
+        assert len(result) == i               # invariant: length tracks progress
+        assert i <= n
+        assert all(result[j] == j for j in range(i))  # invariant: all elements correct
+        result.append(i)
+        i += 1
+    assert all(result[j] == j for j in range(n))     # postcondition: fully sorted
+    return result
+
+# Dict group-by — counted aggregation
+def count_groups(mappings):
+    assert len(mappings) > 0                 # precondition
+    result = {}
+    i = 0
+    count = 0
+    while i < len(mappings):
+        assert count == i                     # invariant: processed count
+        assert i <= len(mappings)
+        key = mappings[i]
+        if key not in result:
+            result[key] = []
+        result[key].append(1)
+        count += 1
+        i += 1
+    assert count == len(mappings)            # postcondition: all elements counted
+    return count
 ```
 
 ## CLI
@@ -155,7 +188,7 @@ eval $(opam env)
 PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 ```
 
-70 tests covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, range quantifiers, frame conditions, and stub integration.
+85 tests (17 negative, 68 positive) covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, range quantifiers, frame conditions, stub integration, tuple/bytes/dict/set/None value comparisons, and implication.
 
 ## Architecture
 
