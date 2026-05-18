@@ -357,9 +357,11 @@ class ImpTranslator:
                 escaped = val.replace('\\', '\\\\').replace('"', '\\"')
                 return f'(AString "{escaped}"%string)'
             if isinstance(val, float):
-                # Encode as scaled Z: 3.14 → 314 (scale factor 100)
                 scaled = int(val * 100)
                 return f"(AFloat {scaled})"
+            if isinstance(val, bytes):
+                els = " :: ".join(f"(ANum {b})" for b in val)
+                return f"(ABytes ({els} :: nil))" if els else "(ABytes nil)"
             return f"(ANum 0) (* unhandled constant: {val} *)"
 
         if isinstance(node, ast.Name):
@@ -1107,7 +1109,9 @@ class ImpTranslator:
             return f"(BLe {right} {left})"
         if isinstance(op, ast.NotEq):
             return f"(BNot (BEq {left} {right}))"
-        op_map = {ast.Eq: "BEq", ast.LtE: "BLe"}
+        if isinstance(op, ast.IsNot):
+            return f"(BNot (BEq {left} {right}))"
+        op_map = {ast.Eq: "BEq", ast.LtE: "BLe", ast.Is: "BEq"}
         op_str = op_map.get(type(op), "BEq")
         return f"({op_str} {left} {right})"
 

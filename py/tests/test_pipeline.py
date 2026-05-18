@@ -474,9 +474,34 @@ def frame_triple_compose(n: int):
     result = a == b
     assert result == 1
     return result'''),
+    # Negative: wrong postcondition claims bytes equal when they differ.
+    ("bytes_neq_fail", '''def bytes_neq_fail():
+    a = b"abc"
+    b = b"xyz"
+    result = a == b
+    assert result == 1
+    return result'''),
+    # Negative: dict with wrong value asserted.
+    ("dict_wrong_val", '''def dict_wrong_val():
+    d = {1: 2, 3: 5}
+    result = d
+    assert result == {1: 2, 3: 4}
+    return result'''),
+    # Negative: None stored but asserts is not None.
+    ("none_is_not_fail", '''def none_is_not_fail():
+    x = None
+    result = x is not None
+    assert result == 1
+    return result'''),
+    # Negative: string comparison against wrong literal.
+    ("str_wrong_literal", '''def str_wrong_literal(s: str):
+    assert len(s) >= 0
+    result = s == "hello"
+    assert result == 1
+    return result'''),
 ]
 
-NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail"}
+NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "none_is_not_fail", "str_wrong_literal"}
 
 
 @pytest.mark.parametrize("name,source", EXAMPLES)

@@ -30,6 +30,9 @@ and extensible verification stack that holds up under real-world use.
 - Immutable values (VList, VTuple, VDict) are structural, like Dafny's
   `seq` and F*'s `list`. Mutable operations (append, pop) work on a
   separate heap representation that parallels the value.
+- Every new type or operation must have negative tests that demonstrate
+  the verifier catches violations, not just passes trivially. Negative
+  tests prove the system isn't "proving everything."
 
 ## Directory Layout
 
