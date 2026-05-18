@@ -474,6 +474,11 @@ def frame_triple_compose(n: int):
     result = a == b
     assert result == 1
     return result'''),
+    ("set_literal_eq", '''def set_literal_eq():
+    s = {1, 2, 3}
+    result = s
+    assert result == {1, 2, 3}
+    return result'''),
     # Negative: wrong postcondition claims bytes equal when they differ.
     ("bytes_neq_fail", '''def bytes_neq_fail():
     a = b"abc"
@@ -486,6 +491,12 @@ def frame_triple_compose(n: int):
     d = {1: 2, 3: 5}
     result = d
     assert result == {1: 2, 3: 4}
+    return result'''),
+    # Negative: set with wrong elements asserted.
+    ("set_wrong_fail", '''def set_wrong_fail():
+    s = {1, 2, 4}
+    result = s
+    assert result == {1, 2, 3}
     return result'''),
     # Negative: None stored but asserts is not None.
     ("none_is_not_fail", '''def none_is_not_fail():
@@ -501,7 +512,7 @@ def frame_triple_compose(n: int):
     return result'''),
 ]
 
-NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "none_is_not_fail", "str_wrong_literal"}
+NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal"}
 
 
 @pytest.mark.parametrize("name,source", EXAMPLES)

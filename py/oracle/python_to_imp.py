@@ -416,6 +416,12 @@ class ImpTranslator:
                 pairs.append(f"({self.translate_expr(k)}, {self.translate_expr(v)})")
             return f"(ADict ({' :: '.join(pairs)} :: nil))"
 
+        if isinstance(node, ast.Set):
+            if not node.elts:
+                return "(ASetLit nil)"
+            els = " :: ".join(self.translate_expr(e) for e in node.elts)
+            return f"(ASetLit ({els} :: nil))"
+
         if isinstance(node, ast.DictComp):
             return "CSkip"  # dict comprehension → opaque
 

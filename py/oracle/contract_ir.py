@@ -68,6 +68,9 @@ class BinOp(BaseModel):
         is_dict_cmp = scoped and self.op in ('=', '<>') and (
             hasattr(self.right, 'kind') and self.right.kind == 'dict'
         )
+        is_set_cmp = scoped and self.op in ('=', '<>') and (
+            hasattr(self.right, 'kind') and self.right.kind == 'set'
+        )
         if scoped and self.op in ('+', '-', '*', '/', 'mod', '<', '<=', '>', '>=', '=', '<>'):
             if is_str_cmp:
                 if left.startswith('s "'):
@@ -75,7 +78,7 @@ class BinOp(BaseModel):
             elif is_float_cmp:
                 if left.startswith('s "'):
                     left = f'asFloat ({left})'
-            elif is_tuple_cmp or is_dict_cmp:
+            elif is_tuple_cmp or is_dict_cmp or is_set_cmp:
                 if left.startswith('s "'):
                     return f"(value_eqb ({left}) {right} = true)"
             else:
@@ -352,4 +355,22 @@ class DictExpr(BaseModel):
         return "0"
 
 
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr]
+class SetExpr(BaseModel):
+    """Set literal for contracts: result == {1, 2}."""
+    kind: Literal["set"] = "set"
+    elements: list["Expr"] = Field(default_factory=list)
+
+    def to_coq(self, scoped: bool = False) -> str:
+        def wrap_val(e):
+            s = e.to_coq(scoped)
+            if hasattr(e, 'kind') and e.kind == 'int':
+                return f"(VZ {s})"
+            return s
+        els = " :: ".join(wrap_val(e) for e in self.elements) if self.elements else ""
+        return f"(VSet ({els} :: nil))" if els else "(VSet nil)"
+
+    def to_smt(self) -> str:
+        return "0"
+
+
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr]
