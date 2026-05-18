@@ -43,22 +43,26 @@ def clamp(val, lo, hi):
     assert implies(val > hi, result == hi)  # "if too high, clamped to hi"
     return result
 
-# Dicts + key operations — test membership, insert, aggregate
-def count_groups(mappings):
-    assert len(mappings) > 0                 # precondition: non-empty
+# Dicts + key operations — build and verify every key-value pair
+def square_dict(n):
+    assert n >= 0                            # precondition
     result = {}
     i = 0
-    count = 0
-    while i < len(mappings):
-        assert count == i                     # invariant: processed count
-        assert i <= len(mappings)
-        key = mappings[i]
-        if key not in result:                  # membership test
-            result[key] = []                  # insert new key
-        result[key].append(1)                 # mutate value
-        count += 1
+    while i < n:
+        assert i <= n                         # invariant
+        result[i] = i * i                     # store square
         i += 1
-    assert count == len(mappings)            # postcondition: all elements counted
+    # Structural proof: every key j maps to j*j, and all keys exist
+    count = 0
+    j = 0
+    while j < n:
+        assert count == j                     # invariant: verified count
+        assert j <= n
+        if j in result:                       # key membership
+            if result[j] == j * j:            # value correctness
+                count += 1
+        j += 1
+    assert count == n                         # all n entries verified
     return count
 
 # Quantifiers — all() with generator expressions
