@@ -373,4 +373,17 @@ class SetExpr(BaseModel):
         return "0"
 
 
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr]
+class ImpliesExpr(BaseModel):
+    """Implication: A → B for conditional guarantees."""
+    kind: Literal["implies"] = "implies"
+    left: Expr
+    right: Expr
+
+    def to_coq(self, scoped: bool = False) -> str:
+        return f"({self.left.to_coq(scoped)} -> {self.right.to_coq(scoped)})"
+
+    def to_smt(self) -> str:
+        return f"(=> {self.left.to_smt()} {self.right.to_smt()})"
+
+
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr]

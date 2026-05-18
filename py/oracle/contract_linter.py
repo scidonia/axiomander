@@ -18,6 +18,7 @@ from .contract_ir import (
     LenExpr, IndexExpr, DictLenExpr, DictCountExpr,
     AllExpr, AnyExpr, SliceLenExpr,
     MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr,
+    ImpliesExpr,
 )
 
 
@@ -181,6 +182,13 @@ class ContractLinter(ast.NodeVisitor):
         if not name:
             self._violation(node, ExprKind.IMPURE_CALL,
                           f"Function call cannot be resolved")
+            return None
+        if name == "implies":
+            if len(node.args) == 2:
+                left = self.visit(node.args[0])
+                right = self.visit(node.args[1])
+                if left and right:
+                    return ImpliesExpr(left=left, right=right)
             return None
         if name not in PURE_BUILTINS and name not in PURE_MODULE_FUNCTIONS:
             if name in self.predicates:

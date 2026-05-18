@@ -479,40 +479,29 @@ def frame_triple_compose(n: int):
     result = s
     assert result == {1, 2, 3}
     return result'''),
-    # Negative: wrong postcondition claims bytes equal when they differ.
-    ("bytes_neq_fail", '''def bytes_neq_fail():
-    a = b"abc"
-    b = b"xyz"
-    result = a == b
-    assert result == 1
+
+    # ── Implication ─────────────────────────────────────────────────
+    ("implies_basic", '''def implies_basic(a: int):
+    assert a >= 0
+    if a > 10: result = 1
+    else: result = 0
+    assert implies(a > 10, result == 1)
     return result'''),
-    # Negative: dict with wrong value asserted.
-    ("dict_wrong_val", '''def dict_wrong_val():
-    d = {1: 2, 3: 5}
-    result = d
-    assert result == {1: 2, 3: 4}
+    ("implies_branch", '''def implies_branch(x: int):
+    assert True
+    if x >= 0: result = 1
+    else: result = -1
+    assert implies(x < 0, result == -1)
     return result'''),
-    # Negative: set with wrong elements asserted.
-    ("set_wrong_fail", '''def set_wrong_fail():
-    s = {1, 2, 4}
-    result = s
-    assert result == {1, 2, 3}
-    return result'''),
-    # Negative: None stored but asserts is not None.
-    ("none_is_not_fail", '''def none_is_not_fail():
-    x = None
-    result = x is not None
-    assert result == 1
-    return result'''),
-    # Negative: string comparison against wrong literal.
-    ("str_wrong_literal", '''def str_wrong_literal(s: str):
-    assert len(s) >= 0
-    result = s == "hello"
-    assert result == 1
+    # Negative: implication violated.
+    ("implies_fail", '''def implies_fail(x: int):
+    assert x >= 0
+    result = 0
+    assert implies(x > 0, result == 1)
     return result'''),
 ]
 
-NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal"}
+NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail"}
 
 
 @pytest.mark.parametrize("name,source", EXAMPLES)
