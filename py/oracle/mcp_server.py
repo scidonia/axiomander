@@ -1280,6 +1280,7 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
     param_types: dict[str, str] = {}
     list_params: set[str] = set()
     float_params: set[str] = set()
+    string_params: set[str] = set()
     if func_node:
         for arg, annot in _func_params(func_node):
             coq_type = _py_type_to_coq(annot)
@@ -1288,6 +1289,8 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
                 list_params.add(arg)
             if _is_float_param(annot):
                 float_params.add(arg)
+            if _is_string_param(annot):
+                string_params.add(arg)
 
     class_fields = {}
     record_section = ""
@@ -1313,6 +1316,12 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
             expanded.append(len_var)
             parts.append(f"({len_var} : Z)")
             init_state = f'(upd {init_state} "{p}._len"%string (VZ {len_var}))'
+            # For string params, also store the value at the original key
+            if p in string_params:
+                string_var = f"{p}_str"
+                expanded.append(string_var)
+                parts.append(f"({string_var} : string)")
+                init_state = f'(upd {init_state} "{p}"%string (VString {string_var}))'
         elif func_node and func_node.args.vararg and p == func_node.args.vararg.arg:
             # *args (vararg) — always treated as list
             len_var = f"{p}__len"
@@ -1409,6 +1418,21 @@ def _is_float_param(annotation) -> bool:
                 args = annotation.slice if isinstance(annotation.slice, ast.Tuple) else [annotation.slice]
                 if args and isinstance(args[0], ast.expr):
                     return _is_float_param(args[0])
+    return False
+
+
+def _is_string_param(annotation) -> bool:
+    """Check if a type annotation is str (or Optional[str], etc.)."""
+    if annotation is None:
+        return False
+    if isinstance(annotation, ast.Name) and annotation.id == "str":
+        return True
+    if isinstance(annotation, ast.Subscript):
+        if isinstance(annotation.value, ast.Name):
+            if annotation.value.id in ("Optional", "Union"):
+                args = annotation.slice if isinstance(annotation.slice, ast.Tuple) else [annotation.slice]
+                if args and isinstance(args[0], ast.expr):
+                    return _is_string_param(args[0])
     return False
 
 
