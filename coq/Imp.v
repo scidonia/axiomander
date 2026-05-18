@@ -17,7 +17,10 @@ Inductive value : Type :=
   | VFloat (f : Z)   (* float value encoded as scaled integer *)
   | VNone
   | VTuple (ts : list value)
-  | VList (xs : list value).
+  | VList (xs : list value)
+  | VDict (kvs : list (value * value))
+  | VBytes (bs : list value)
+  | VSet (xs : list value).
 
 (** State: a total mapping from variables to values. *)
 Definition state := var -> value.
@@ -110,6 +113,27 @@ Fixpoint value_eqb (v1 v2 : value) : bool :=
          | v1'::vs1', v2'::vs2' => value_eqb v1' v2' && list_eqb vs1' vs2'
          | _, _ => false
          end) xs1 xs2
+  | VDict kvs1, VDict kvs2 =>
+      (fix list_eqb ps1 ps2 :=
+         match ps1, ps2 with
+         | nil, nil => true
+         | (k1,v1)::ps1', (k2,v2)::ps2' => value_eqb k1 k2 && value_eqb v1 v2 && list_eqb ps1' ps2'
+         | _, _ => false
+         end) kvs1 kvs2
+  | VBytes bs1, VBytes bs2 =>
+      (fix list_eqb vs1 vs2 :=
+         match vs1, vs2 with
+         | nil, nil => true
+         | v1'::vs1', v2'::vs2' => value_eqb v1' v2' && list_eqb vs1' vs2'
+         | _, _ => false
+         end) bs1 bs2
+  | VSet xs1, VSet xs2 =>
+      (fix list_eqb vs1 vs2 :=
+         match vs1, vs2 with
+         | nil, nil => true
+         | v1'::vs1', v2'::vs2' => value_eqb v1' v2' && list_eqb vs1' vs2'
+         | _, _ => false
+         end) xs1 xs2
   | _, _ => false
   end.
 
@@ -135,6 +159,9 @@ Inductive aexp : Type :=
   | ANone            (* None literal *)
   | ATuple (es : list aexp)  (* tuple literal *)
   | AList (es : list aexp)   (* list literal *)
+  | ADict (kvs : list (aexp * aexp))  (* dict literal *)
+  | ABytes (es : list aexp)  (* bytes literal *)
+  | ASetLit (es : list aexp)  (* set literal *)
 with bexp : Type :=
   | BTrue
   | BFalse
@@ -212,6 +239,9 @@ Fixpoint aeval (a : aexp) (s : state) : value :=
   | ANone => VNone
   | ATuple es => VTuple (map (fun e => aeval e s) es)
   | AList es => VList (map (fun e => aeval e s) es)
+  | ADict kvs => VDict (map (fun '(k, v) => (aeval k s, aeval v s)) kvs)
+  | ABytes es => VBytes (map (fun e => aeval e s) es)
+  | ASetLit es => VSet (map (fun e => aeval e s) es)
   | APlus a1 a2 =>
       match aeval a1 s, aeval a2 s with
       | VFloat f1, VFloat f2 => VFloat (f1 + f2)

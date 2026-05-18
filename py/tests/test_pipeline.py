@@ -459,6 +459,13 @@ def frame_triple_compose(n: int):
     result = t
     assert result == (3, 5)
     return result'''),
+
+    # ── VDict ──────────────────────────────────────────────────────
+    ("dict_literal_eq", '''def dict_literal_eq():
+    d = {1: 2, 3: 4}
+    result = d
+    assert result == {1: 2, 3: 4}
+    return result'''),
 ]
 
 NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail"}

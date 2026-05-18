@@ -408,8 +408,11 @@ class ImpTranslator:
 
         if isinstance(node, ast.Dict):
             if not node.keys:
-                return "CSkip"  # empty dict → no state entries
-            return "CSkip"  # non-empty dict literal → opaque
+                return "(ADict nil)"
+            pairs = []
+            for k, v in zip(node.keys, node.values):
+                pairs.append(f"({self.translate_expr(k)}, {self.translate_expr(v)})")
+            return f"(ADict ({' :: '.join(pairs)} :: nil))"
 
         if isinstance(node, ast.DictComp):
             return "CSkip"  # dict comprehension → opaque

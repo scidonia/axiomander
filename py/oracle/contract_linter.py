@@ -17,7 +17,7 @@ from .contract_ir import (
     Expr, Var, IntLit, BoolLit, BinOp, Logical,
     LenExpr, IndexExpr, DictLenExpr, DictCountExpr,
     AllExpr, AnyExpr, SliceLenExpr,
-    MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr,
+    MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr,
 )
 
 
@@ -234,6 +234,15 @@ class ContractLinter(ast.NodeVisitor):
         elements = [self.visit(e) for e in node.elts]
         elements = [e for e in elements if e is not None]
         return TupleExpr(elements=elements)
+
+    def visit_Dict(self, node: ast.Dict) -> Expr:
+        pairs = []
+        for k, v in zip(node.keys, node.values):
+            ke = self.visit(k) if k else None
+            ve = self.visit(v) if v else None
+            if ke and ve:
+                pairs.append((ke, ve))
+        return DictExpr(pairs=pairs) if pairs else None
 
     def visit_Name(self, node: ast.Name) -> Expr:
         return Var(name=node.id)

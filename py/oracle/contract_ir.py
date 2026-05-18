@@ -65,6 +65,9 @@ class BinOp(BaseModel):
         is_tuple_cmp = scoped and self.op in ('=', '<>') and (
             hasattr(self.right, 'kind') and self.right.kind == 'tuple'
         )
+        is_dict_cmp = scoped and self.op in ('=', '<>') and (
+            hasattr(self.right, 'kind') and self.right.kind == 'dict'
+        )
         if scoped and self.op in ('+', '-', '*', '/', 'mod', '<', '<=', '>', '>=', '=', '<>'):
             if is_str_cmp:
                 if left.startswith('s "'):
@@ -72,7 +75,7 @@ class BinOp(BaseModel):
             elif is_float_cmp:
                 if left.startswith('s "'):
                     left = f'asFloat ({left})'
-            elif is_tuple_cmp:
+            elif is_tuple_cmp or is_dict_cmp:
                 if left.startswith('s "'):
                     return f"(value_eqb ({left}) {right} = true)"
             else:
@@ -326,4 +329,27 @@ class TupleExpr(BaseModel):
         return "0"
 
 
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr]
+class DictExpr(BaseModel):
+    """Dict literal for contracts: result == {1: 2}. Z-encoded keys/values."""
+    kind: Literal["dict"] = "dict"
+    pairs: list[tuple["Expr", "Expr"]] = Field(default_factory=list)
+
+    def to_coq(self, scoped: bool = False) -> str:
+        pas = []
+        for k, v in self.pairs:
+            ks = k.to_coq(scoped)
+            vs = v.to_coq(scoped)
+            # Wrap Z values
+            if hasattr(k, 'kind') and k.kind == 'int':
+                ks = f"(VZ {ks})"
+            if hasattr(v, 'kind') and v.kind == 'int':
+                vs = f"(VZ {vs})"
+            pas.append(f"({ks}, {vs})")
+        ps = " :: ".join(pas) if pas else ""
+        return f"(VDict ({ps} :: nil))" if ps else "(VDict nil)"
+
+    def to_smt(self) -> str:
+        return "0"
+
+
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr]
