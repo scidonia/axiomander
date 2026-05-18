@@ -25,6 +25,16 @@ Fixpoint wp (c : com) (Q : assertion) : assertion :=
       inv
   | CHavoc A =>
       fun s => forall s', (forall x, ~ In x A -> s' x = s x) -> Q s'
+  | CListNew name =>
+      fun s => Q (upd s (parray_len_key name) (VZ 0))
+  | CListAppend name val =>
+      fun s => let len := asZ (s (parray_len_key name)) in
+               Q (upd (upd s (parray_key name len) (aeval val s))
+                      (parray_len_key name) (VZ (len + 1)))
+  | CListPop name =>
+      fun s => Q (upd s (parray_len_key name) (VZ (asZ (s (parray_len_key name)) - 1)))
+  | CListSet name idx_e val_e =>
+      fun s => Q (upd s (parray_key name (asZ (aeval idx_e s))) (aeval val_e s))
   | CDictSet name key_e val_e =>
       fun s => let dk := dict_key name (asZ (aeval key_e s)) in
                let is_new := Z.eqb 0 (asZ (s (parray_len_key dk))) in

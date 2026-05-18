@@ -122,11 +122,11 @@ Inductive aexp : Type :=
   | AMult (a1 a2 : aexp)
   | AMod (a1 a2 : aexp)
   | ADiv (a1 a2 : aexp)
-  | ALen (a : aexp)              (* length of a list/string value *)
-  | AIndex (a : aexp) (idx : aexp)  (* nth element of a list *)
+  | ALen (name : var)              (* length of a heap list/string *)
+  | AIndex (name : var) (idx : aexp)  (* nth element of a heap list *)
   | AAppend (a : aexp) (e : aexp)   (* append element, returns new VList *)
   | APop (a : aexp)             (* pop last element, returns new VList *)
-  | ASet (a : aexp) (idx : aexp) (val : aexp)  (* set element at index, returns new VList *)
+  | ASet (a : aexp) (idx : aexp) (val : aexp)  (* set element, returns new VList *)
   | ADictLen (name : var) (key_e : aexp)
   | ADictCount (name : var)
   | ABool (b : bexp)
@@ -235,10 +235,8 @@ Fixpoint aeval (a : aexp) (s : state) : value :=
       end
   | AMod a1 a2 => VZ (Z.modulo (asZ (aeval a1 s)) (asZ (aeval a2 s)))
   | ADiv a1 a2 => VZ (asZ (aeval a1 s) / asZ (aeval a2 s))
-  | ALen a => VZ (Z.of_nat (length (asList (aeval a s))))
-  | AIndex a idx =>
-      let xs := asList (aeval a s) in
-      nth (Z.to_nat (asZ (aeval idx s))) xs VNone
+  | ALen name => VZ (asZ (s (parray_len_key name)))
+  | AIndex name idx_e => VZ (asZ (s (parray_key name (asZ (aeval idx_e s)))))
   | AAppend a e => VList (asList (aeval a s) ++ [aeval e s])
   | APop a => VList (removelast (asList (aeval a s)))
   | ASet a idx val =>
@@ -271,6 +269,10 @@ Inductive com : Type :=
   | CIf (b : bexp) (c1 c2 : com)
   | CWhile (b : bexp) (inv : state -> Prop) (c : com)
   | CHavoc (vars : list var)
+  | CListNew (name : var)
+  | CListAppend (name : var) (val : aexp)
+  | CListPop (name : var)
+  | CListSet (name : var) (idx val : aexp)
   | CDictSet (name : var) (key val : aexp)
   | CDictGet (name : var) (key : aexp) (target : var)
   | CDictEnsureList (name : var) (key : aexp)
@@ -311,6 +313,20 @@ Inductive ceval : com -> state -> state -> Prop :=
   | E_Havoc : forall A s s',
       (forall x, ~ In x A -> s' x = s x) ->
       ceval (CHavoc A) s s'
+  | E_ListNew : forall name s,
+      ceval (CListNew name) s (upd s (parray_len_key name) (VZ 0))
+  | E_ListAppend : forall name val s,
+      let len := asZ (s (parray_len_key name)) in
+      ceval (CListAppend name val) s
+            (upd (upd s (parray_key name len) (aeval val s))
+                 (parray_len_key name) (VZ (len + 1)))
+  | E_ListPop : forall name s,
+      let len := asZ (s (parray_len_key name)) in
+      ceval (CListPop name) s
+            (upd s (parray_len_key name) (VZ (len - 1)))
+  | E_ListSet : forall name idx_e val_e s,
+      ceval (CListSet name idx_e val_e) s
+            (upd s (parray_key name (asZ (aeval idx_e s))) (aeval val_e s))
   | E_DictSet : forall name key_e val_e s,
       let dk := dict_key name (asZ (aeval key_e s)) in
       let is_new := Z.eqb 0 (asZ (s (parray_len_key dk))) in
