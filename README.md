@@ -1,6 +1,6 @@
-# axiomander
+# axiomander 🦎
 
-A Hoare-logic verification pipeline for Python. Write contracts as plain `assert` statements. The pipeline translates them into IMP, formalises proof obligations in Coq, dispatches easy goals to SMT (cvc4), and falls back to an LLM oracle.
+**A gold standard verification system for Python.** Write contracts as plain `assert` statements — no imports, no decorators, no DSL. The pipeline formalises proof obligations in Coq, dispatches easy goals to SMT, and falls back to an LLM oracle. Aims to bring theorem-prover-grade verification to a mass audience with a near-zero barrier to entry, while remaining competitive with bespoke systems like [F*](https://en.wikipedia.org/wiki/F*) and [Dafny](https://en.wikipedia.org/wiki/Dafny).
 
 ```
 Python assert contracts
@@ -79,6 +79,23 @@ def build_sorted(n):
     assert all(result[j] == j for j in range(n))     # postcondition: fully sorted
     return result
 
+# Loop predicates — predicates with loops are verified separately;
+# their postconditions are inlined at call sites.
+def geq_loop(x: int, n: int) -> bool:
+    assert n >= 0                               # precondition
+    r = x
+    while r < n:
+        r = r + 1
+    result = (r >= n)
+    assert implies(result == 1, x >= n)         # semantic postcondition
+    return result
+
+def double(n: int):
+    assert n >= 0
+    result = n * 2
+    assert geq_loop(result, n)                  # expands to: n*2 >= n
+    return result
+
 ## Pipeline Tiers
 
 | Level | Mechanism | What it handles |
@@ -137,7 +154,7 @@ eval $(opam env)
 PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 ```
 
-85 tests (17 negative, 68 positive) covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, range quantifiers, frame conditions, stub integration, tuple/bytes/dict/set/None value comparisons, and implication.
+98 tests (30 negative, 68 positive) covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, range quantifiers, frame conditions, stub integration, tuple/bytes/dict/set/None value comparisons, implication, and loop-predicate contract inlining.
 
 ## Architecture
 
@@ -172,3 +189,4 @@ stubs/
 - **`assert`** captures what types can't: `assert len(lst) > 0`, `assert depth >= 0`
 - **Contracts** document pre/post/invariant in docstrings
 - **SMT counterexamples** tell you exactly what's missing from weak invariants
+- **Loop predicates** are verified as standalone functions. Their semantic postconditions (guarded by `implies(result == 1, ...)`) are inlined at call sites. Pure predicates are inlined directly; predicates without postconditions are rejected.

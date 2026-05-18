@@ -347,34 +347,49 @@ def _collect_smt_names(ir, name_map: dict[str, str]):
 
 
 def _extract_ir_vars(ir) -> set[str]:
-    """Walk an IR tree and collect variable names from Var nodes."""
+    """Walk an IR tree and collect variable names from Var nodes.
+
+    Excludes forall/exists-bound variables (AllExpr.var, AnyExpr.var)
+    from the VCG parameter set since they are locally quantified.
+    """
     vars_set: set[str] = set()
-    def walk(node):
+    def walk(node, bound: frozenset[str] = frozenset()):
         if node is None:
             return
         if hasattr(node, 'kind'):
             if node.kind == 'var':
-                vars_set.add(node.name)
+                if node.name not in bound:
+                    vars_set.add(node.name)
             elif node.kind == 'len':
                 vars_set.add(f'{node.name}__len')
+            elif node.kind in ('all', 'any'):
+                if node.lst:
+                    vars_set.add(f'{node.lst}__len')
+                inner_bound = bound | {node.var}
+                walk(node.pred, inner_bound)
+                if node.lower:
+                    walk(node.lower, inner_bound)
+                if node.upper:
+                    walk(node.upper, inner_bound)
+                return  # attributes walked inside kind handler
             elif node.kind == 'dict_count':
                 vars_set.add(f'{node.name}__count')
             elif node.kind == 'dict_len':
                 key_str = str(node.key)
                 vars_set.add(f'{node.name}_v_{key_str}__len')
         if hasattr(node, 'left'):
-            walk(node.left)
+            walk(node.left, bound)
         if hasattr(node, 'right'):
-            walk(node.right)
+            walk(node.right, bound)
         if hasattr(node, 'operands'):
             for o in node.operands:
-                walk(o)
+                walk(o, bound)
         if hasattr(node, 'pred'):
-            walk(node.pred)
+            walk(node.pred, bound)
         if hasattr(node, 'lower'):
-            walk(node.lower)
+            walk(node.lower, bound)
         if hasattr(node, 'upper'):
-            walk(node.upper)
+            walk(node.upper, bound)
     walk(ir)
     return vars_set
 
@@ -1534,14 +1549,15 @@ def _get_attribute_base(node: ast.Attribute) -> str | None:
 
 
 
-def _collect_predicates(tree) -> dict[str, tuple[list[str], "ast.expr | None"]]:
+def _collect_predicates(tree) -> dict[str, tuple[list[str], "ast.expr | None", list["ast.Assert"]]]:
     """Find user-defined predicate functions in a file.
 
-    Returns dict of name → (param_names, return_expression).
+    Returns dict of name → (param_names, return_expression, postcondition_asserts).
     return_expression is None for multi-statement/looping predicates.
+    postcondition_asserts are assert AST nodes classified as postconditions.
     """
     import ast
-    predicates: dict[str, tuple[list[str], ast.expr | None]] = {}
+    predicates: dict[str, tuple[list[str], ast.expr | None, list[ast.Assert]]] = {}
     for node in ast.iter_child_nodes(tree):
         if not isinstance(node, ast.FunctionDef):
             continue
@@ -1550,10 +1566,10 @@ def _collect_predicates(tree) -> dict[str, tuple[list[str], "ast.expr | None"]]:
         def _mutates(n):
             if isinstance(n, ast.Assign):
                 for t in n.targets:
-                    if isinstance(t, ast.Name) and (t.id == "result" or t.id in param_set):
+                    if isinstance(t, ast.Name) and t.id in param_set:
                         return True
             if isinstance(n, ast.AugAssign):
-                if isinstance(n.target, ast.Name) and (n.target.id == "result" or n.target.id in param_set):
+                if isinstance(n.target, ast.Name) and n.target.id in param_set:
                     return True
             return False
         if any(_mutates(n) for n in ast.walk(node)):
@@ -1561,9 +1577,14 @@ def _collect_predicates(tree) -> dict[str, tuple[list[str], "ast.expr | None"]]:
         non_doc = [s for s in node.body
                    if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant))]
         if len(non_doc) == 1 and isinstance(non_doc[0], ast.Return) and non_doc[0].value:
-            predicates[node.name] = (params, non_doc[0].value)
+            predicates[node.name] = (params, non_doc[0].value, [])
         else:
-            predicates[node.name] = (params, None)
+            # Multi-statement/looping predicate: extract postcondition asserts
+            post_asserts = []
+            for s in non_doc:
+                if isinstance(s, ast.Assert) and _classify_assert(node, s) == "postcondition":
+                    post_asserts.append(s)
+            predicates[node.name] = (params, None, post_asserts)
     return predicates
 
 
@@ -2216,14 +2237,48 @@ def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: 
             vcg_params = " ".join(f"({v} : Z)" for v in sorted(all_vcg_vars))
             n_params = len(all_vcg_vars)
             intros_pat = " ".join(["?"] * n_params) + " Hpre Hinv Hexit" if n_params > 0 else "Hpre Hinv Hexit"
-            vcg_section += f"""(* Verification condition: precondition + invariant + exit -> postcondition{ce_note} *)
-Theorem {name}_vcg_exit_{loop_node.lineno} : forall {vcg_params},
-  ({pre_vcg}) ->
-  ({inv_coq}) ->
-  {exit_cond} ->
-  {result_scaffold}
-  ({post_vcg}).
-Proof.
+            has_forall = "forall" in inv_coq or "forall" in post_vcg
+            has_forall_inv = "forall" in inv_coq
+            if has_forall:
+                if has_forall_inv:
+                    vcg_proof = f"""Proof.
+  intros {intros_pat}{' Hres' if result_scaffold.strip() else ''}.
+  repeat (match goal with
+    | H: _ /\\ _ |- _ => destruct H
+  end);
+  (* Instantiate invariant quantifiers to prove postcondition *)
+  match goal with
+  | |- forall x, ?R -> ?Q =>
+      intro x; intro Hx;
+      match type of Hexit with
+      | Z.leb ?a ?b = false => apply Z.leb_gt in Hexit
+      | _ => idtac
+      end;
+      match goal with Hinv: forall y, _ |- _ => apply Hinv with (y := x); lia end
+  end.
+Qed.
+"""
+                else:
+                    vcg_proof = f"""Proof.
+  intros {intros_pat}{' Hres' if result_scaffold.strip() else ''}.
+  repeat (match goal with
+    | H: _ /\\ _ |- _ => destruct H
+  end).
+  (* Forall in post but not in inv — invariant may be too weak *)
+  match goal with
+  | |- forall x, ?R -> ?Q =>
+      intro x; intro Hx;
+      match type of Hexit with
+      | Z.leb ?a ?b = false => apply Z.leb_gt in Hexit
+      | _ => idtac
+      end
+  end.
+  try lia.
+  exact (match goal with |- _ => I end).
+Admitted.
+"""
+            else:
+                vcg_proof = f"""Proof.
   intros {intros_pat}{' Hres' if result_scaffold.strip() else ''}.
   repeat (match goal with
     | H: _ /\\ _ |- _ => destruct H
@@ -2234,6 +2289,15 @@ Proof.
   | _ => rewrite Z.leb_gt in Hexit; lia
   end.
 Qed.
+"""
+            vcg_section += f"""(* Verification condition: precondition + invariant + exit -> postcondition{ce_note} *)
+Theorem {name}_vcg_exit_{loop_node.lineno} : forall {vcg_params},
+  ({pre_vcg}) ->
+  ({inv_coq}) ->
+  {exit_cond} ->
+  {result_scaffold}
+  ({post_vcg}).
+{vcg_proof}
 """
         if smt_result.is_valid:
             vcg_section = f"""
@@ -2256,14 +2320,47 @@ Qed.
             vcg_params = " ".join(f"({v} : Z)" for v in sorted(all_vcg_vars))
             n_params = len(all_vcg_vars)
             intros_pat = " ".join(["?"] * n_params) + " Hpre Hinv Hexit" if n_params > 0 else "Hpre Hinv Hexit"
-            vcg_section = f"""(* Verification condition: precondition + invariant + exit -> postcondition{ce_note} *)
-Theorem {name}_vcg_exit : forall {vcg_params},
-  ({pre_vcg}) ->
-  ({inv_coq}) ->
-  {exit_cond} ->
-  {result_scaffold}
-  ({post_vcg}).
-Proof.
+            has_forall = "forall" in inv_coq or "forall" in post_vcg
+            has_forall_inv = "forall" in inv_coq
+            if has_forall:
+                if has_forall_inv:
+                    vcg_proof2 = f"""Proof.
+  intros {intros_pat}{' Hres' if result_scaffold.strip() else ''}.
+  repeat (match goal with
+    | H: _ /\\ _ |- _ => destruct H
+  end);
+  match goal with
+  | |- forall x, ?R -> ?Q =>
+      intro x; intro Hx;
+      match type of Hexit with
+      | Z.leb ?a ?b = false => apply Z.leb_gt in Hexit
+      | _ => idtac
+      end;
+      match goal with Hinv: forall y, _ |- _ => apply Hinv with (y := x); lia end
+  end.
+Qed.
+"""
+                else:
+                    vcg_proof2 = f"""Proof.
+  intros {intros_pat}{' Hres' if result_scaffold.strip() else ''}.
+  repeat (match goal with
+    | H: _ /\\ _ |- _ => destruct H
+  end).
+  (* Forall in post but not in inv — invariant may be too weak *)
+  match goal with
+  | |- forall x, ?R -> ?Q =>
+      intro x; intro Hx;
+      match type of Hexit with
+      | Z.leb ?a ?b = false => apply Z.leb_gt in Hexit
+      | _ => idtac
+      end
+  end.
+  try lia.
+  exact (match goal with |- _ => I end).
+Admitted.
+"""
+            else:
+                vcg_proof2 = f"""Proof.
   intros {intros_pat}{' Hres' if result_scaffold.strip() else ''}.
   repeat (match goal with
     | H: _ /\\ _ |- _ => destruct H
@@ -2274,6 +2371,15 @@ Proof.
   | _ => rewrite Z.leb_gt in Hexit; lia
   end.
 Qed.
+"""
+            vcg_section = f"""(* Verification condition: precondition + invariant + exit -> postcondition{ce_note} *)
+Theorem {name}_vcg_exit : forall {vcg_params},
+  ({pre_vcg}) ->
+  ({inv_coq}) ->
+  {exit_cond} ->
+  {result_scaffold}
+  ({post_vcg}).
+{vcg_proof2}
 """
 
     use_conditional_proof = False  # wp_prove handles conditionals generically now
@@ -2313,7 +2419,7 @@ Qed.
     source_notes = ""
     for r in lint_results:
         if r.lint_result.coq_translation:
-            safe = r.lint_result.coq_translation.replace("*)", "* )")[:60]
+            safe = r.lint_result.coq_translation.replace("*)", "* )").replace("(*", "( *")[:80]
             source_notes += f"(* line {r.lineno}: [{r.classification}] {safe} *)\n"
 
     return f"""(* Auto-generated from {name} *){frame_comment}

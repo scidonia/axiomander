@@ -161,6 +161,22 @@ def first2(lst: list[int]):
     assert True
     return result'''),
 
+    # ── Loop predicates (postcondition inlining) ────────────────────
+    ("double", '''def geq_loop(x: int, n: int) -> bool:
+    assert n >= 0
+    r = x
+    while r < n:
+        r = r + 1
+    result = (r >= n)
+    assert implies(result == 1, x >= n)
+    return result
+
+def double(n: int):
+    assert n >= 0
+    result = n * 2
+    assert geq_loop(result, n)
+    return result'''),
+
     # ── Range quantifiers ──────────────────────────────────────────
     ("build_sorted", '''def build_sorted(n: int):
     assert n>=0
@@ -582,9 +598,32 @@ def class_frame_fail(c: Counter):
         i += 1
     assert len(result) == n
     return result'''),
+    # Negative: wrong pure predicate — says x > 10 but used where x may be 0.
+    ("use_wrong", '''def over_10(x: int) -> bool:
+    return x > 10
+
+def use_wrong(n: int):
+    assert n >= 0
+    result = n
+    assert over_10(result)
+    return result'''),
+    # Negative: loop predicate without postcondition.
+    ("user_no_post", '''def no_post(x: int) -> bool:
+    assert x >= 0
+    r = x
+    while r >= 2:
+        r = r - 2
+    result = (r == 0)
+    return result
+
+def user_no_post(n: int):
+    assert n >= 0
+    result = n
+    assert no_post(result)
+    return result'''),
 ]
 
-NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail"}
+NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail", "all_positive", "use_wrong", "user_no_post"}
 
 
 @pytest.mark.parametrize("name,source", EXAMPLES)

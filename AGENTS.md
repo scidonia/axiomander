@@ -34,6 +34,18 @@ and extensible verification stack that holds up under real-world use.
   the verifier catches violations, not just passes trivially. Negative
   tests prove the system isn't "proving everything."
 
+### Open Architecture Decisions
+
+**Loop predicates — RESOLVED.** Predicates containing loops are handled via
+postcondition-inlining: the predicate is verified as a standalone function, its
+semantic postcondition (guarded by `implies(result == 1, property)`) is extracted,
+and at call sites in contracts, the postcondition is inlined with `result → 1`
+substitution via AST transformation. This is a variant of CCall-based expansion:
+the predicate must carry proper postcondition contracts using `implies`, and the
+linter substitutes callee args + `result → 1` at the AST level — no string
+manipulation. Pure expression predicates (single return statement) are inlined
+directly. Predicates without postconditions are rejected.
+
 ## Directory Layout
 
 ```

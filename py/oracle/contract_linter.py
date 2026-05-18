@@ -201,30 +201,56 @@ class ContractLinter(ast.NodeVisitor):
     def _expand_predicate(self, node: ast.Call, name: str) -> Optional[Expr]:
         """Expand a call to a user-defined pure predicate by inlining its body."""
         import ast as ast_module
-        param_names, body_expr = self.predicates[name]
+        entry = self.predicates[name]
+        param_names = entry[0]
+        body_expr = entry[1]
+        post_asserts = entry[2] if len(entry) > 2 else []
         if len(node.args) != len(param_names):
             self._violation(node, ExprKind.IMPURE_CALL,
                           f"Predicate '{name}' expects {len(param_names)} args, got {len(node.args)}")
             return None
-        if body_expr is None:
-            self._violation(node, ExprKind.IMPURE_CALL,
-                          f"Predicate '{name}' contains loops or recursion. "
-                          f"Express the property directly instead, e.g. "
-                          f"all(result[i] <= result[i+1] for i in range(len(result)-1))")
+        if body_expr is not None:
+            class _Subst(ast_module.NodeTransformer):
+                def __init__(self, mapping):
+                    self.mapping = mapping
+                def visit_Name(self, n):
+                    if n.id in self.mapping:
+                        return self.mapping[n.id]
+                    return n
+            mapping = {p: a for p, a in zip(param_names, node.args)}
+            expanded = _Subst(mapping).visit(ast_module.fix_missing_locations(
+                ast_module.Module(body=[ast_module.Expr(value=body_expr)], type_ignores=[])
+            ))
+            inner_expr = expanded.body[0].value
+            return self.visit(inner_expr)
+        if post_asserts:
+            class _Subst(ast_module.NodeTransformer):
+                def __init__(self, mapping):
+                    self.mapping = mapping
+                def visit_Name(self, n):
+                    if n.id in self.mapping:
+                        return self.mapping[n.id]
+                    return n
+            mapping = {p: a for p, a in zip(param_names, node.args)}
+            mapping['result'] = ast_module.Constant(value=1)
+            conjuncts = []
+            for post in post_asserts:
+                substituted = _Subst(mapping).visit(ast_module.fix_missing_locations(
+                    ast_module.Module(body=[ast_module.Expr(value=post.test)], type_ignores=[])
+                ))
+                inner_ir = self.visit(substituted.body[0].value)
+                if inner_ir:
+                    conjuncts.append(inner_ir)
+            if len(conjuncts) == 1:
+                return conjuncts[0]
+            elif len(conjuncts) > 1:
+                return Logical(op="and", operands=conjuncts)
             return None
-        class _Subst(ast_module.NodeTransformer):
-            def __init__(self, mapping):
-                self.mapping = mapping
-            def visit_Name(self, n):
-                if n.id in self.mapping:
-                    return self.mapping[n.id]
-                return n
-        mapping = {p: a for p, a in zip(param_names, node.args)}
-        expanded = _Subst(mapping).visit(ast_module.fix_missing_locations(
-            ast_module.Module(body=[ast_module.Expr(value=body_expr)], type_ignores=[])
-        ))
-        inner_expr = expanded.body[0].value
-        return self.visit(inner_expr)
+        self._violation(node, ExprKind.IMPURE_CALL,
+                      f"Predicate '{name}' contains loops or recursion. "
+                      f"Express the property directly instead, e.g. "
+                      f"all(result[i] <= result[i+1] for i in range(len(result)-1))")
+        return None
 
     def visit_Constant(self, node: ast.Constant) -> Expr:
         if isinstance(node.value, bool):

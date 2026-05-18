@@ -14,8 +14,8 @@ class Var(BaseModel):
     kind: Literal["var"] = "var"
     name: str
 
-    def to_coq(self, scoped: bool = False) -> str:
-        if scoped:
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        if scoped and self.name not in unbound:
             return f's "{self.name}"%string'
         return self.name
 
@@ -27,7 +27,7 @@ class IntLit(BaseModel):
     kind: Literal["int"] = "int"
     value: int
 
-    def to_coq(self, scoped: bool = False) -> str:
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         return str(self.value)
 
     def to_smt(self) -> str:
@@ -38,7 +38,7 @@ class BoolLit(BaseModel):
     kind: Literal["bool"] = "bool"
     value: bool
 
-    def to_coq(self, scoped: bool = False) -> str:
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         return "True" if self.value else "False"
 
     def to_smt(self) -> str:
@@ -51,11 +51,11 @@ class BinOp(BaseModel):
     left: Expr
     right: Expr
 
-    def to_coq(self, scoped: bool = False) -> str:
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         op_map = {"/": "/", "mod": "mod"}
         coq_op = op_map.get(self.op, self.op)
-        left = self.left.to_coq(scoped)
-        right = self.right.to_coq(scoped)
+        left = self.left.to_coq(scoped, unbound)
+        right = self.right.to_coq(scoped, unbound)
         is_str_cmp = scoped and self.op in ('=', '<>') and (
             hasattr(self.right, 'kind') and self.right.kind == 'strlit'
         )
@@ -73,18 +73,18 @@ class BinOp(BaseModel):
         )
         if scoped and self.op in ('+', '-', '*', '/', 'mod', '<', '<=', '>', '>=', '=', '<>'):
             if is_str_cmp:
-                if left.startswith('s "'):
+                if left.startswith('s '):
                     left = f'asString ({left})'
             elif is_float_cmp:
-                if left.startswith('s "'):
+                if left.startswith('s '):
                     left = f'asFloat ({left})'
             elif is_tuple_cmp or is_dict_cmp or is_set_cmp:
-                if left.startswith('s "'):
+                if left.startswith('s '):
                     return f"(value_eqb ({left}) {right} = true)"
             else:
-                if left.startswith('s "'):
+                if left.startswith('s '):
                     left = f'asZ ({left})'
-                if right.startswith('s "'):
+                if right.startswith('s '):
                     right = f'asZ ({right})'
         return f"({left} {coq_op} {right})"
 
@@ -99,12 +99,12 @@ class Logical(BaseModel):
     op: str  # and, or, not
     operands: list[Expr] = Field(default_factory=list)
 
-    def to_coq(self, scoped: bool = False) -> str:
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         if self.op == "not":
-            inner = self.operands[0].to_coq(scoped)
+            inner = self.operands[0].to_coq(scoped, unbound)
             return f"~ ({inner})"
         sep = " /\\ " if self.op == "and" else " \\/ "
-        return "(" + sep.join(o.to_coq(scoped) for o in self.operands) + ")"
+        return "(" + sep.join(o.to_coq(scoped, unbound) for o in self.operands) + ")"
 
     def to_smt(self) -> str:
         if self.op == "not":
@@ -118,7 +118,7 @@ class LenExpr(BaseModel):
     kind: Literal["len"] = "len"
     name: str
 
-    def to_coq(self, scoped: bool = False) -> str:
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         if scoped:
             return f's "{self.name}._len"%string'
         return f"{self.name}__len"
@@ -133,10 +133,10 @@ class IndexExpr(BaseModel):
     name: str
     index: Expr
 
-    def to_coq(self, scoped: bool = False) -> str:
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         if scoped:
-            return f's (parray_key "{self.name}"%string {self.index.to_coq(False)})%string'
-        return f"{self.name}___{self.index.to_coq(False)}"
+            return f's (parray_key "{self.name}"%string {self.index.to_coq(False, unbound)})%string'
+        return f"{self.name}___{self.index.to_coq(False, unbound)}"
 
     def to_smt(self) -> str:
         return f"{self.name}___{self.index.to_smt()}"
@@ -148,8 +148,8 @@ class DictLenExpr(BaseModel):
     name: str
     key: Expr
 
-    def to_coq(self, scoped: bool = False) -> str:
-        key_str = self.key.to_coq(False)
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        key_str = self.key.to_coq(False, unbound)
         if scoped:
             return f's (parray_len_key (dict_key "{self.name}"%string ({key_str})))%string'
         return f"{self.name}_v_{key_str}__len"
@@ -163,7 +163,7 @@ class DictCountExpr(BaseModel):
     kind: Literal["dict_count"] = "dict_count"
     name: str
 
-    def to_coq(self, scoped: bool = False) -> str:
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         if scoped:
             return f's (dict_count_key "{self.name}"%string)%string'
         return f"{self.name}__count"
@@ -181,8 +181,20 @@ class AllExpr(BaseModel):
     lower: Optional["Expr"] = None
     upper: Optional["Expr"] = None
 
-    def to_coq(self, scoped: bool = False) -> str:
-        return "True"
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        unbound_vars = unbound | {self.var}
+        p = self.pred.to_coq(scoped, unbound=unbound_vars)
+        if self.lower is not None and self.upper is not None:
+            lo = self.lower.to_coq(scoped, unbound_vars)
+            hi = self.upper.to_coq(scoped, unbound_vars)
+            if scoped:
+                if lo.startswith('s '):
+                    lo = f'asZ ({lo})'
+                if hi.startswith('s '):
+                    hi = f'asZ ({hi})'
+            return f"(forall ({self.var} : Z), {lo} <= {self.var} < {hi} -> {p})"
+        ln = f'asZ (s "{self.lst}._len"%string)' if (scoped and self.lst) else (f"{self.lst}__len" if self.lst else "0")
+        return f"(forall ({self.var} : Z), 0 <= {self.var} < {ln} -> {p})"
 
     def to_smt(self) -> str:
         p = self.pred.to_smt()
@@ -202,7 +214,7 @@ class AnyExpr(BaseModel):
     lower: Optional["Expr"] = None
     upper: Optional["Expr"] = None
 
-    def to_coq(self, scoped: bool = False) -> str:
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         return "True"
 
     def to_smt(self) -> str:
@@ -221,9 +233,9 @@ class SliceLenExpr(BaseModel):
     start: Optional["Expr"] = None
     end: Optional["Expr"] = None
 
-    def to_coq(self, scoped: bool = False) -> str:
-        s = self.start.to_coq(False) if self.start else "0"
-        e = self.end.to_coq(False) if self.end else f'asZ (s "{self.name}._len"%string)' if scoped else f"{self.name}__len"
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        s = self.start.to_coq(False, unbound) if self.start else "0"
+        e = self.end.to_coq(False, unbound) if self.end else f'asZ (s "{self.name}._len"%string)' if scoped else f"{self.name}__len"
         return f"({e} - {s})"
 
     def to_smt(self) -> str:
@@ -238,13 +250,13 @@ class MinExpr(BaseModel):
     left: "Expr"
     right: "Expr"
 
-    def to_coq(self, scoped: bool = False) -> str:
-        left = self.left.to_coq(scoped)
-        right = self.right.to_coq(scoped)
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        left = self.left.to_coq(scoped, unbound)
+        right = self.right.to_coq(scoped, unbound)
         if scoped:
-            if left.startswith('s "'):
+            if left.startswith('s '):
                 left = f'asZ ({left})'
-            if right.startswith('s "'):
+            if right.startswith('s '):
                 right = f'asZ ({right})'
         return f"(Z.min ({left}) ({right}))"
 
@@ -258,13 +270,13 @@ class MaxExpr(BaseModel):
     left: "Expr"
     right: "Expr"
 
-    def to_coq(self, scoped: bool = False) -> str:
-        left = self.left.to_coq(scoped)
-        right = self.right.to_coq(scoped)
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        left = self.left.to_coq(scoped, unbound)
+        right = self.right.to_coq(scoped, unbound)
         if scoped:
-            if left.startswith('s "'):
+            if left.startswith('s '):
                 left = f'asZ ({left})'
-            if right.startswith('s "'):
+            if right.startswith('s '):
                 right = f'asZ ({right})'
         return f"(Z.max ({left}) ({right}))"
 
@@ -277,7 +289,7 @@ class SumExpr(BaseModel):
     kind: Literal["sum"] = "sum"
     name: str
 
-    def to_coq(self, scoped: bool = False) -> str:
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         return "0"
 
     def to_smt(self) -> str:
@@ -289,7 +301,7 @@ class FloatExpr(BaseModel):
     kind: Literal["float"] = "float"
     value: int  # Z-encoded integer
 
-    def to_coq(self, scoped: bool = False) -> str:
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         return str(self.value)
 
     def to_smt(self) -> str:
@@ -301,7 +313,7 @@ class StrLitExpr(BaseModel):
     kind: Literal["strlit"] = "strlit"
     value: str
 
-    def to_coq(self, scoped: bool = False) -> str:
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         escaped = self.value.replace('\\', '\\\\').replace('"', '\\"')
         return f'"{escaped}"%string'
 
@@ -314,9 +326,9 @@ class TupleExpr(BaseModel):
     kind: Literal["tuple"] = "tuple"
     elements: list["Expr"] = Field(default_factory=list)
 
-    def to_coq(self, scoped: bool = False) -> str:
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         def wrap_val(e):
-            s = e.to_coq(scoped)
+            s = e.to_coq(scoped, unbound)
             if hasattr(e, 'kind'):
                 if e.kind == 'int':
                     return f"(VZ {s})"
@@ -337,11 +349,11 @@ class DictExpr(BaseModel):
     kind: Literal["dict"] = "dict"
     pairs: list[tuple["Expr", "Expr"]] = Field(default_factory=list)
 
-    def to_coq(self, scoped: bool = False) -> str:
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         pas = []
         for k, v in self.pairs:
-            ks = k.to_coq(scoped)
-            vs = v.to_coq(scoped)
+            ks = k.to_coq(scoped, unbound)
+            vs = v.to_coq(scoped, unbound)
             # Wrap Z values
             if hasattr(k, 'kind') and k.kind == 'int':
                 ks = f"(VZ {ks})"
@@ -360,9 +372,9 @@ class SetExpr(BaseModel):
     kind: Literal["set"] = "set"
     elements: list["Expr"] = Field(default_factory=list)
 
-    def to_coq(self, scoped: bool = False) -> str:
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         def wrap_val(e):
-            s = e.to_coq(scoped)
+            s = e.to_coq(scoped, unbound)
             if hasattr(e, 'kind') and e.kind == 'int':
                 return f"(VZ {s})"
             return s
@@ -379,8 +391,8 @@ class ImpliesExpr(BaseModel):
     left: Expr
     right: Expr
 
-    def to_coq(self, scoped: bool = False) -> str:
-        return f"({self.left.to_coq(scoped)} -> {self.right.to_coq(scoped)})"
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        return f"({self.left.to_coq(scoped, unbound)} -> {self.right.to_coq(scoped, unbound)})"
 
     def to_smt(self) -> str:
         return f"(=> {self.left.to_smt()} {self.right.to_smt()})"
