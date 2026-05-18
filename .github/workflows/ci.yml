@@ -1,0 +1,37 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup OCaml
+        uses: ocaml/setup-ocaml@v3
+        with:
+          ocaml-compiler: "5.2"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y coq libcoq-hammer-dev cvc4 eprover libssl-dev libev-dev
+
+      - name: Install Python deps
+        run: pip install pytest
+
+      - name: Build Coq
+        run: |
+          eval $(opam env)
+          dune build
+
+      - name: Run tests
+        run: |
+          eval $(opam env)
+          PYTHONPATH=py python -m pytest py/tests/ -v

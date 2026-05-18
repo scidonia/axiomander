@@ -947,6 +947,23 @@ def _compute_purity_note(tree, func_node, imp_body: str) -> str:
     return ""
 
 
+def _map_coq_error_to_source(coq_source: str, coq_line: int) -> str:
+    """Map a Coq error line number back to the nearest Python source annotation."""
+    lines = coq_source.split('\n')
+    for i in range(coq_line - 1, -1, -1):
+        line = lines[i].strip()
+        if line.startswith('(* line ') and ': [' in line:
+            parts = line.split(':', 2)
+            if len(parts) >= 2:
+                try:
+                    py_line = int(parts[0].replace('(* line ', '').strip())
+                    classification = parts[1].strip().split(']')[0].strip('[')
+                    return f"  Python line {py_line} [{classification}]"
+                except ValueError:
+                    pass
+    return ""
+
+
 def _verify_function(source: str, func_name: str, hint: str | None = None) -> GoalStatus | None:
     """Try to verify a function. Returns GoalStatus or None on error."""
     try:
@@ -1063,6 +1080,14 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
                             purity_note=purity_note)
 
         error = result.stderr + result.stdout
+        # Map coqc error lines back to Python source
+        import re as _re
+        coq_line_match = _re.search(r'line (\d+)', error)
+        if coq_line_match:
+            coq_line = int(coq_line_match.group(1))
+            src_hint = _map_coq_error_to_source(coq_source, coq_line)
+            if src_hint:
+                error = error.strip() + f"\n{src_hint}"
         # Try SMT counterexample extraction for the postcondition
         ce_hint = ""
         ce_dict: dict[str, int] = {}
