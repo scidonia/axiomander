@@ -47,6 +47,8 @@ from .reporting import (
     build_report, action_guidance,
 )
 from .client import oracle_query, interactive_oracle_query, load_config
+from .py_ir_translator import PyIRTranslator
+from .py_to_imp import PyToImpLowerer
 
 PROJECT_ROOT = Path(os.environ.get(
     "AXIOMANDER_ROOT",
@@ -1057,10 +1059,25 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
                           suggested_action=Action.REFACTOR,
                           suggestion_text="Fix lint errors in assertions.")
 
-    # Generate IMP + Coq
+    # Generate IMP via PyIR → ImpIR
     ghost_var_names_imp = set(ghost_vars.keys())
-    imp_body = python_to_imp(func_node, contract_map=_build_contract_map(tree), tree=tree,
-                             ghost_vars=ghost_var_names_imp, record_fields=class_fields)
+    param_types = {a.arg: a.annotation.id
+                   for a in func_node.args.args
+                   if a.annotation and isinstance(a.annotation, ast.Name)}
+    pylinter = ContractLinter(expanded, "precondition", predicates=predicates,
+                              unbound=ghost_var_names)
+    pylinter.var_types = var_types
+    pytranslator = PyIRTranslator(contract_linter=pylinter)
+    py_func = pytranslator.translate_function(func_node)
+    lowerer = PyToImpLowerer(
+        func_name=func_name,
+        record_fields=class_fields,
+        param_types=param_types,
+        annot_guard_mode=True,
+        contract_map=_build_contract_map(tree),
+    )
+    imp_ir = lowerer.lower_function(py_func)
+    imp_body = imp_ir.to_coq() if hasattr(imp_ir, 'to_coq') else "CSkip"
     coq_source = _generate_coq(func_node, lint_results, imp_body, tree, hint,
                                ghost_vars=ghost_vars)
 
@@ -2299,18 +2316,22 @@ def _vcg_exit_condition(func_node) -> str:
         if isinstance(node, ast.While):
             if has_invariant(node.body):
                 return _py_cond_to_vcg_exit(node.test)
-        if isinstance(node, ast.For):
-            if has_invariant(node.body):
-                if (isinstance(node.iter, ast.Call)
-                    and isinstance(node.iter.func, ast.Name)
-                    and node.iter.func.id == "range"
-                    and node.iter.args):
-                    limit = node.iter.args[-1]
-                    target = node.target
-                    target_str = target.id if isinstance(target, ast.Name) else "i"
-                    limit_str = _py_expr_to_coq_var(limit)
-                    return f"Z.leb ({target_str} + 1) {limit_str} = false"
-                return "Z.leb i n = false"
+    if isinstance(node, ast.For):
+        if (isinstance(node.iter, ast.Call)
+            and isinstance(node.iter.func, ast.Name)
+            and node.iter.func.id == "range"
+            and node.iter.args):
+            args = node.iter.args
+            if len(args) == 1:
+                limit = args[0]
+            elif len(args) >= 2:
+                limit = args[1]
+            else:
+                limit = args[0]
+            target_str = node.target.id if isinstance(node.target, ast.Name) else "i"
+            limit_str = _py_expr_to_coq_var(limit)
+            return f"Z.leb ({target_str} + 1) {limit_str} = false"
+        return "Z.leb i n = false"
 
     # Fallback: use the first loop
     for node in ast.walk(func_node):

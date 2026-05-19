@@ -99,6 +99,7 @@ export ORACLE_MODEL="deepseek-chat"
 - Use `ast` module for WP transformation (no third-party parsers)
 - Type hints on all public functions
 - **Never use regex on parse-tree strings.** When you need to extract names or analyze structure, walk the AST or IR tree — it has the grammar's semantics built in. Regex on Coq/IMP strings is fragile: `re.findall(r'\b(\w+)\b', "asZ (s x)")` extracts `asZ` as a "variable". The IR's `Var(name='x')` node tells you `x` is a variable without false positives.
+- **Never use UTF-8 characters in Python source or docstrings.** Em dashes, smart quotes, arrows, and other non-ASCII characters cause syntax errors or silent encoding issues. Use ASCII only: `->` not `→`, `--` not `—`, straight quotes only.
 
 ## Key Design Decisions
 

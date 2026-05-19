@@ -76,6 +76,11 @@ class PyIRTranslator:
             return PyCall(func=name, args=args, is_method=is_method)
         if isinstance(node, ast.Subscript):
             container = self.translate_expr(node.value)
+            if isinstance(node.slice, ast.Slice):
+                start = self.translate_expr(node.slice.lower) if node.slice.lower else None
+                end = self.translate_expr(node.slice.upper) if node.slice.upper else None
+                if container:
+                    return PySliceSubscript(obj=container, start=start, end=end)
             key = self.translate_expr(node.slice)
             if container and key:
                 return PySubscript(container=container, key=key)
@@ -103,6 +108,8 @@ class PyIRTranslator:
             elements = [self.translate_expr(e) for e in node.elts]
             elements = [e for e in elements if e is not None]
             return PyTupleLiteral(elements=elements)
+        if isinstance(node, ast.ListComp):
+            return self._translate_list_comp(node)
         if isinstance(node, ast.GeneratorExp):
             return self._translate_generator(node)
         return None
@@ -115,6 +122,12 @@ class PyIRTranslator:
                     if isinstance(target, ast.Name):
                         return PyAssign(target=target.id, value=val)
                     if isinstance(target, ast.Subscript):
+                        if isinstance(target.slice, ast.Slice):
+                            obj_name = target.value.id if isinstance(target.value, ast.Name) else None
+                            if obj_name:
+                                start = self.translate_expr(target.slice.lower) if target.slice.lower else None
+                                end = self.translate_expr(target.slice.upper) if target.slice.upper else None
+                                return PySliceStore(obj=obj_name, start=start, end=end, value=val)
                         container = self.translate_expr(target.value)
                         key = self.translate_expr(target.slice)
                         if container and key:
@@ -218,6 +231,20 @@ class PyIRTranslator:
                         quantifier="all",
                     )
         return None
+
+    def _translate_list_comp(self, node: ast.ListComp) -> Optional[PyExpr]:
+        if not node.generators:
+            return None
+        gen = node.generators[0]
+        if not isinstance(gen.target, ast.Name):
+            return None
+        iterable = self.translate_expr(gen.iter)
+        elt = self.translate_expr(node.elt)
+        if not iterable or not elt:
+            return None
+        conds = [self.translate_expr(c) for c in gen.ifs]
+        conds = [c for c in conds if c is not None]
+        return PyListComp(elt=elt, var=gen.target.id, iterable=iterable, conds=conds)
 
     def _extract_invariants(self, body: list[ast.stmt]) -> list:
         """Extract invariant IR from consecutive asserts at top of loop body."""

@@ -95,6 +95,15 @@ class PyListLiteral(PyExpr):
     elements: list[PyExpr] = Field(default_factory=list)
 
 
+class PyListComp(PyExpr):
+    """List comprehension: [expr for var in iterable if cond]."""
+    kind: Literal["list_comp"] = "list_comp"
+    elt: PyExpr
+    var: str
+    iterable: PyExpr
+    conds: list[PyExpr] = Field(default_factory=list)
+
+
 class PyDictLiteral(PyExpr):
     """Dict literal: {k: v, ...}."""
     kind: Literal["dict_literal"] = "dict_literal"
@@ -223,6 +232,23 @@ class PyExprStmt(PyStmt):
     """Expression used as a statement (e.g., function call)."""
     kind: Literal["expr_stmt"] = "expr_stmt"
     expr: PyExpr
+
+
+class PySliceSubscript(PyExpr):
+    """Slice access: lst[start:end]."""
+    kind: Literal["slice_subscript"] = "slice_subscript"
+    obj: PyExpr
+    start: Optional[PyExpr] = None
+    end: Optional[PyExpr] = None
+
+
+class PySliceStore(PyStmt):
+    """Slice assignment: lst[start:end] = value."""
+    kind: Literal["slice_store"] = "slice_store"
+    obj: str
+    start: Optional[PyExpr] = None
+    end: Optional[PyExpr] = None
+    value: PyExpr
 
 
 class PyPass(PyStmt):
