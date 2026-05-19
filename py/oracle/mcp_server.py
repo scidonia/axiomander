@@ -2854,7 +2854,7 @@ Theorem {name}_vcg_exit : forall {vcg_params},
     elif hint == "lia":
         proof = "  intros.\n  wp_reduce.\n  lia."
     elif post_coq == "True":
-        proof = "  intros.\n  apply wp_True."
+        proof = "  intros.\n  wp_prove."
     else:
         proof = "  intros.\n  wp_prove."
 

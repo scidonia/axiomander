@@ -1,5 +1,5 @@
 Require Import ZArith String List Lia.
-Require Import Imp Wp.
+Require Import Imp Wp WpTactics.
 Import ListNotations.
 Open Scope Z_scope.
 
@@ -26,8 +26,17 @@ Theorem a_unchanged : forall (a b : Z),
      (init_state_ab a b).
 Proof.
   intros a b.
-  unfold compute_and_havoc, wp. simpl.
-Admitted.
+  unfold compute_and_havoc, init_state_ab, updZ.
+  wp_reduce.
+  intros s' Hagree.
+  destruct (string_dec "a"%string "x"%string) as [Heq|Hne].
+  - discriminate Heq.
+  - assert (Hnotin : ~ In "a"%string ["x"%string]).
+    { simpl. intro H. destruct H as [H' | []]. apply Hne. symmetry. exact H'. }
+    apply Hagree in Hnotin.
+    simpl in Hnotin.
+    rewrite Hnotin. reflexivity.
+Qed.
 
 (** * Theorem 2: Affected property is lost across a black hole *)
 Theorem x_lost : forall (a b : Z),
@@ -38,7 +47,8 @@ Theorem x_lost : forall (a b : Z),
 Proof.
   intros a b Hsum.
   unfold compute_and_havoc, wp, init_state_ab, updZ. simpl.
-Admitted. (S := upd (upd empty_state "a"%string (VZ a)) "b"%string (VZ b)).
+  intro H.
+  set (S := upd (upd empty_state "a"%string (VZ a)) "b"%string (VZ b)).
   set (S' := upd S "x"%string (VZ (a + b))).
   set (s_bad := upd S "x"%string (VZ 0)).
   assert (Hagree : forall x0, ~ In x0 ["x"%string] -> s_bad x0 = S' x0).
@@ -61,17 +71,17 @@ Theorem recovery : forall (a b : Z),
   wp body (fun s => asZ (s "x"%string) = a + b) (init_state_ab a b).
 Proof.
   intros a b body.
-  unfold body, compute_and_havoc, wp. simpl.
+  unfold body, compute_and_havoc, init_state_ab, updZ.
+  wp_reduce.
   intros s' Hagree.
-  simpl.
-  assert (Ha : s' "a"%string = a).
-  { apply Hagree. simpl. destruct (string_dec "a"%string "x"%string) as [H|H].
-    - exfalso. discriminate.
-    - intro H'. destruct H' as [H'' | []]. apply H. symmetry. exact H''. }
-  assert (Hb : s' "b"%string = b).
-  { apply Hagree. simpl. destruct (string_dec "b"%string "x"%string) as [H|H].
-    - exfalso. discriminate.
-    - intro H'. destruct H' as [H'' | []]. apply H. symmetry. exact H''. }
-  rewrite Ha, Hb.
+  assert (Hnota : ~ In "a"%string ["x"%string]).
+  { simpl. intro H. destruct H as [H' | []]. discriminate H'. }
+  assert (Hnotb : ~ In "b"%string ["x"%string]).
+  { simpl. intro H. destruct H as [H' | []]. discriminate H'. }
+  apply Hagree in Hnota.
+  apply Hagree in Hnotb.
+  simpl in Hnota, Hnotb.
+  rewrite Hnota, Hnotb.
+  unfold upd. rewrite !String.eqb_refl. simpl.
   reflexivity.
 Qed.

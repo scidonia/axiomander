@@ -8,11 +8,8 @@ Open Scope Z_scope.
     Reduces WP goals to simple arithmetic forms that can be
     dispatched by [lia], [reflexivity], or sent to the SMT hammer. *)
 
-(** [wp_True] — any command satisfies WP with postcondition True. *)
-Lemma wp_True : forall c s, wp c (fun _ => True) s.
-Admitted.
-
 (** [wp_reduce] — unfold state, aeval, beval, asZ; simplify. *)
+
 Ltac wp_reduce :=
   unfold wp, aeval, beval, asZ, asString, asFloat; cbn -[In clobber].
 
@@ -177,7 +174,19 @@ Theorem a_unchanged_auto : forall (a b : Z),
        (CHavoc ["x"%string]))
      (fun s => asZ (s "a"%string) = a)
      (updZ (updZ empty_state "a"%string a) "b"%string b).
-Proof. Admitted.
+Proof.
+  intros a b.
+  unfold updZ.
+  wp_reduce.
+  intros s' Hagree.
+  destruct (string_dec "a"%string "x"%string) as [Heq|Hne].
+  - discriminate Heq.
+  - assert (Hnotin : ~ In "a"%string ["x"%string]).
+    { simpl. intro H. destruct H as [H' | []]. apply Hne. symmetry. exact H'. }
+    apply Hagree in Hnotin.
+    simpl in Hnotin.
+    rewrite Hnotin. reflexivity.
+Qed.
 
 (** * Pipeline Integration
 
