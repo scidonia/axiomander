@@ -32,8 +32,34 @@ PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 Contracts are plain `assert` statements — the verifier classifies them by position:
 
 ```python
+# Contracts are plain assert statements — zero imports, zero decorators.
+# Under python -O, all asserts are stripped. Ghost snapshots inside
+# if __debug__: blocks are stripped too. Verification has zero runtime cost.
+
+# Field constraints lifted to compile-time proof (Pydantic in spirit)
+def transfer(balances: dict[str, int], sender: str, receiver: str, amount: int) -> int:
+    assert amount >= 0
+    assert sender in balances
+    assert balances[sender] >= amount            # precondition: sufficient funds
+    if __debug__:
+        old_sender = balances[sender]
+        if receiver in balances:
+            old_receiver = balances[receiver]
+        else:
+            old_receiver = 0
+    balances[sender] -= amount
+    if receiver not in balances:
+        balances[receiver] = 0
+    balances[receiver] += amount
+    result = 1
+    assert balances[sender] >= 0                 # constraint preserved: no overdraft
+    assert (balances[sender] + balances[receiver] == 
+            old_sender + old_receiver)           # conservation of money
+    assert result == 1
+    return result
+
 # Implication — conditional guarantees via implies()
-def clamp(val, lo, hi):
+def clamp(val: int, lo: int, hi: int):
     assert lo <= hi                         # precondition
     if val < lo: result = lo
     elif val > hi: result = hi
@@ -43,30 +69,45 @@ def clamp(val, lo, hi):
     assert implies(val > hi, result == hi)  # "if too high, clamped to hi"
     return result
 
-# Dicts + key operations — build and verify every key-value pair
-def square_dict(n):
+# Dicts — build and verify with assertions only (Python -O drops them)
+# The semantic property lives in a pure predicate, inlined at the call site.
+def is_square_dict(d: dict[int, int], n: int) -> bool:
+    return all(d[j] == j * j for j in range(n))
+
+def square_dict(n: int):
     assert n >= 0                            # precondition
     result = {}
     i = 0
     while i < n:
-        assert i <= n                         # invariant
+        assert i <= n                         # invariant: bounds
+        assert all(result[j] == j * j for j in range(i))  # invariant: partial dict
         result[i] = i * i                     # store square
         i += 1
-    # Structural proof: every key j maps to j*j, and all keys exist
-    count = 0
-    j = 0
-    while j < n:
-        assert count == j                     # invariant: verified count
-        assert j <= n
-        if j in result:                       # key membership
-            if result[j] == j * j:            # value correctness
-                count += 1
-        j += 1
-    assert count == n                         # all n entries verified
-    return count
+    assert is_square_dict(result, n)          # postcondition: every key maps to its square
+    return result
+
+# Pydantic-style field constraints — automatic from Field(ge=0)
+class Account:
+    balance: int = Field(ge=0)
+    overdraft_limit: int = Field(ge=0)
+
+def withdraw(acct: Account, amount: int) -> int:
+    """Withdraw amount. Returns 1 on success, 0 if insufficient funds."""
+    assert amount >= 0
+    if __debug__:
+        old_balance = acct.balance
+    if amount > acct.balance + acct.overdraft_limit:
+        result = 0
+        assert result == 0
+        return result
+    acct.balance -= amount
+    result = 1
+    assert acct.balance + acct.overdraft_limit >= 0  # constraint preserved
+    assert result == 1
+    return result
 
 # Quantifiers — all() with generator expressions
-def build_sorted(n):
+def build_sorted(n: int):
     assert n >= 0                            # precondition
     result = []
     i = 0
@@ -127,10 +168,10 @@ Library functions declare `reads`/`writes` in `.pyi` stubs:
 ```python
 # stubs/builtins.pyi
 def pop(lst: list) -> int:
-    """requires: True
+    """requires: len(lst) >= 1
     ensures:  True
     reads:    lst
-    writes:   lst"""         # pop mutates the list
+    writes:   lst"""         # pop mutates the list; returns list element (not necessarily int)
 ```
 
 MCP tool `frame-report` shows contracts and frame conditions for any function:
@@ -141,10 +182,8 @@ MCP tool `frame-report` shows contracts and frame conditions for any function:
   assert x>=0
 ### Postconditions
   assert result >= old_x
-### Frame
-  preserves: {x}
 ### Callee Effects
-  ↳ `pop()` reads {lst} writes {lst}
+  ↳ `pop()` requires len(lst) >= 1, reads {lst} writes {lst}
 ```
 
 ## Testing
@@ -154,7 +193,18 @@ eval $(opam env)
 PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 ```
 
-98 tests (30 negative, 68 positive) covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, range quantifiers, frame conditions, stub integration, tuple/bytes/dict/set/None value comparisons, implication, and loop-predicate contract inlining.
+108 tests (32 negative, 76 positive) covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, range quantifiers, frame conditions, stub integration, tuple/bytes/dict/set/None value comparisons, implication, and loop-predicate contract inlining.
+
+## Dependencies
+
+| Tool | Purpose |
+|---|---|
+| Python ≥ 3.10 | Runtime + test harness |
+| OCaml ≥ 5.2 + Coq ≥ 9.0 | Proof kernel |
+| dune | OCaml/Coq build |
+| cvc4 or cvc5 | SMT solver (Level 2) |
+| z3 | SMT solver (Level 2 — preferred for string/float theories) |
+| coqpyt | Interactive Coq proof session (LLM oracle) |
 
 ## Architecture
 
@@ -185,8 +235,10 @@ stubs/
 
 ## Contract Discipline
 
-- **Type annotations** document preconditions: `def f(x: int, lst: list[str]) -> bool`
+- **Type annotations** carry contracts: `x: int` constrains the parameter type, `-> bool` constrains the return value
 - **`assert`** captures what types can't: `assert len(lst) > 0`, `assert depth >= 0`
+- **`if __debug__:`** marks ghost snapshots: `if __debug__: old_x = x`. Stripped by `python -O`.
+- **`python -O`** strips all assert statements and `if __debug__:` blocks. Verification has zero production overhead.
 - **Contracts** document pre/post/invariant in docstrings
 - **SMT counterexamples** tell you exactly what's missing from weak invariants
 - **Loop predicates** are verified as standalone functions. Their semantic postconditions (guarded by `implies(result == 1, ...)`) are inlined at call sites. Pure predicates are inlined directly; predicates without postconditions are rejected.

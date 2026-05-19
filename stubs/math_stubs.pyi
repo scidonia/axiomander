@@ -8,14 +8,14 @@
 #
 # Default (omitted): reads=(none), writes=(none) — pure, no side effects
 
-def sqrt(x: float) -> float:
+def sqrt(x: float | int | bool) -> float:
     """requires: x >= 0
     ensures: result >= 0
     reads: x
     writes: (none)"""
     ...
 
-def fabs(x: float) -> float:
+def fabs(x: float | int | bool) -> float:
     """requires: True
     ensures: result >= 0
     reads: x

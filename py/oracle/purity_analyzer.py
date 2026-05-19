@@ -54,8 +54,10 @@ def analyze_purity(
         param_names.add(func_node.args.vararg.arg)
 
     for stmt in ast.walk(func_node):
-        # Calls — check if impure
+        # Calls inside assert statements are contracts, not body code — skip
         if isinstance(stmt, ast.Call):
+            if _is_inside_assert(stmt, func_node):
+                continue
             call_name = _get_call_name(stmt)
             if call_name:
                 base = call_name.split(".")[0]
@@ -195,6 +197,17 @@ def generate_havoc_body(imp_body: str, report: PurityReport) -> str:
 
     havocs = " ".join(havoc_vars)
     return f"(CSeq {imp_body} (CHavoc [{havocs}]))"
+
+
+def _is_inside_assert(node: ast.AST, root: ast.FunctionDef) -> bool:
+    """Check whether an AST node is inside an assert statement (contract)."""
+    for parent in ast.walk(root):
+        if isinstance(parent, ast.Assert) and node in ast.walk(parent):
+            # Only return True if the assert is the closest ancestor
+            for inner in ast.walk(parent):
+                if inner is node:
+                    return True
+    return False
 
 
 def _get_call_name(node: ast.Call) -> str | None:

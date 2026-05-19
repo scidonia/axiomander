@@ -43,6 +43,38 @@ Proof.
        * intro. apply H. right. auto.
 Qed.
 
+Lemma clobber_in : forall s writes x,
+  In x writes -> clobber s writes x = VZ 0.
+Proof.
+  intros s writes x Hin.
+  revert s x Hin.
+  induction writes; intros s x Hin; simpl; [inversion Hin|].
+  destruct Hin as [Hx|Hin'].
+  - subst x. destruct (in_dec string_dec a writes).
+    + apply IHwrites with (s := upd s a (VZ 0)) (x := a). auto.
+    + rewrite (clobber_unchanged (upd s a (VZ 0)) writes a n). apply upd_eq.
+  - destruct (in_dec string_dec a writes).
+    + apply IHwrites with (s := upd s a (VZ 0)) (x := x). auto.
+    + apply IHwrites with (s := upd s a (VZ 0)) (x := x). auto.
+Qed.
+
+(** Commute [upd] past [clobber] when the updated variable is not in writes.
+    This normalises deeply-nested CCall states so [wp_ccall_frame] can match. *)
+Lemma clobber_upd_commute : forall (st : state) (x : var) (v : value) (writes : list var),
+  ~ In x writes ->
+  upd (clobber st writes) x v = clobber (upd st x v) writes.
+Proof.
+  intros st x v writes Hnotin.
+  apply functional_extensionality. intros y.
+  destruct (string_dec x y) as [Heq|Hne].
+  - subst. rewrite upd_eq.
+    rewrite clobber_unchanged by auto. rewrite upd_eq. reflexivity.
+  - rewrite upd_ne by auto.
+    destruct (in_dec string_dec y writes).
+    + rewrite clobber_in by auto. rewrite clobber_in by auto. reflexivity.
+    + rewrite !clobber_unchanged by auto. symmetry. apply upd_ne. auto.
+Qed.
+
 (** Single lemma for the CCall frame conjunct — avoids fragile Ltac pattern matching. *)
 Lemma wp_ccall_frame : forall (s : state) (target : var) (writes : list var) (r : Z) (x : var),
   ~ In x (target :: writes) -> s x = (clobber (upd s target (VZ r)) writes) x.
@@ -98,7 +130,7 @@ Ltac wp_prove :=
   | |- exists _, _ => eexists; wp_prove
   | |- (if ?c then _ else _) = 1 \/ (if ?c then _ else _) = 0 =>
       destruct c; auto
-  | |- _ \/ _ => first [left; wp_prove | right; wp_prove]
+  | |- _ \/ _ => solve [left; wp_prove | right; wp_prove]
   | |- ?x = ?x => reflexivity
   | |- context[clobber ?s nil] => rewrite (clobber_nil s); wp_prove
   | |- _ => solve [lia | reflexivity | auto]

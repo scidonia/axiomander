@@ -24,7 +24,7 @@ import ast
 from typing import Optional
 
 
-def python_to_imp(func_node: ast.FunctionDef, invariants: dict[int, str] | None = None, contract_map: dict[str, tuple[list[str], str, str, list[str], list[str]]] | None = None, tree: ast.Module | None = None) -> str:
+def python_to_imp(func_node: ast.FunctionDef, invariants: dict[int, str] | None = None, contract_map: dict[str, tuple[list[str], str, str, list[str], list[str]]] | None = None, tree: ast.Module | None = None, ghost_vars: set[str] | None = None, record_fields: dict[str, list[str]] | None = None) -> str:
     """Translate a Python function to its IMP body commands.
 
     Contracts:
@@ -43,6 +43,10 @@ def python_to_imp(func_node: ast.FunctionDef, invariants: dict[int, str] | None 
         translator._contract_map = contract_map
     if tree is not None:
         translator._seed_types(func_node, tree)
+    if ghost_vars is not None:
+        translator._ghost_vars = ghost_vars
+    if record_fields is not None:
+        translator._record_fields = record_fields
     body = translator.translate_body(func_node.body)
     return body if body else "CSkip"
 
@@ -54,6 +58,8 @@ class ImpTranslator:
         self._invariants: dict[int, str] = {}  # line → invariant string
         self._contract_map: dict[str, tuple[list[str], str, str, list[str], list[str]]] = {}  # name → (params, pre, post, reads, writes)
         self._vc = 0  # var counter for _fresh_var
+        self._ghost_vars: set[str] = set()  # variables excluded from IMP body
+        self._record_fields: dict[str, list[str]] = {}  # class_name → field names
         self._local_types: dict[str, str] = {}  # var_name → class name (flow-aware type inference)
         self._class_field_types: dict[str, dict[str, str]] = {}  # ClassName → {field_name: type_name}
         self._pending_cmds: list[str] = []  # commands to prepend before next statement
@@ -77,6 +83,7 @@ class ImpTranslator:
 
     def _seed_types(self, func_node: ast.FunctionDef, tree: ast.Module | None = None) -> None:
         """Seed type inference from parameter annotations and class definitions."""
+        self._func_node = func_node
         if tree is None:
             return
         # Scan class definitions for field types
@@ -233,6 +240,9 @@ class ImpTranslator:
         elif isinstance(stmt, ast.Return):
             return self._translate_return(stmt)
         elif isinstance(stmt, ast.If):
+            # 'if __debug__:' blocks are ghost — strip them from IMP
+            if isinstance(stmt.test, ast.Name) and stmt.test.id == "__debug__":
+                return "CSkip"
             return self._translate_if(stmt)
         elif isinstance(stmt, ast.While):
             return self._translate_while(stmt)
@@ -369,10 +379,12 @@ class ImpTranslator:
 
         if isinstance(node, ast.Attribute):
             if isinstance(node.value, ast.Subscript):
-                # items[i].field → AIndex "items.field" i
                 base = self._translate_target(node.value.value)
                 idx = self.translate_expr(node.value.slice)
                 return f'(AIndex "{base}.{node.attr}"%string {idx})'
+            expanded = self._try_record_field(node)
+            if expanded:
+                return f'(AVar "{expanded}"%string)'
             path = self._attribute_path(node)
             return f'(AVar "{path}"%string)'
 
@@ -441,6 +453,9 @@ class ImpTranslator:
     # ─── Private helpers ──────────────────────────────────────────
 
     def _translate_assign(self, stmt: ast.Assign) -> str:
+        # Skip ghost variable assignments — they exist only for verification
+        if all(isinstance(t, ast.Name) and t.id in self._ghost_vars for t in stmt.targets):
+            return "CSkip"
         targets = []
         for t in stmt.targets:
             if isinstance(t, ast.Subscript):
@@ -541,6 +556,8 @@ class ImpTranslator:
 
     def _translate_assign_to(self, target: str, expr: ast.expr) -> str:
         """Translate an expression assigned to a target variable."""
+        if target in self._ghost_vars:
+            return "CSkip"
         # Empty dict/list/set → no state change needed
         if isinstance(expr, ast.Dict) and not expr.keys:
             return "CSkip"
@@ -569,6 +586,26 @@ class ImpTranslator:
             return None
         left = node.left.id
         right = node.right.id
+        # Only concat if operands are explicitly list or string.
+        # In Python, + is ambiguous — we need annotations to disambiguate.
+        # Contracts (e.g. assert x >= 0) imply numeric, not list.
+        def _is_concat_annot(annot) -> bool:
+            """Check annotation AST for list or str type, without unparsing."""
+            if annot is None:
+                return False
+            if isinstance(annot, ast.Name):
+                return annot.id in ("str", "list")
+            if isinstance(annot, ast.Subscript):
+                if isinstance(annot.value, ast.Name):
+                    return annot.value.id == "list"
+            return False
+        l_annot = r_annot = None
+        if hasattr(self, '_func_node'):
+            for arg in self._func_node.args.args:
+                if arg.arg == left: l_annot = arg.annotation
+                if arg.arg == right: r_annot = arg.annotation
+        if not _is_concat_annot(l_annot) and not _is_concat_annot(r_annot):
+            return None
         li = self._fresh_var("i")
         rj = self._fresh_var("j")
         new_list = f'(CListNew "{target}"%string)'
@@ -651,7 +688,12 @@ class ImpTranslator:
         import re
         result = coq_expr
         for p in params:
-            # Replace `p` as a standalone word with `asZ (s "p"%string)`
+            # Replace p__len with asZ (s "p._len"%string)
+            result = re.sub(
+                rf'(?<![a-zA-Z0-9_"%]){re.escape(p)}__len(?![a-zA-Z0-9_"%])',
+                f'asZ (s "{p}._len"%string)', result
+            )
+            # Replace p as a standalone word with asZ (s "p"%string)
             result = re.sub(
                 rf'(?<![a-zA-Z0-9_"%]){re.escape(p)}(?![a-zA-Z0-9_"%])',
                 f'asZ (s "{p}"%string)', result
@@ -809,7 +851,10 @@ class ImpTranslator:
     def _translate_while(self, stmt: ast.While) -> str:
         test = self._truthify(stmt.test)
         body = self.translate_body(stmt.body)
-        inv = "(fun _ => True)"
+        inv = self._invariants.get(stmt.lineno, "(fun _ => True)")
+        # Quantifier invariants (forall/exists) are VCG-only — too hard for WP body proofs
+        if "forall" in inv:
+            inv = "(fun _ => True)"
         loop = f"(CWhile {test} {inv} {body})"
         # If body had break statements, wrap with break init and guard condition
         if any(isinstance(s, ast.Break) for s in stmt.body):
@@ -842,6 +887,16 @@ class ImpTranslator:
             return self._translate_boolop(node)
         if isinstance(node, ast.Call):
             name = self._get_call_name(node)
+            if name == "isinstance" and len(node.args) == 2:
+                obj = node.args[0]
+                type_node = node.args[1]
+                if isinstance(obj, ast.Name) and isinstance(type_node, ast.Name):
+                    if type_node.id == "int":
+                        return f'(BIsVZ "{obj.id}"%string)'
+                    if type_node.id == "str":
+                        return f'(BIsVString "{obj.id}"%string)'
+                    if type_node.id == "float":
+                        return f'(BIsVFloat "{obj.id}"%string)'
             if name == "len" and node.args and isinstance(node.args[0], ast.Name):
                 return f"(BLe (ANum 1) (ALen \"{node.args[0].id}\"%string))"
         # Fallback: expr != 0
@@ -1033,10 +1088,30 @@ class ImpTranslator:
         if isinstance(node, ast.Name):
             return node.id
         if isinstance(node, ast.Attribute):
+            expanded = self._try_record_field(node)
+            if expanded:
+                return expanded
             return self._attribute_path(node)
         if isinstance(node, ast.Tuple):
             return "unknown"
         return "unknown"
+
+    def _try_record_field(self, node: ast.Attribute) -> str | None:
+        """If base is a Record-typed param, return expanded name (e.g. c_value).
+        Returns None if not a Record field access."""
+        if isinstance(node.value, ast.Name):
+            base_name = node.value.id
+            for cls_name, fields in self._record_fields.items():
+                for arg in (self._func_node.args.args if hasattr(self, '_func_node') else []):
+                    if arg.arg == base_name and arg.annotation and isinstance(arg.annotation, ast.Name):
+                        if arg.annotation.id == cls_name:
+                            if node.attr not in fields:
+                                declared = ", ".join(sorted(fields))
+                                raise ValueError(
+                                    f"Field '{node.attr}' not declared on {cls_name}. "
+                                    f"Declared fields: {declared}")
+                            return f"{base_name}_{node.attr}"
+        return None
 
     def _attribute_path(self, node: ast.Attribute) -> str:
         """obj.field.subfield → 'obj.field.subfield'"""
@@ -1224,7 +1299,7 @@ class InvariantFinder(ast.NodeVisitor):
         for stmt in body:
             if isinstance(stmt, ast.Assert):
                 from oracle.contract_linter import ContractLinter
-                lint = ContractLinter()
+                lint = ContractLinter(context="postcondition")
                 result = lint.lint_expression(stmt.test)
                 if result.is_valid:
                     inv_parts.append(result.coq_translation)

@@ -9,6 +9,7 @@ dependencies = [
     "lsprotocol",
     "cattrs",
     "pydantic>=2.0",
+    "z3-solver>=4.16.0.0",
 ]
 
 [project.scripts]

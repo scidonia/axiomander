@@ -88,6 +88,16 @@ Definition asFloat (v : value) : Z :=
   | _ => 0%Z
   end.
 
+(** Boolean type guards — simpl-reducible, no existential quantifier needed. *)
+Definition isVZ (v : value) : bool :=
+  match v with VZ _ => true | _ => false end.
+
+Definition isVString (v : value) : bool :=
+  match v with VString _ => true | _ => false end.
+
+Definition isVFloat (v : value) : bool :=
+  match v with VFloat _ => true | _ => false end.
+
 (** Inject bool as Z for ABool compatibility. *)
 Definition boolToZ (b : bool) : Z := if b then 1%Z else 0%Z.
 
@@ -170,7 +180,10 @@ with bexp : Type :=
   | BNot (b : bexp)
   | BAnd (b1 b2 : bexp)
   | BOr (b1 b2 : bexp)
-  | BIsNone (x : var).
+  | BIsNone (x : var)
+  | BIsVZ (x : var)
+  | BIsVString (x : var)
+  | BIsVFloat (x : var).
 
 (** Extract list from a value, defaulting to empty. *)
 Definition asList (v : value) : list value :=
@@ -286,6 +299,9 @@ with beval (b : bexp) (s : state) : bool :=
       | _, _ => Z.leb (asZ (aeval a1 s)) (asZ (aeval a2 s))
       end
   | BIsNone x => match s x with VNone => true | _ => false end
+  | BIsVZ x => isVZ (s x)
+  | BIsVString x => isVString (s x)
+  | BIsVFloat x => isVFloat (s x)
   | BNot b' => negb (beval b' s)
   | BAnd b1 b2 => (beval b1 s) && (beval b2 s)
   | BOr b1 b2 => (beval b1 s) || (beval b2 s)

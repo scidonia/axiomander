@@ -37,6 +37,7 @@ PURE_BUILTINS = frozenset({
     "abs", "round", "int", "float", "bool", "str",
     "len", "min", "max", "sum", "sorted", "all", "any",
     "isinstance", "ord", "chr", "range", "pow", "sqrt",
+    "get",  # dict.get / list.get — pure accessor
 })
 
 PURE_MODULE_FUNCTIONS = frozenset({
@@ -79,19 +80,20 @@ class ContractLinter(ast.NodeVisitor):
     """
 
     def __init__(self, params: list[str] | None = None, context: str = "postcondition",
-                 predicates: dict | None = None):
+                 predicates: dict | None = None, unbound: frozenset[str] = frozenset()):
         self.violations: list[LintViolation] = []
         self.params = params or []
         self.context = context
         self.predicates: dict = predicates or {}
         self.var_types: dict[str, str] = {}  # var_name → "dict" | "list" | "int" | "unknown"
+        self.unbound: frozenset[str] = unbound  # ghost/forall vars excluded from state scoping
 
     def lint_expression(self, node: ast.expr) -> LintResult:
         """Convert a Python expression to IR. Returns LintResult with coq/smt."""
         assert isinstance(node, ast.expr)
         self.violations = []
         ir = self.visit(node)
-        coq = ir.to_coq(scoped=(self.context != "precondition")) if ir else ""
+        coq = ir.to_coq(scoped=(self.context != "precondition"), unbound=self.unbound) if ir else ""
         smt = ir.to_smt() if ir else ""
         return LintResult(
             expr_node=node,
@@ -183,6 +185,8 @@ class ContractLinter(ast.NodeVisitor):
             self._violation(node, ExprKind.IMPURE_CALL,
                           f"Function call cannot be resolved")
             return None
+        # For method calls (d.name), also check just the method name
+        method_name = name.split(".")[-1] if "." in name else name
         if name == "implies":
             if len(node.args) == 2:
                 left = self.visit(node.args[0])
@@ -190,7 +194,8 @@ class ContractLinter(ast.NodeVisitor):
                 if left and right:
                     return ImpliesExpr(left=left, right=right)
             return None
-        if name not in PURE_BUILTINS and name not in PURE_MODULE_FUNCTIONS:
+        if name not in PURE_BUILTINS and name not in PURE_MODULE_FUNCTIONS \
+           and method_name not in PURE_BUILTINS:
             if name in self.predicates:
                 return self._expand_predicate(node, name)
             self._violation(node, ExprKind.IMPURE_CALL,

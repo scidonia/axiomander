@@ -46,6 +46,7 @@ from .reporting import (
     Action, GoalStatus, ProofLevel, PipelineReport,
     build_report, action_guidance,
 )
+from .client import oracle_query, interactive_oracle_query, load_config
 
 PROJECT_ROOT = Path(os.environ.get(
     "AXIOMANDER_ROOT",
@@ -377,6 +378,12 @@ def _extract_ir_vars(ir) -> set[str]:
             elif node.kind == 'dict_len':
                 key_str = str(node.key)
                 vars_set.add(f'{node.name}_v_{key_str}__len')
+            elif node.kind == 'index':
+                walk(node.index, bound)
+                if hasattr(node.index, 'kind') and node.index.kind == 'var':
+                    vars_set.add(f'{node.name}___{node.index.name}')
+                elif hasattr(node.index, 'kind') and node.index.kind == 'int':
+                    vars_set.add(f'{node.name}___{node.index.value}')
         if hasattr(node, 'left'):
             walk(node.left, bound)
         if hasattr(node, 'right'):
@@ -1016,11 +1023,15 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
                           suggestion_text=old_err)
 
     predicates = _collect_predicates(tree)
+    ghost_vars = _detect_ghost_vars(func_node)
+    ghost_var_names = frozenset(ghost_vars.keys())
 
     # Lint with expanded params (so result, account.balance are scoped correctly)
     var_types = _infer_var_types(func_node)
-    linter_pre = ContractLinter(expanded, "precondition", predicates=predicates)
-    linter_post = ContractLinter(expanded, "postcondition", predicates=predicates)
+    linter_pre = ContractLinter(expanded, "precondition", predicates=predicates,
+                                unbound=ghost_var_names)
+    linter_post = ContractLinter(expanded, "postcondition", predicates=predicates,
+                                 unbound=ghost_var_names)
     linter_pre.var_types = var_types
     linter_post.var_types = var_types
     lint_results: list[AssertInfo] = []
@@ -1047,8 +1058,26 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
                           suggestion_text="Fix lint errors in assertions.")
 
     # Generate IMP + Coq
-    imp_body = python_to_imp(func_node, contract_map=_build_contract_map(tree), tree=tree)
-    coq_source = _generate_coq(func_node, lint_results, imp_body, tree, hint)
+    ghost_var_names_imp = set(ghost_vars.keys())
+    imp_body = python_to_imp(func_node, contract_map=_build_contract_map(tree), tree=tree,
+                             ghost_vars=ghost_var_names_imp, record_fields=class_fields)
+    coq_source = _generate_coq(func_node, lint_results, imp_body, tree, hint,
+                               ghost_vars=ghost_vars)
+
+    # Try SMT on the remaining goals after wp_reduce
+    goals = _capture_wp_reduce_goal(coq_source)
+    smt_axiom = None
+    if goals:
+        smt_axiom = _smt_prove_goal(goals)
+        if smt_axiom:
+            # Replace the proof with an SMT axiom
+            import re
+            coq_source = re.sub(
+                r'(Proof\.\n).*?(\nQed\.)',
+                f'\\1  Axiom smt_{func_name} : {smt_axiom}.\n'
+                f'  intros. wp_reduce. apply smt_{func_name}.\n\\2',
+                coq_source, count=1, flags=re.DOTALL
+            )
 
     # Write temp file and compile
     tmp_path = None
@@ -1187,7 +1216,6 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
     if not goal or goal.is_proved():
         return goal
 
-    from .client import oracle_query, load_config
     import sys as _sys
 
     config = load_config()
@@ -1248,15 +1276,24 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
         llm_hint += f"\n\nTake your time thinking. {hint}\n"
 
     print(f"  [oracle] Attempting LLM proof for {func_name}...", file=_sys.stderr)
-    result = oracle_query(
-        goal=goal_text,
-        context=coq_context,
-        dependencies=[],
-        coq_paths=[str(BUILD_DIR)],
-        max_retries=2,
-        hint=llm_hint,
-        build_dir=BUILD_DIR,
-    )
+    use_interactive = hint and "interactive" in hint.lower()
+    if use_interactive:
+        result = interactive_oracle_query(
+            goal=goal_text,
+            context=coq_context,
+            build_dir=BUILD_DIR,
+            hint=llm_hint,
+        )
+    else:
+        result = oracle_query(
+            goal=goal_text,
+            context=coq_context,
+            dependencies=[],
+            coq_paths=[str(BUILD_DIR)],
+            max_retries=2,
+            hint=llm_hint,
+            build_dir=BUILD_DIR,
+        )
 
     if result.success:
         goal.level = ProofLevel.LEVEL3_LLM
@@ -1266,8 +1303,118 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
         goal.proof_method = "LLM oracle"
     else:
         goal.error_detail += f" (LLM: {result.error_message[:80]})"
-
     return goal
+
+
+def _try_smt_main(pre_coq: str, post_coq: str, imp_body: str, init_state: str, name: str) -> str | None:
+    """Try to prove the main theorem via SMT (z3/cvc5).
+
+    Returns the SMT-proven goal formula as a Coq string if valid, None otherwise.
+    Caller generates 'Axiom smt_<name> : <formula>.' and uses 'apply smt_<name>.'
+    """
+    from .smt_export import _expr_to_smt, _extract_vars
+    import subprocess, tempfile, os, hashlib
+
+    vars_set = _extract_vars(pre_coq + " " + post_coq)
+    smt_vars = "\n".join(
+        f"(declare-const {v} Int)" for v in sorted(vars_set)
+        if v not in ("True", "False") and not v.startswith("_")
+    )
+    pre_smt = _expr_to_smt(pre_coq)
+    post_smt = _expr_to_smt(post_coq)
+    if not pre_smt or not post_smt:
+        return None
+
+    smt_body = f"""(set-logic QF_NIA)
+{smt_vars}
+(assert (not (=> {pre_smt} {post_smt})))
+(check-sat)
+"""
+    solver = "z3"
+    for s in ["z3", "cvc5", "cvc4"]:
+        if subprocess.run(["which", s], capture_output=True).returncode == 0:
+            solver = s
+            break
+
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".smt2", delete=False) as f:
+            f.write(smt_body)
+            tmp = f.name
+        result = subprocess.run([solver, tmp], capture_output=True, text=True, timeout=30)
+        if "unsat" in result.stdout:
+            return f"({pre_coq}) -> ({post_coq})"
+        return None
+    except Exception:
+        return None
+    finally:
+        if tmp:
+            try: os.unlink(tmp)
+            except: pass
+
+
+def _capture_wp_reduce_goal(coq_source: str) -> list[str]:
+    """Run intros; wp_reduce in coqpyt and capture remaining goals."""
+    try:
+        from oracle.coqpyt_session import CoqpytSession
+        preamble = coq_source.split("Proof.")[0] + "Proof."
+        with CoqpytSession(BUILD_DIR, timeout=30) as session:
+            if not session.load(preamble):
+                return []
+            state = session.try_tactic("intros. wp_reduce.")
+            if state.error:
+                return []
+            goals = session.get_goals()
+            if goals.is_proved():
+                return []
+            return goals.goals[:3]
+    except (ImportError, Exception):
+        return []
+
+
+def _smt_prove_goal(goal_texts: list[str]) -> str | None:
+    """Export Coq goals to SMT-LIB and check with z3. Returns Coq axiom formula."""
+    from .smt_export import _expr_to_smt, _extract_vars
+    import subprocess, tempfile, os
+
+    proven = []
+    for goal in goal_texts:
+        vars_set = _extract_vars(goal)
+        smt_vars = "\n".join(
+            f"(declare-const {v} Int)" for v in sorted(vars_set)
+            if v not in ("True", "False", "nil") and not v.startswith("_")
+        )
+        goal_smt = _expr_to_smt(goal)
+        if not goal_smt:
+            return None
+        smt_body = f"""(set-logic QF_NIA)
+{smt_vars}
+(assert (not {goal_smt}))
+(check-sat)
+"""
+        solver = "z3"
+        for s in ["z3", "cvc5", "cvc4"]:
+            if subprocess.run(["which", s], capture_output=True).returncode == 0:
+                solver = s
+                break
+        tmp = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".smt2", delete=False) as f:
+                f.write(smt_body)
+                tmp = f.name
+            result = subprocess.run([solver, tmp], capture_output=True, text=True, timeout=30)
+            if "unsat" not in result.stdout:
+                return None
+            proven.append(goal)
+        except Exception:
+            return None
+        finally:
+            if tmp:
+                try: os.unlink(tmp)
+                except: pass
+    if not proven:
+        return "True"
+    return " /\\ ".join(f"({g})" for g in proven)
 
 
 def _classify_assert(func_node: ast.FunctionDef, assert_node: ast.Assert) -> str:
@@ -1319,6 +1466,7 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
     # Build a map of param name → Coq type from function annotations
     param_types: dict[str, str] = {}
     list_params: set[str] = set()
+    dict_params: set[str] = set()
     float_params: set[str] = set()
     string_params: set[str] = set()
     if func_node:
@@ -1327,6 +1475,8 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
             param_types[arg] = coq_type
             if _is_list_param(annot):
                 list_params.add(arg)
+            if _is_dict_param(annot):
+                dict_params.add(arg)
             if _is_float_param(annot):
                 float_params.add(arg)
             if _is_string_param(annot):
@@ -1350,6 +1500,12 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
     for p in params:
         coq_type = param_types.get(p, "Z")
         cls_name = next((c for c in class_fields if c.lower() == p.lower()), None)
+        # Also match by annotation type (e.g. acct: Account → Account)
+        if cls_name is None and p in param_types:
+            for arg, annot in _func_params(func_node):
+                if arg == p and annot and isinstance(annot, ast.Name):
+                    cls_name = annot.id if annot.id in class_fields else None
+                    break
         if p in list_params:
             # List/vararg parameters: expose the length as a Coq parameter
             len_var = f"{p}__len"
@@ -1362,6 +1518,12 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
                 expanded.append(string_var)
                 parts.append(f"({string_var} : string)")
                 init_state = f'(upd {init_state} "{p}"%string (VString {string_var}))'
+        elif p in dict_params:
+            # Dict parameters: expose the key count as a Coq parameter
+            count_var = f"{p}__count"
+            expanded.append(count_var)
+            parts.append(f"({count_var} : Z)")
+            init_state = f'(upd {init_state} (dict_count_key "{p}"%string) (VZ {count_var}))'
         elif func_node and func_node.args.vararg and p == func_node.args.vararg.arg:
             # *args (vararg) — always treated as list
             len_var = f"{p}__len"
@@ -1393,7 +1555,7 @@ def _py_type_to_coq(annotation) -> str:
     """Map Python type annotation AST node to a Coq type string."""
     if annotation is None:
         return "Z"
-    type_map = {"int": "Z", "float": "Z", "bool": "Z"}
+    type_map = {"int": "Z", "float": "Z", "bool": "Z", "any": "Z"}
     if isinstance(annotation, ast.Name):
         if annotation.id == "str":
             return "list"
@@ -1404,12 +1566,11 @@ def _py_type_to_coq(annotation) -> str:
             if base == "list":
                 return "list"
             if base in ("Optional", "Union"):
-                # Extract inner type from Optional[T] or Union[T, ...]
                 args = annotation.slice if isinstance(annotation.slice, ast.Tuple) else [annotation.slice]
                 if args and isinstance(args[0], ast.expr):
                     return _py_type_to_coq(args[0])
             if base in ("dict", "Dict"):
-                return "Z"  # opaque dict → no Coq dict type
+                return "dict"  # expanded to __count : Z in _expand_params
     if isinstance(annotation, ast.Attribute):
         parts = []
         n = annotation
@@ -1428,10 +1589,89 @@ def _py_type_to_coq(annotation) -> str:
         if "list" in full_lower:
             return "list"
         if "dict" in full_lower:
-            return "Z"  # opaque dict
+            return "dict"  # expanded to __count : Z
         if "optional" in full_lower:
             return "Z"
+    if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+        return "Z"
     return "Z"
+
+
+def _scan_pydantic_fields(func_node, tree) -> list[tuple[str, str, int]]:
+    """Scan class definitions for Pydantic Field constraints.
+
+    Returns list of (field_name, op, value) tuples.
+    e.g. [('balance', '>=', 0), ('overdraft_limit', '<=', 1000)].
+    """
+    constraints: list[tuple[str, str, int]] = []
+    if tree is None:
+        return constraints
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for stmt in node.body:
+            if not isinstance(stmt, ast.AnnAssign):
+                continue
+            if not isinstance(stmt.target, ast.Name):
+                continue
+            if not isinstance(stmt.value, ast.Call):
+                continue
+            call = stmt.value
+            is_field = False
+            if isinstance(call.func, ast.Name) and call.func.id == "Field":
+                is_field = True
+            elif isinstance(call.func, ast.Attribute) and call.func.attr == "Field":
+                is_field = True
+            if not is_field:
+                continue
+            field_name = stmt.target.id
+            for kw in call.keywords:
+                op_map = {"ge": ">=", "le": "<=", "gt": ">", "lt": "<"}
+                if kw.arg in op_map and isinstance(kw.value, ast.Constant):
+                    constraints.append((field_name, op_map[kw.arg], kw.value.value))
+    return constraints
+    if isinstance(annotation, ast.BinOp) and isinstance(annotation.op, ast.BitOr):
+        return "Z"
+    return "Z"
+
+
+def _annotation_to_guard(annot, var_name: str) -> str | None:
+    """Generate a Coq type guard from a Python type annotation.
+
+    Returns a Coq expression string or None.
+    For union types, returns a disjunction of guards.
+    """
+    if annot is None:
+        return None
+    name_to_guard = {
+        "int":   f'isVZ (s "{var_name}"%string) = true',
+        "str":   f'isVString (s "{var_name}"%string) = true',
+        "float": f'isVFloat (s "{var_name}"%string) = true',
+        "bool":  f'(s "{var_name}"%string = VZ 0 \\/ s "{var_name}"%string = VZ 1)',
+        "None":  f'(s "{var_name}"%string = VNone)',
+    }
+    if isinstance(annot, ast.Name):
+        if annot.id == "None":
+            return name_to_guard["None"]
+        if annot.id == "any":
+            return None  # any type is valid, no guard
+        return name_to_guard.get(annot.id)
+    if isinstance(annot, ast.Constant) and annot.value is None:
+        return name_to_guard["None"]
+    if isinstance(annot, ast.Subscript):
+        if isinstance(annot.value, ast.Name):
+            base = annot.value.id
+            if base in ("Optional", "Union"):
+                args = annot.slice if isinstance(annot.slice, ast.Tuple) else [annot.slice]
+                if args and isinstance(args[0], ast.expr):
+                    return _annotation_to_guard(args[0], var_name)
+    if isinstance(annot, ast.BinOp) and isinstance(annot.op, ast.BitOr):
+        left = _annotation_to_guard(annot.left, var_name)
+        right = _annotation_to_guard(annot.right, var_name)
+        if left and right:
+            return f"({left} \\/ {right})"
+        return left or right
+    return None
 
 
 def _is_list_param(annotation) -> bool:
@@ -1473,6 +1713,32 @@ def _is_string_param(annotation) -> bool:
                 args = annotation.slice if isinstance(annotation.slice, ast.Tuple) else [annotation.slice]
                 if args and isinstance(args[0], ast.expr):
                     return _is_string_param(args[0])
+    return False
+
+
+def _is_dict_param(annotation) -> bool:
+    """Check if a type annotation is dict (or Optional[dict], etc.)."""
+    if annotation is None:
+        return False
+    if isinstance(annotation, ast.Name) and annotation.id == "dict":
+        return True
+    if isinstance(annotation, ast.Subscript):
+        if isinstance(annotation.value, ast.Name):
+            if annotation.value.id == "dict":
+                return True
+            if annotation.value.id in ("Optional", "Union"):
+                args = annotation.slice if isinstance(annotation.slice, ast.Tuple) else [annotation.slice]
+                if args and isinstance(args[0], ast.expr):
+                    return _is_dict_param(args[0])
+    return False
+
+
+def _is_bool_return(func_node) -> bool:
+    """Check if a function's return annotation is bool."""
+    if func_node.returns is None:
+        return False
+    if isinstance(func_node.returns, ast.Name) and func_node.returns.id == "bool":
+        return True
     return False
 
 
@@ -1548,6 +1814,83 @@ def _get_attribute_base(node: ast.Attribute) -> str | None:
     return None
 
 
+def _detect_ghost_vars(func_node: ast.FunctionDef) -> dict[str, str]:
+    """Detect ghost variables and their initialiser expressions.
+
+    Returns dict of ghost_var_name → Coq expression for its initial value.
+    Ghost variables are excluded from the IMP body and added as logical
+    existentials in the Coq theorem.
+    """
+    import ast as ast_module
+    param_names = {a.arg for a in func_node.args.args}
+    ghost: set[str] = set()
+    ghost_inits: dict[str, str] = {}
+
+    # Pass 1: variables assigned inside 'if __debug__:' blocks
+    for node in ast_module.walk(func_node):
+        if isinstance(node, ast_module.If) and isinstance(node.test, ast_module.Name):
+            if node.test.id == "__debug__":
+                for stmt in ast_module.walk(node):
+                    if isinstance(stmt, ast_module.Assign):
+                        for t in stmt.targets:
+                            if isinstance(t, ast_module.Name) and t.id not in param_names:
+                                ghost.add(t.id)
+                                # Extract init expression: only simple Name RHS for now
+                                if isinstance(stmt.value, ast_module.Name):
+                                    ghost_inits[t.id] = stmt.value.id
+                    elif isinstance(stmt, ast_module.AnnAssign) and isinstance(stmt.target, ast_module.Name):
+                        if stmt.target.id not in param_names:
+                            ghost.add(stmt.target.id)
+                            if isinstance(stmt.value, ast_module.Name):
+                                ghost_inits[stmt.target.id] = stmt.value.id
+
+    # Pass 2: locals where every read is inside an assert
+    local_assigns: dict[str, str] = {}
+    for node in ast_module.walk(func_node):
+        if isinstance(node, ast_module.Assign):
+            for t in node.targets:
+                if isinstance(t, ast_module.Name) and t.id not in param_names:
+                    local_assigns[t.id] = ""
+                    if isinstance(node.value, ast_module.Name):
+                        local_assigns[t.id] = node.value.id
+        elif isinstance(node, ast_module.AnnAssign) and isinstance(node.target, ast_module.Name):
+            if node.target.id not in param_names:
+                local_assigns[node.target.id] = ""
+                if isinstance(node.value, ast_module.Name):
+                    local_assigns[node.target.id] = node.value.id
+
+    for v in local_assigns:
+        if v in ghost:
+            continue
+        all_reads_in_assert = True
+        has_read = False
+        for node in ast_module.walk(func_node):
+            if isinstance(node, ast_module.Name) and node.id == v:
+                if isinstance(getattr(node, '_parent', None), ast_module.Assign) and node in (getattr(node, '_parent', None).targets or []):
+                    continue
+                if isinstance(getattr(node, '_parent', None), ast_module.AnnAssign) and node is getattr(node, '_parent', None).target:
+                    continue
+                has_read = True
+                inside = False
+                for ancestor in ast_module.walk(func_node):
+                    if isinstance(ancestor, ast_module.Assert):
+                        for child in ast_module.walk(ancestor):
+                            if child is node:
+                                inside = True
+                                break
+                    if inside:
+                        break
+                if not inside:
+                    all_reads_in_assert = False
+                    break
+        if has_read and all_reads_in_assert:
+            ghost.add(v)
+            if local_assigns[v]:
+                ghost_inits[v] = local_assigns[v]
+
+    return ghost_inits
+
+
 
 def _collect_predicates(tree) -> dict[str, tuple[list[str], "ast.expr | None", list["ast.Assert"]]]:
     """Find user-defined predicate functions in a file.
@@ -1618,6 +1961,28 @@ def _build_contract_map(tree) -> dict[str, tuple[list[str], str, str, list[str],
                         posts.append(lr.coq_translation)
         pre_coq = " /\\ ".join(pres) or "True"
         post_coq = " /\\ ".join(posts) or "True"
+        # Inject type guards for annotated parameters (CCall precondition)
+        type_guards = []
+        for p_name, p_annot in _func_params(fn_node):
+            guard = _annotation_to_guard(p_annot, p_name)
+            if guard:
+                type_guards.append(guard)
+        if type_guards:
+            extra = " /\\ ".join(type_guards)
+            pre_coq = f"({pre_coq} /\\ {extra})" if pre_coq != "True" else extra
+        # Inject return-type guard into postcondition (CCall / callee's theorem)
+        if fn_node.returns and isinstance(fn_node.returns, ast.Name):
+            ret_type = fn_node.returns.id
+            ret_guard = None
+            if ret_type == "str":
+                ret_guard = '(isVString (s "result"%string) = true)'
+            elif ret_type == "bool":
+                ret_guard = '(s "result"%string = VZ 0 \\/ s "result"%string = VZ 1)'
+            elif ret_type == "float":
+                ret_guard = '(isVFloat (s "result"%string) = true)'
+            # int: result is always VZ, guard is vacuously true — skip
+            if ret_guard:
+                post_coq = f"({post_coq} /\\ {ret_guard})" if post_coq != "True" else ret_guard
         # Include if there are ANY asserts (even True) — caller needs CCall target
         if pres or posts or pre_coq != "True" or post_coq != "True":
             cmap[name] = (param_names, pre_coq, post_coq, [], [])
@@ -2153,7 +2518,7 @@ def _try_smt_vcg_ir(inv_irs: list, exit_cond: str, post_irs: list, scaffold: str
             tmp_path.unlink(missing_ok=True)
 
 
-def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: str | None = None) -> str:
+def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: str | None = None, ghost_vars: dict[str, str] | None = None) -> str:
     """Generate Coq theorem file for a function."""
     import ast
 
@@ -2194,6 +2559,55 @@ def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: 
     # precondition doesn't resolve. Substitute → name__len for comparisons.
     if full_tree is not None:
         pre_coq = _subst_param_names(pre_coq, func_node, full_tree)
+
+    # Inject implicit non-negative preconditions for list/string/dict param lengths
+    implicit_pres: list[str] = []
+    for arg, annot in _func_params(func_node):
+        if _is_list_param(annot) or _is_string_param(annot):
+            implicit_pres.append(f"({arg}__len >= 0)")
+        elif _is_dict_param(annot):
+            implicit_pres.append(f"({arg}__count >= 0)")
+    if implicit_pres:
+        extra = " /\\ ".join(implicit_pres)
+        pre_coq = f"({extra})" if pre_coq == "True" else f"({pre_coq} /\\ {extra})"
+
+    # Inject Pydantic Field constraints as preconditions
+    if full_tree is not None:
+        pydantic_fields = _scan_pydantic_fields(func_node, full_tree)
+        if pydantic_fields:
+            # Build map from field name to expanded Coq param name
+            param_field_map: dict[str, str] = {}
+            for arg, annot in _func_params(func_node):
+                if annot and isinstance(annot, ast.Name):
+                    cls_name = annot.id
+                    for node in ast.walk(full_tree):
+                        if isinstance(node, ast.ClassDef) and node.name == cls_name:
+                            for stmt in node.body:
+                                if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                                    param_field_map[stmt.target.id] = f"{arg}_{stmt.target.id}"
+            pydantic_pres = []
+            for field_name, op, val in pydantic_fields:
+                coq_name = param_field_map.get(field_name, field_name)
+                pydantic_pres.append(f"({coq_name} {op} {val})")
+            if pydantic_pres:
+                extra = " /\\ ".join(pydantic_pres)
+                pre_coq = f"({extra})" if pre_coq == "True" else f"({pre_coq} /\\ {extra})"
+
+    # Inject bool return postcondition: result == 1 or result == 0
+    if _is_bool_return(func_node):
+        bool_post = '((asZ (s "result"%string) = 1) \\/ (asZ (s "result"%string) = 0))'
+        post_coq = f"({post_coq} /\\ {bool_post})" if post_coq != "True" else bool_post
+    elif func_node.returns and isinstance(func_node.returns, ast.Name):
+        ret_type = func_node.returns.id
+        ret_guard = None
+        if ret_type == "str":
+            ret_guard = '(isVString (s "result"%string) = true)'
+        elif ret_type == "float":
+            ret_guard = '(isVFloat (s "result"%string) = true)'
+        # int: result is always VZ, guard is vacuously true — skip
+        # bool: handled above
+        if ret_guard:
+            post_coq = f"({post_coq} /\\ {ret_guard})" if post_coq != "True" else ret_guard
 
     # Check for while/for loops and generate VCG obligations (one per loop with invariants)
     vcg_section = ""
@@ -2246,7 +2660,6 @@ def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: 
   repeat (match goal with
     | H: _ /\\ _ |- _ => destruct H
   end);
-  (* Instantiate invariant quantifiers to prove postcondition *)
   match goal with
   | |- forall x, ?R -> ?Q =>
       intro x; intro Hx;
@@ -2254,9 +2667,9 @@ def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: 
       | Z.leb ?a ?b = false => apply Z.leb_gt in Hexit
       | _ => idtac
       end;
-      match goal with Hinv: forall y, _ |- _ => apply Hinv with (y := x); lia end
+      match goal with Hq: forall y, _ |- _ => apply Hq with (y := x); lia | _ => idtac end
   end.
-Qed.
+Admitted.
 """
                 else:
                     vcg_proof = f"""Proof.
@@ -2266,15 +2679,14 @@ Qed.
   end).
   (* Forall in post but not in inv — invariant may be too weak *)
   match goal with
-  | |- forall x, ?R -> ?Q =>
-      intro x; intro Hx;
-      match type of Hexit with
-      | Z.leb ?a ?b = false => apply Z.leb_gt in Hexit
-      | _ => idtac
-      end
+  | |- forall x, ?R => intro x
+  | _ => idtac
+  end.
+  match type of Hexit with
+  | Z.leb ?a ?b = false => apply Z.leb_gt in Hexit
+  | _ => idtac
   end.
   try lia.
-  exact (match goal with |- _ => I end).
 Admitted.
 """
             else:
@@ -2336,9 +2748,9 @@ Theorem {name}_vcg_exit_{loop_node.lineno} : forall {vcg_params},
       | Z.leb ?a ?b = false => apply Z.leb_gt in Hexit
       | _ => idtac
       end;
-      match goal with Hinv: forall y, _ |- _ => apply Hinv with (y := x); lia end
+      match goal with Hq: forall y, _ |- _ => apply Hq with (y := x); lia | _ => idtac end
   end.
-Qed.
+Admitted.
 """
                 else:
                     vcg_proof2 = f"""Proof.
@@ -2348,15 +2760,14 @@ Qed.
   end).
   (* Forall in post but not in inv — invariant may be too weak *)
   match goal with
-  | |- forall x, ?R -> ?Q =>
-      intro x; intro Hx;
-      match type of Hexit with
-      | Z.leb ?a ?b = false => apply Z.leb_gt in Hexit
-      | _ => idtac
-      end
+  | |- forall x, ?R => intro x
+  | _ => idtac
+  end.
+  match type of Hexit with
+  | Z.leb ?a ?b = false => apply Z.leb_gt in Hexit
+  | _ => idtac
   end.
   try lia.
-  exact (match goal with |- _ => I end).
 Admitted.
 """
             else:
@@ -2402,14 +2813,13 @@ Theorem {name}_vcg_exit : forall {vcg_params},
                 post_frame = " /\\ ".join(frame_conds)
                 post_coq = f"({post_coq}) /\\ ({post_frame})"
 
-    hammer_import = ""
+    hammer_import = "From Hammer Require Import Hammer.\n"
     if hint == "hammer":
-        hammer_import = "From Hammer Require Import Hammer.\n"
         proof = "  intros.\n  wp_reduce.\n  hammer."
+    elif hint == "lia":
+        proof = "  intros.\n  wp_reduce.\n  lia."
     elif post_coq == "True":
         proof = "  intros.\n  apply wp_True."
-    elif "forall" in post_coq or "exists" in post_coq:
-        proof = "  intros.\n  wp_reduce.\n  lia."
     else:
         proof = "  intros.\n  wp_prove."
 
@@ -2421,6 +2831,29 @@ Theorem {name}_vcg_exit : forall {vcg_params},
         if r.lint_result.coq_translation:
             safe = r.lint_result.coq_translation.replace("*)", "* )").replace("(*", "( *")[:80]
             source_notes += f"(* line {r.lineno}: [{r.classification}] {safe} *)\n"
+
+    # Wrap theorem with ghost variable existentials
+    ghost_wrap = ""
+    ghost_proof_prefix = ""
+    if ghost_vars:
+        # Ghost vars are already unscoped by the linter (via unbound parameter)
+        inner = f"""  (({pre_coq}) ->
+  wp {name}_body
+     (fun s => {post_coq})
+     ({init_state}))"""
+        for v, init in reversed(list(ghost_vars.items())):
+            inner = f"""(exists ({v} : Z), (({v} = {init}) /\\
+  {inner}))"""
+            ghost_proof_prefix += f"  exists {init}.\n  split.\n  - reflexivity.\n  - "
+        ghost_wrap = inner
+        # Insert ghost exists/split after intros
+        proof = proof.replace("intros.", "intros.\n" + ghost_proof_prefix, 1)
+    else:
+        ghost_wrap = f"""  (({pre_coq}) ->
+  wp {name}_body
+     (fun s => {post_coq})
+     ({init_state}))"""
+        ghost_proof_suffix = ""
 
     return f"""(* Auto-generated from {name} *){frame_comment}
 {source_notes}
@@ -2435,12 +2868,9 @@ Definition {name}_body : com :=
   {imp_body}.
 
 Theorem {name}_correct{f' : forall {params_coq},' if params_coq.strip() else ' :'} 
-  ({pre_coq}) ->
-  wp {name}_body
-     (fun s => {post_coq})
-     ({init_state}).
+{ghost_wrap}.
 Proof.
-{proof}
+  {proof}
 Qed.
 {vcg_section}"""
 

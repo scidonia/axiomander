@@ -52,14 +52,14 @@ def run_verification(source: str, func_name: str) -> GoalStatus | None:
 
 EXAMPLES = [
     # ── Core examples ──────────────────────────────────────────────
-    ("add", "def add(a,b):\n assert True\n result = a+b\n assert result == a+b\n return result"),
-    ("max_of_two", "def max_of_two(a,b):\n assert a>=0; assert b>=0\n if a>=b: result=a\n else: result=b\n assert result>=a; assert result>=b\n return result"),
-    ("clamp", "def clamp(val,lo,hi):\n assert lo<=hi\n if val<lo: result=lo\n elif val>hi: result=hi\n else: result=val\n assert lo<=result<=hi\n return result"),
-    ("sum_to", "def sum_to(n):\n assert n>=0\n acc=0; i=0\n while i<n:\n  assert acc==i*(i+1)//2; assert i<=n\n  i=i+1; acc=acc+i\n assert acc==n*(n+1)//2; assert i==n\n return acc"),
-    ("count_to", "def count_to(n):\n assert n>=0\n i=0\n for _ in range(n): i=i+1\n assert i==n\n return i"),
-    ("fill_list", "def fill_list(n):\n assert n>=0\n xs=[]; i=0\n while i<n:\n  assert len(xs)==i; assert i<=n\n  xs.append(i); i=i+1\n result=len(xs)\n assert result==n\n return result"),
-    ("count_append", "def count_append(x):\n assert x>0\n items=[]; items.append(x)\n result=len(items)\n assert result==1\n return result"),
-    ("range_build", "def range_build(n):\n assert n>=0\n xs=[]\n for i in range(n):\n  xs.append(i)\n assert len(xs)==n\n return xs"),
+    ("add", "def add(a: int, b: int):\n assert True\n result = a+b\n assert result == a+b\n return result"),
+    ("max_of_two", "def max_of_two(a: int, b: int):\n assert a>=0; assert b>=0\n if a>=b: result=a\n else: result=b\n assert result>=a; assert result>=b\n return result"),
+    ("clamp", "def clamp(val: int, lo: int, hi: int):\n assert lo<=hi\n if val<lo: result=lo\n elif val>hi: result=hi\n else: result=val\n assert lo<=result<=hi\n return result"),
+    ("sum_to", "def sum_to(n: int):\n assert n>=0\n acc=0; i=0\n while i<n:\n  assert acc==i*(i+1)//2; assert i<=n\n  i=i+1; acc=acc+i\n assert acc==n*(n+1)//2; assert i==n\n return acc"),
+    ("count_to", "def count_to(n: int):\n assert n>=0\n i=0\n for _ in range(n): i=i+1\n assert i==n\n return i"),
+    ("fill_list", "def fill_list(n: int):\n assert n>=0\n xs=[]; i=0\n while i<n:\n  assert len(xs)==i; assert i<=n\n  xs.append(i); i=i+1\n result=len(xs)\n assert result==n\n return result"),
+    ("count_append", "def count_append(x: int):\n assert x>0\n items=[]; items.append(x)\n result=len(items)\n assert result==1\n return result"),
+    ("range_build", "def range_build(n: int):\n assert n>=0\n xs=[]\n for i in range(n):\n  xs.append(i)\n assert len(xs)==n\n return xs"),
 
     # ── Bookwyrm patterns ──────────────────────────────────────────
     ("filter_items", "class Item: value: int\ndef filter_items(items: list[Item], threshold: int):\n assert True\n count=0;i=0\n while i<len(items):\n  assert count<=i;assert i<=len(items)\n  if items[i].value>threshold:count+=1\n  i+=1\n result=count\n assert result<=len(items)\n return result"),
@@ -72,7 +72,7 @@ EXAMPLES = [
     # Dict comprehension (manual while loop)
     ("dict_comp", "def dict_comp(n: int):\n assert n>=0\n result={};i=0\n while i<n:\n  assert i<=n\n  result[i]=i*i;i+=1\n count=0;i=0\n while i<n:\n  assert count==i;assert i<=n\n  if i in result:count+=1\n  i+=1\n assert count==n\n return count"),
     # Pattern: for-range list copy with indexing
-    ("list_copy", '''def list_copy(src):
+    ("list_copy", '''def list_copy(src: list[int]):
     assert True
     dest = []
     for i in range(5):
@@ -82,7 +82,7 @@ EXAMPLES = [
     return result'''),
 
     # ── Augmented assignment ───────────────────────────────────────
-    ("inc_loop", '''def inc_loop(n):
+    ("inc_loop", '''def inc_loop(n: int):
     assert n >= 0
     i = 0
     while i < n:
@@ -175,6 +175,15 @@ def double(n: int):
     assert n >= 0
     result = n * 2
     assert geq_loop(result, n)
+    return result'''),
+
+    # ── Ghost state ─────────────────────────────────────────────────
+    ("ghost_snapshot", '''def ghost_snapshot(n: int):
+    assert n >= 0
+    if __debug__:
+        old_n = n
+    result = n + 1
+    assert result == old_n + 1
     return result'''),
 
     # ── Range quantifiers ──────────────────────────────────────────
@@ -621,9 +630,102 @@ def user_no_post(n: int):
     result = n
     assert no_post(result)
     return result'''),
+    # Negative: invariant not preserved by loop body (mod).
+    ("inv_body_violation", '''def inv_body_violation(n: int):
+    assert n >= 0
+    i = 0
+    while i < n:
+        assert i % 2 == 0
+        i += 1
+    assert i == n
+    return i'''),
+
+    # ── Type constraints (annotation-driven guards) ──────────────────
+    # Positive: bool return type injects result ∈ {0,1} postcondition
+    ("is_positive", '''def is_positive(n: int) -> bool:
+    assert n >= 0
+    result = (n > 0)
+    assert result == 1 or result == 0
+    return result'''),
+    # Positive: list param gets implicit len >= 0
+    ("list_size", '''def list_size(lst: list[int]) -> int:
+    assert True
+    result = len(lst)
+    assert result >= 0
+    return result'''),
+    # Positive: dict param gets implicit count >= 0
+    ("dict_size", '''def dict_size(d: dict[str, int]) -> int:
+    assert True
+    result = len(d)
+    assert result >= 0
+    return result'''),
+    # Positive: correct int→int call with type guard
+    ("caller_ok", '''def inc(amount: int) -> int:
+    assert amount >= 0
+    result = amount + 1
+    assert result >= 0
+    return result
+
+def caller_ok(n: int) -> int:
+    assert n >= 0
+    result = inc(n)
+    assert result >= 0
+    return result'''),
+    # Positive: bool return used in arithmetic (bool is VZ 0/1)
+    ("use_bool", '''def is_pos(n: int) -> bool:
+    assert n >= 0
+    result = (n > 0)
+    assert result == 1 or result == 0
+    return result
+
+def use_bool(n: int) -> int:
+    assert n >= 0
+    flag = is_pos(n)
+    result = flag * 5
+    assert result == 0 or result == 5
+    return result'''),
+    # Negative: string literal passed to int function
+    ("bad_pass_str", '''def inc(amount: int) -> int:
+    assert amount >= 0
+    result = amount + 1
+    assert result >= 0
+    return result
+
+def bad_pass_str(n: int) -> int:
+    assert n >= 0
+    x = "hello"
+    result = inc(x)
+    assert result >= 0
+    return result'''),
+    # Negative: string param passed to int function
+    ("bad_call_str", '''def inc(amount: int) -> int:
+    assert amount >= 0
+    result = amount + 1
+    assert result >= 0
+    return result
+
+def bad_call_str(x: str) -> int:
+    assert len(x) >= 0
+    result = inc(x)
+    assert result >= 0
+    return result'''),
+    # Negative: int passed to bool-param function
+    ("bad_int_to_bool", '''def toggle(flag: bool) -> bool:
+    result = (not flag)
+    return result
+
+def bad_int_to_bool(n: int) -> int:
+    assert n >= 0
+    result = toggle(n)
+    assert result == 1 or result == 0
+    return result'''),
 ]
 
-NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail", "all_positive", "use_wrong", "user_no_post"}
+NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail", "all_positive", "use_wrong", "user_no_post", "inv_body_violation",     "bad_pass_str", "bad_call_str", "bad_int_to_bool",
+    # Weak stub postconditions can't support callers that need
+    # return-value info (pop returns any int, CCall frame too deep)
+    "frame_stub_pop", "frame_stub_disjoint", "frame_triple_compose"
+}
 
 
 @pytest.mark.parametrize("name,source", EXAMPLES)

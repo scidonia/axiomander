@@ -200,6 +200,7 @@ def validate_with_coqpyt(
     """
     assert len(coq_preamble) > 0
     import sys as _sys
+    from .coqpyt_session import CoqpytSession
 
     proof_text = proof_script.strip()
     if proof_text.startswith("Proof."):
@@ -327,10 +328,179 @@ Open Scope Z_scope.
 
     return OracleResult(
         success=False,
-        proof_script=proof if "proof" in dir() else "",
+        proof_script="",
         error_message="All LLM attempts produced invalid proofs.",
         attempts=max_retries,
     )
+
+
+def interactive_oracle_query(
+    goal: str,
+    context: str,
+    build_dir: Path,
+    hint: str = "",
+    max_steps: int = 20,
+    max_retries_per_step: int = 2,
+) -> OracleResult:
+    """Step-by-step interactive proof via coqpyt.
+
+    The LLM sees the current goal state and hypotheses at each step,
+    proposes a single tactic, and sees the result before proposing the next.
+
+    Args:
+        goal: The Coq goal statement (theorem)
+        context: Additional Coq context (definitions, lemmas)
+        build_dir: Path to Coq build directory
+        hint: Extra guidance text
+        max_steps: Maximum number of proof steps
+        max_retries_per_step: Retries per step if tactic fails
+
+    Returns:
+        OracleResult with the proof script and status.
+    """
+    config = load_config()
+    if not config.api_key:
+        return OracleResult(
+            success=False, proof_script="",
+            error_message="No API key set.",
+        )
+
+    coq_preamble = f"""Require Import ZArith String List Lia.
+Require Import Imp Wp WpTactics.
+Import ListNotations.
+Open Scope Z_scope.
+
+{context}
+{goal}
+Proof.
+"""
+    system_prompt = """You are an interactive Coq proof assistant. You receive the
+current goal state (hypotheses and goal). Propose exactly ONE Coq tactic.
+Output ONLY the tactic, nothing else. You may add a (* comment *) AFTER
+the tactic on the same line, but the tactic must come first and be valid Coq.
+Never output markdown fences or explanatory text before the tactic.
+Available: wp_prove, wp_reduce, lia, split, intro, intros, apply, reflexivity,
+destruct, eexists, rewrite, eapply, match goal, Z.leb_le, Z.leb_gt."""
+
+    from .coqpyt_session import CoqpytSession
+    try:
+        with CoqpytSession(build_dir, timeout=120) as session:
+            if not session.load(coq_preamble):
+                return OracleResult(
+                    success=False, proof_script="",
+                    error_message="Failed to load Coq source into coqpyt session.",
+                )
+
+            tactics_used: list[str] = []
+            step_history: list[str] = []
+            user_prompt = "Prove the goal step by step. Start with 'wp_prove.'"
+
+            for step in range(1, max_steps + 1):
+                goals_state = session.get_goals()
+                if goals_state.is_proved():
+                    session.finish_proof("Qed.")
+                    proof_script = "Proof.\n" + "\n".join(tactics_used) + "\nQed."
+                    print(f"  [oracle] interactive: proved in {step} steps", file=__import__('sys').stderr)
+                    return OracleResult(
+                        success=True, proof_script=proof_script,
+                        attempts=1,
+                    )
+
+                goal_text = "\n".join(goals_state.goals[:3]) if goals_state.goals else "no goals"
+                step_prompt = (
+                    f"## Current Goals\n```coq\n{goal_text}\n```\n\n"
+                    f"## Previous Steps\n" + "\n".join(step_history[-6:]) + "\n\n"
+                    f"Propose exactly ONE tactic for the current goal."
+                )
+
+                for retry in range(max_retries_per_step + 1):
+                    if retry > 0:
+                        step_prompt += f"\n\n[Previous tactic failed]\nTry a different approach."
+
+                    response = call_llm(config, system_prompt, step_prompt)
+                    if not response:
+                        continue
+
+                    tactic = _extract_tactic(response)
+                    if not tactic:
+                        # Fallback: take first non-empty line ending with .
+                        for line in response.strip().split("\n"):
+                            line = line.strip()
+                            if line.endswith(".") and not line.startswith("(*"):
+                                tactic = line.rstrip(".")
+                                break
+                    if not tactic:
+                        continue
+
+                    print(f"  [oracle] step {step}: {tactic}", file=__import__('sys').stderr)
+                    result = session.try_tactic(tactic)
+                    if not result.error:
+                        tactics_used.append(tactic + ".")
+                        step_history.append(f"Step {step}: {tactic}. ✓")
+                        break
+                    else:
+                        step_prompt += f"\n\n[Tactic '{tactic}' failed: {result.error[:200]}]"
+                        if retry == max_retries_per_step:
+                            return OracleResult(
+                                success=False,
+                                proof_script="\n".join(tactics_used),
+                                error_message=f"Step {step}: tactic '{tactic}' failed after {max_retries_per_step} retries: {result.error[:200]}",
+                                attempts=step,
+                            )
+
+            return OracleResult(
+                success=False,
+                proof_script="\n".join(tactics_used),
+                error_message=f"Max steps ({max_steps}) reached without closing proof.",
+                attempts=max_steps,
+            )
+
+    except Exception as e:
+        return OracleResult(
+            success=False, proof_script="",
+            error_message=f"Interactive oracle error: {str(e)[:500]}",
+        )
+
+
+def _extract_tactic(response: str) -> str | None:
+    """Extract a single Coq tactic from an LLM response.
+
+    Slurps content from inside markdown code fences, strips (* comments *),
+    and returns the first line that looks like a tactic.
+    """
+    text = response.strip()
+    # Slurp content between markdown fences: find opening ```, take everything
+    # after it up to and excluding the closing ```
+    fence_start = -1
+    for fence in ["```coq", "```ocaml", "```"]:
+        idx = text.find(fence)
+        if idx >= 0:
+            fence_start = idx + len(fence)
+            break
+    if fence_start >= 0:
+        text = text[fence_start:]
+        # Strip trailing fence
+        for fence in ["```"]:
+            idx = text.rfind(fence)
+            if idx >= 0:
+                text = text[:idx]
+                break
+    # Remove (* ... *) comments
+    import re
+    text = re.sub(r'\(\*.*?\*\)', '', text, flags=re.DOTALL).strip()
+    # Take the first non-empty line that looks like a tactic
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("#") or line.startswith("//"):
+            continue
+        if any(line.lower().startswith(w) for w in
+               ["the ", "now ", "first", "next", "this ", "we ", "i ", "let's", "lets"]):
+            continue
+        if line.endswith(".") or line in ("-", "+", "*", "--", "++", "**", "{", "}"):
+            return line.rstrip(".")
+    return None
 
 
 def prompt_system() -> str:
