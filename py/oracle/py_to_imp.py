@@ -21,17 +21,22 @@ class PyToImpLowerer:
     """
 
     def __init__(self, func_name: str = "", record_fields: dict[str, list[str]] | None = None,
-                 param_types: dict[str, str] | None = None):
+                 param_types: dict[str, str] | None = None, annot_guard_mode: bool = True):
         self._func_name = func_name
         self._record_fields = record_fields or {}
         self._param_types = param_types or {}
         self._vc = 0
+        # When True, type annotations are treated as guards:
+        # x: int → assert isinstance(x, int) is injected, and the lowerer
+        # can use the annotation to resolve ambiguous operations (+ becomes
+        # APlus, string methods become available, etc.)
+        self._annot_guard_mode = annot_guard_mode
 
     def _type_of(self, expr: PyExpr) -> Optional[str]:
-        """Infer the type of an expression from available contracts.
-        Returns None if the type cannot be determined conservatively."""
+        """Infer the type of an expression. In annot-guard mode (default),
+        parameter type annotations are trusted as guards."""
         if isinstance(expr, PyName):
-            if expr.name in self._param_types:
+            if self._annot_guard_mode and expr.name in self._param_types:
                 return self._param_types[expr.name]
         if isinstance(expr, PyConstant):
             return expr.py_type
