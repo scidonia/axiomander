@@ -585,6 +585,16 @@ class ImpCDictAppendKv(ImpCom):
         return f'(CDictAppendKv "{self.name}"%string {self.key.to_coq()} {self.value.to_coq()})'
 
 
+class ImpCAssume(ImpCom):
+    """Assumption: CAssume P — constrains non-determinism with a trusted property."""
+
+    kind: Literal["cassume"] = "cassume"
+    condition: str  # Coq assertion string: (fun s => ...)
+
+    def to_coq(self) -> str:
+        return f"(CAssume {self.condition})"
+
+
 class ImpCHavoc(ImpCom):
     """Havoc: CHavoc [vars] - conservative unknown mutation."""
 

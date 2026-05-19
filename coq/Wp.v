@@ -69,6 +69,8 @@ Fixpoint wp (c : com) (Q : assertion) : assertion :=
       fun s => pre s /\ (forall r, post (upd s target (VZ r)) ->
         Q (clobber (upd s target (VZ r)) writes) /\
         (forall x, ~ In x (target :: writes) -> s x = (clobber (upd s target (VZ r)) writes) x))
+  | CAssume P =>
+      fun s => P s -> Q s
   end.
 
 (** ** Soundness — [wp c Q] implies the Hoare triple {wp c Q} c {Q}. *)

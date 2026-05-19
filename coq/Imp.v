@@ -324,7 +324,8 @@ Inductive com : Type :=
   | CDictEnsureList (name : var) (key : aexp)
   | CDictAppend (name : var) (key val : aexp)
   | CDictAppendKv (name : var) (key val : aexp)
-  | CCall (name : var) (args : list aexp) (pre post : state -> Prop) (writes : list var) (target : var).
+  | CCall (name : var) (args : list aexp) (pre post : state -> Prop) (writes : list var) (target : var)
+  | CAssume (P : state -> Prop).
 
 (** Havoc a list of variables — set each to VZ 0. *)
 Definition clobber (s : state) (vars : list var) : state :=
@@ -412,7 +413,10 @@ Inductive ceval : com -> state -> state -> Prop :=
       pre s ->
       post (upd s target (VZ r)) ->
       ceval (CCall name args pre post writes target) s
-            (clobber (upd s target (VZ r)) writes).
+            (clobber (upd s target (VZ r)) writes)
+  | E_Assume : forall P s,
+      P s ->
+      ceval (CAssume P) s s.
 
 (** ** Notation *)
 Open Scope Z_scope.
