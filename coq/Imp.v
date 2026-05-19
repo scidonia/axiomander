@@ -3,18 +3,18 @@ Import ListNotations.
 
 Open Scope Z_scope.
 
-(** * IMP Language — Syntax and Semantics *)
+(** * IMP Language -- Syntax and Semantics *)
 
 (** Variable names are strings. *)
 Definition var := string.
 
-(** Tagged value type — every state entry has a type tag. *)
+(** Tagged value type -- every state entry has a type tag. *)
 Inductive value : Type :=
   | VZ (z : Z)
   | VBool (b : bool)
   | VUnit
   | VString (s : string)
-  | VFloat (f : Z)   (* float value encoded as scaled integer *)
+  | VFloat (f : Z)
   | VNone
   | VTuple (ts : list value)
   | VList (xs : list value)
@@ -22,73 +22,127 @@ Inductive value : Type :=
   | VBytes (bs : list value)
   | VSet (xs : list value).
 
-(** State: a total mapping from variables to values. *)
-Definition state := var -> value.
+(** -- State ------------------------------------------------------ *)
 
-(** Empty state maps everything to VZ 0. *)
-Definition empty_state : state := fun _ => VZ 0%Z.
+(** State: record of local variables and heap.
+    The [ls] coercion makes [s "x"%string] backward compatible. *)
+Record state : Type := mkState {
+  ls : var -> value;
+  hs : (var * var) -> value
+}.
+Coercion ls : state >-> Funclass.
 
-(** State update: [upd s x v] is [s] with [x] mapped to [v]. *)
-Definition upd (s : state) (x : var) (v : value) : state :=
-  fun y => if String.eqb x y then v else s y.
+(** Empty state. *)
+Definition empty_state : state := mkState (fun _ => VZ 0%Z) (fun _ => VZ 0%Z).
 
-(** Convenience: update with a Z value, wrapped in VZ. *)
-Definition updZ (s : state) (x : var) (v : Z) : state := upd s x (VZ v).
+(** Local variable update. *)
+Definition lupd (s : state) (x : var) (v : value) : state :=
+  mkState (fun y => if String.eqb x y then v else s y) (hs s).
 
-(** We assume functional extensionality for state equality. *)
+(** Heap update. *)
+Definition hupd (s : state) (obj field : var) (v : value) : state :=
+  mkState (ls s) (fun '(o, f) => if String.eqb obj o && String.eqb field f then v else hs s (o, f)).
+
+(** Convenience: local Z update. *)
+Definition lupdZ (s : state) (x : var) (v : Z) : state := lupd s x (VZ v).
+
+(** Legacy aliases for compatibility. *)
+Definition upd (s : state) (x : var) (v : value) : state := lupd s x v.
+Definition updZ (s : state) (x : var) (v : Z) : state := lupd s x (VZ v).
+
+(** Heap read. *)
+Definition hget (s : state) (obj field : var) : value := hs s (obj, field).
+
+(** Explicit local read. *)
+Definition lget (s : state) (x : var) : value := s x.
+
+(** Functional extensionality. *)
 Axiom functional_extensionality : forall {A B} (f g : A -> B),
   (forall x, f x = g x) -> f = g.
 
-Lemma upd_eq : forall s x v, upd s x v x = v.
+(** -- Local update lemmas ----------------------------------------- *)
+
+Lemma lupd_eq : forall s x v, lget (lupd s x v) x = v.
 Proof.
-  intros s x v. unfold upd. rewrite String.eqb_refl. reflexivity.
+  intros s x v. unfold lget, lupd. simpl. rewrite String.eqb_refl. reflexivity.
 Qed.
 
-Lemma upd_ne : forall s x y v, x <> y -> upd s x v y = s y.
+Lemma lupd_ne : forall s x y v, x <> y -> lget (lupd s x v) y = lget s y.
 Proof.
-  intros s x y v Hne. unfold upd.
-  apply String.eqb_neq in Hne.
-  rewrite Hne. reflexivity.
+  intros s x y v Hne. unfold lget, lupd. simpl.
+  apply String.eqb_neq in Hne. rewrite Hne. reflexivity.
 Qed.
+
+Lemma lupd_same : forall s x v1 v2, lupd (lupd s x v1) x v2 = lupd s x v2.
+Proof.
+  intros s x v1 v2. unfold lupd.
+  destruct s as [l h]. simpl.
+  apply (f_equal2 mkState).
+  - apply functional_extensionality. intros y.
+    destruct (String.eqb x y) eqn:Heq; reflexivity.
+  - reflexivity.
+Qed.
+
+
+Lemma lupd_swap : forall s x y vx vy, x <> y ->
+  lupd (lupd s x vx) y vy = lupd (lupd s y vy) x vx.
+Proof.
+  intros s x y vx vy Hne. unfold lupd.
+  destruct s as [l h]. simpl.
+  apply (f_equal2 mkState).
+  - apply functional_extensionality. intros z.
+    destruct (String.eqb x z) eqn:Exz; destruct (String.eqb y z) eqn:Eyz; auto.
+    apply String.eqb_eq in Exz. apply String.eqb_eq in Eyz.
+    subst x. subst y. exfalso. apply Hne. reflexivity.
+  - reflexivity.
+Qed.
+
+Lemma upd_eq : forall s x v, lget (upd s x v) x = v.
+Proof. intros. apply lupd_eq. Qed.
+
+Lemma upd_ne : forall s x y v, x <> y -> lget (upd s x v) y = lget s y.
+Proof. intros. apply lupd_ne. auto. Qed.
 
 Lemma upd_same : forall s x v1 v2, upd (upd s x v1) x v2 = upd s x v2.
-Proof.
-  intros s x v1 v2. apply functional_extensionality. intros y.
-  unfold upd. destruct (String.eqb x y) eqn:Heq; reflexivity.
-Qed.
+Proof. intros. apply lupd_same. Qed.
 
 Lemma upd_swap : forall s x y vx vy, x <> y ->
   upd (upd s x vx) y vy = upd (upd s y vy) x vx.
+Proof. intros. apply lupd_swap. auto. Qed.
+
+(** -- Heap update lemmas ------------------------------------------ *)
+
+Lemma hupd_eq : forall s obj f v, hget (hupd s obj f v) obj f = v.
 Proof.
-  intros s x y vx vy Hne. apply functional_extensionality. intros z.
-  unfold upd.
-  destruct (String.eqb x z) eqn:Exz; destruct (String.eqb y z) eqn:Eyz; auto.
-  apply String.eqb_eq in Exz. apply String.eqb_eq in Eyz.
-  subst x. subst y. exfalso. apply Hne. reflexivity.
+  intros s obj f v. unfold hget, hupd. simpl.
+  rewrite String.eqb_refl, String.eqb_refl. reflexivity.
 Qed.
 
-(** Extract Z from a value, defaulting to 0 for non-Z. *)
+Lemma hupd_ne_obj : forall s obj1 obj2 f1 f2 v, obj1 <> obj2 ->
+  hget (hupd s obj1 f1 v) obj2 f2 = hget s obj2 f2.
+Proof.
+  intros s obj1 obj2 f1 f2 v Hne. unfold hget, hupd. simpl.
+  apply String.eqb_neq in Hne. rewrite Hne. reflexivity.
+Qed.
+
+Lemma hupd_ne_field : forall s obj f1 f2 v, f1 <> f2 ->
+  hget (hupd s obj f1 v) obj f2 = hget s obj f2.
+Proof.
+  intros s obj f1 f2 v Hne. unfold hget, hupd. simpl.
+  rewrite String.eqb_refl. apply String.eqb_neq in Hne. rewrite Hne. reflexivity.
+Qed.
+
+(** -- Helpers ----------------------------------------------------- *)
+
 Definition asZ (v : value) : Z :=
-  match v with
-  | VZ z => z
-  | _ => 0%Z
-  end.
+  match v with VZ z => z | _ => 0%Z end.
 
-(** Extract string from a value, defaulting to empty for non-string. *)
 Definition asString (v : value) : string :=
-  match v with
-  | VString s => s
-  | _ => ""%string
-  end.
+  match v with VString s => s | _ => ""%string end.
 
-(** Extract float (as Z encoding) from a value, defaulting to 0. *)
 Definition asFloat (v : value) : Z :=
-  match v with
-  | VFloat f => f
-  | _ => 0%Z
-  end.
+  match v with VFloat f => f | _ => 0%Z end.
 
-(** Boolean type guards — simpl-reducible, no existential quantifier needed. *)
 Definition isVZ (v : value) : bool :=
   match v with VZ _ => true | _ => false end.
 
@@ -98,98 +152,38 @@ Definition isVString (v : value) : bool :=
 Definition isVFloat (v : value) : bool :=
   match v with VFloat _ => true | _ => false end.
 
-(** Inject bool as Z for ABool compatibility. *)
 Definition boolToZ (b : bool) : Z := if b then 1%Z else 0%Z.
 
-(** Structural equality on values — dispatches on type tags. *)
-Fixpoint value_eqb (v1 v2 : value) : bool :=
+Fixpoint value_eqb (v1 v2 : value) {struct v1} : bool :=
+  let fix list_eqb (vs1 vs2 : list value) : bool :=
+    match vs1, vs2 with
+    | nil, nil => true
+    | v1'::vs1', v2'::vs2' => value_eqb v1' v2' && list_eqb vs1' vs2'
+    | _, _ => false
+    end in
+  let fix pair_eqb (ps1 ps2 : list (value * value)) : bool :=
+    match ps1, ps2 with
+    | nil, nil => true
+    | (k1,v1)::ps1', (k2,v2)::ps2' => value_eqb k1 k2 && value_eqb v1 v2 && pair_eqb ps1' ps2'
+    | _, _ => false
+    end in
   match v1, v2 with
   | VZ z1, VZ z2 => Z.eqb z1 z2
   | VBool b1, VBool b2 => Bool.eqb b1 b2
   | VString s1, VString s2 => String.eqb s1 s2
   | VFloat f1, VFloat f2 => Z.eqb f1 f2
   | VNone, VNone => true
-  | VTuple ts1, VTuple ts2 =>
-      (fix list_eqb vs1 vs2 :=
-         match vs1, vs2 with
-         | nil, nil => true
-         | v1'::vs1', v2'::vs2' => value_eqb v1' v2' && list_eqb vs1' vs2'
-         | _, _ => false
-         end) ts1 ts2
-  | VList xs1, VList xs2 =>
-      (fix list_eqb vs1 vs2 :=
-         match vs1, vs2 with
-         | nil, nil => true
-         | v1'::vs1', v2'::vs2' => value_eqb v1' v2' && list_eqb vs1' vs2'
-         | _, _ => false
-         end) xs1 xs2
-  | VDict kvs1, VDict kvs2 =>
-      (fix list_eqb ps1 ps2 :=
-         match ps1, ps2 with
-         | nil, nil => true
-         | (k1,v1)::ps1', (k2,v2)::ps2' => value_eqb k1 k2 && value_eqb v1 v2 && list_eqb ps1' ps2'
-         | _, _ => false
-         end) kvs1 kvs2
-  | VBytes bs1, VBytes bs2 =>
-      (fix list_eqb vs1 vs2 :=
-         match vs1, vs2 with
-         | nil, nil => true
-         | v1'::vs1', v2'::vs2' => value_eqb v1' v2' && list_eqb vs1' vs2'
-         | _, _ => false
-         end) bs1 bs2
-  | VSet xs1, VSet xs2 =>
-      (fix list_eqb vs1 vs2 :=
-         match vs1, vs2 with
-         | nil, nil => true
-         | v1'::vs1', v2'::vs2' => value_eqb v1' v2' && list_eqb vs1' vs2'
-         | _, _ => false
-         end) xs1 xs2
+  | VTuple ts1, VTuple ts2 => list_eqb ts1 ts2
+  | VList xs1, VList xs2 => list_eqb xs1 xs2
+  | VDict kvs1, VDict kvs2 => pair_eqb kvs1 kvs2
+  | VBytes bs1, VBytes bs2 => list_eqb bs1 bs2
+  | VSet xs1, VSet xs2 => list_eqb xs1 xs2
   | _, _ => false
   end.
 
-(** ** Arithmetic and Boolean Expressions (mutually recursive) *)
-Inductive aexp : Type :=
-  | ANum (n : Z)
-  | AVar (x : var)
-  | APlus (a1 a2 : aexp)
-  | AMinus (a1 a2 : aexp)
-  | AMult (a1 a2 : aexp)
-  | AMod (a1 a2 : aexp)
-  | ADiv (a1 a2 : aexp)
-  | ALen (name : var)              (* length of a heap list/string *)
-  | AIndex (name : var) (idx : aexp)  (* nth element of a heap list *)
-  | AAppend (a : aexp) (e : aexp)   (* append element, returns new VList *)
-  | APop (a : aexp)             (* pop last element, returns new VList *)
-  | ASet (a : aexp) (idx : aexp) (val : aexp)  (* set element, returns new VList *)
-  | ADictLen (name : var) (key_e : aexp)
-  | ADictCount (name : var)
-  | ABool (b : bexp)
-  | AString (s : string)
-  | AFloat (f : Z)   (* float literal, Z-encoded *)
-  | ANone            (* None literal *)
-  | ATuple (es : list aexp)  (* tuple literal *)
-  | AList (es : list aexp)   (* list literal *)
-  | ADict (kvs : list (aexp * aexp))  (* dict literal *)
-  | ABytes (es : list aexp)  (* bytes literal *)
-  | ASetLit (es : list aexp)  (* set literal *)
-with bexp : Type :=
-  | BTrue
-  | BFalse
-  | BEq (a1 a2 : aexp)
-  | BLe (a1 a2 : aexp)
-  | BNot (b : bexp)
-  | BAnd (b1 b2 : bexp)
-  | BOr (b1 b2 : bexp)
-  | BIsNone (x : var)
-  | BIsVZ (x : var)
-  | BIsVString (x : var)
-  | BIsVFloat (x : var).
-
-(** Extract list from a value, defaulting to empty. *)
 Definition asList (v : value) : list value :=
   match v with VList xs => xs | _ => nil end.
 
-(** Convert Z to string for dict key encoding. *)
 Fixpoint pos_to_string (p : positive) : string :=
   match p with
   | xH => "1"%string
@@ -204,7 +198,6 @@ Definition z_to_string (z : Z) : string :=
   | Zneg p => ("-" ++ pos_to_string p)%string
   end.
 
-(** Remove the last element of a list. *)
 Fixpoint removelast (xs : list value) : list value :=
   match xs with
   | nil => nil
@@ -212,7 +205,6 @@ Fixpoint removelast (xs : list value) : list value :=
   | x :: xs' => x :: removelast xs'
   end.
 
-(** Set element at index in a list. *)
 Fixpoint set_nth (xs : list value) (n : nat) (v : value) : list value :=
   match xs, n with
   | nil, _ => nil
@@ -220,33 +212,62 @@ Fixpoint set_nth (xs : list value) (n : nat) (v : value) : list value :=
   | x :: xs', S n' => x :: set_nth xs' n' v
   end.
 
-Definition dict_key (name : var) (key : Z) : var :=
-  (name ++ ".v." ++ z_to_string key)%string.
+(** -- Heap field names -------------------------------------------- *)
 
-Definition parray_key (name : var) (idx : Z) : var :=
-  (name ++ "." ++ z_to_string idx)%string.
+Definition len_f : var := "_len"%string.
+Definition count_f : var := "_count"%string.
+Definition elem_f (i : Z) : var := z_to_string i.
+Definition dval_f (k : Z) : var := ("v." ++ z_to_string k)%string.
+Definition dlen_f (k : Z) : var := ("_len_v." ++ z_to_string k)%string.
 
-Definition parray_len_key (name : var) : var :=
-  (name ++ "._len")%string.
-
-Definition dict_count_key (name : var) : var :=
-  (name ++ "._count")%string.
-
-Definition dict_keys_key (name : var) : var :=
-  (name ++ "._keys")%string.
-
-Definition dict_vals_key (name : var) : var :=
-  (name ++ "._vals")%string.
-
-(** Evaluation of arithmetic and boolean expressions. *)
-
-(** Float scale factor: Python floats → Z encoding.  3.14 → 314, 1.5 → 150. *)
+(** Float scale factor. *)
 Definition float_scale : Z := 100.
+
+(** -- aexp / bexp types ------------------------------------------- *)
+
+Inductive aexp : Type :=
+  | ANum (n : Z)
+  | AVar (x : var)
+  | APlus (a1 a2 : aexp)
+  | AMinus (a1 a2 : aexp)
+  | AMult (a1 a2 : aexp)
+  | AMod (a1 a2 : aexp)
+  | ADiv (a1 a2 : aexp)
+  | ALen (name : var)
+  | AIndex (name : var) (idx : aexp)
+  | AAppend (a : aexp) (e : aexp)
+  | APop (a : aexp)
+  | ASet (a : aexp) (idx : aexp) (val : aexp)
+  | ADictLen (name : var) (key_e : aexp)
+  | ADictCount (name : var)
+  | ABool (b : bexp)
+  | AString (s : string)
+  | AFloat (f : Z)
+  | ANone
+  | ATuple (es : list aexp)
+  | AList (es : list aexp)
+  | ADict (kvs : list (aexp * aexp))
+  | ABytes (es : list aexp)
+  | ASetLit (es : list aexp)
+with bexp : Type :=
+  | BTrue
+  | BFalse
+  | BEq (a1 a2 : aexp)
+  | BLe (a1 a2 : aexp)
+  | BNot (b : bexp)
+  | BAnd (b1 b2 : bexp)
+  | BOr (b1 b2 : bexp)
+  | BIsNone (x : var)
+  | BIsVZ (x : var)
+  | BIsVString (x : var)
+  | BIsVFloat (x : var).
+
+(** -- aeval / beval ----------------------------------------------- *)
 
 Fixpoint aeval (a : aexp) (s : state) : value :=
   match a with
   | ANum n => VZ n
-  | AVar x => s x
+  | AVar x => lget s x
   | AString lit => VString lit
   | AFloat f => VFloat f
   | ANone => VNone
@@ -278,14 +299,15 @@ Fixpoint aeval (a : aexp) (s : state) : value :=
       end
   | AMod a1 a2 => VZ (Z.modulo (asZ (aeval a1 s)) (asZ (aeval a2 s)))
   | ADiv a1 a2 => VZ (asZ (aeval a1 s) / asZ (aeval a2 s))
-  | ALen name => VZ (asZ (s (parray_len_key name)))
-  | AIndex name idx_e => VZ (asZ (s (parray_key name (asZ (aeval idx_e s)))))
+  | ALen name => VZ (asZ (hget s name len_f))
+  | AIndex name idx_e =>
+      VZ (asZ (hget s name (elem_f (asZ (aeval idx_e s)))))
   | AAppend a e => VList (asList (aeval a s) ++ [aeval e s])
   | APop a => VList (removelast (asList (aeval a s)))
   | ASet a idx val =>
       VList (set_nth (asList (aeval a s)) (Z.to_nat (asZ (aeval idx s))) (aeval val s))
-  | ADictLen name key_e => VZ (asZ (s (parray_len_key (dict_key name (asZ (aeval key_e s))))))
-  | ADictCount name => VZ (asZ (s (dict_count_key name)))
+  | ADictLen name key_e => VZ (asZ (hget s name (dlen_f (asZ (aeval key_e s)))))
+  | ADictCount name => VZ (asZ (hget s name count_f))
   | ABool b => VZ (if beval b s then 1%Z else 0%Z)
   end
 with beval (b : bexp) (s : state) : bool :=
@@ -298,16 +320,17 @@ with beval (b : bexp) (s : state) : bool :=
       | VFloat f1, VFloat f2 => Z.leb f1 f2
       | _, _ => Z.leb (asZ (aeval a1 s)) (asZ (aeval a2 s))
       end
-  | BIsNone x => match s x with VNone => true | _ => false end
-  | BIsVZ x => isVZ (s x)
-  | BIsVString x => isVString (s x)
-  | BIsVFloat x => isVFloat (s x)
+  | BIsNone x => match lget s x with VNone => true | _ => false end
+  | BIsVZ x => isVZ (lget s x)
+  | BIsVString x => isVString (lget s x)
+  | BIsVFloat x => isVFloat (lget s x)
   | BNot b' => negb (beval b' s)
   | BAnd b1 b2 => (beval b1 s) && (beval b2 s)
   | BOr b1 b2 => (beval b1 s) || (beval b2 s)
   end.
 
-(** ** Commands *)
+(** -- Commands ---------------------------------------------------- *)
+
 Inductive com : Type :=
   | CSkip
   | CAss (x : var) (a : aexp)
@@ -327,16 +350,18 @@ Inductive com : Type :=
   | CCall (name : var) (args : list aexp) (pre post : state -> Prop) (writes : list var) (target : var)
   | CAssume (P : state -> Prop).
 
-(** Havoc a list of variables — set each to VZ 0. *)
-Definition clobber (s : state) (vars : list var) : state :=
-  fold_left (fun st v => upd st v (VZ 0)) vars s.
+(** -- clobber ----------------------------------------------------- *)
 
-(** Big-step operational semantics: [(c, s) ⇓ s']. *)
+Definition clobber (s : state) (vars : list var) : state :=
+  fold_left (fun st v => lupd st v (VZ 0)) vars s.
+
+(** -- Big-step operational semantics ------------------------------ *)
+
 Inductive ceval : com -> state -> state -> Prop :=
   | E_Skip : forall s,
       ceval CSkip s s
   | E_Ass : forall s x a,
-      ceval (CAss x a) s (upd s x (aeval a s))
+      ceval (CAss x a) s (lupd s x (aeval a s))
   | E_Seq : forall c1 c2 s s' s'',
       ceval c1 s s' ->
       ceval c2 s' s'' ->
@@ -358,62 +383,63 @@ Inductive ceval : com -> state -> state -> Prop :=
       ceval (CWhile b inv c) s' s'' ->
       ceval (CWhile b inv c) s s''
   | E_Havoc : forall A s s',
-      (forall x, ~ In x A -> s' x = s x) ->
+      (forall x, ~ In x A -> lget s' x = lget s x) ->
       ceval (CHavoc A) s s'
   | E_ListNew : forall name s,
-      ceval (CListNew name) s (upd s (parray_len_key name) (VZ 0))
+      ceval (CListNew name) s (hupd s name len_f (VZ 0))
   | E_ListAppend : forall name val s,
-      let len := asZ (s (parray_len_key name)) in
+      let len := asZ (hget s name len_f) in
       ceval (CListAppend name val) s
-            (upd (upd s (parray_key name len) (aeval val s))
-                 (parray_len_key name) (VZ (len + 1)))
+            (hupd (hupd s name (elem_f len) (aeval val s))
+                  name len_f (VZ (len + 1)))
   | E_ListPop : forall name s,
-      let len := asZ (s (parray_len_key name)) in
+      let len := asZ (hget s name len_f) in
       ceval (CListPop name) s
-            (upd s (parray_len_key name) (VZ (len - 1)))
+            (hupd s name len_f (VZ (len - 1)))
   | E_ListSet : forall name idx_e val_e s,
       ceval (CListSet name idx_e val_e) s
-            (upd s (parray_key name (asZ (aeval idx_e s))) (aeval val_e s))
+            (hupd s name (elem_f (asZ (aeval idx_e s))) (aeval val_e s))
   | E_DictSet : forall name key_e val_e s,
-      let dk := dict_key name (asZ (aeval key_e s)) in
-      let is_new := Z.eqb 0 (asZ (s (parray_len_key dk))) in
-      let old_count := asZ (s (dict_count_key name)) in
+      let k := asZ (aeval key_e s) in
+      let is_new := Z.eqb 0 (asZ (hget s name (dlen_f k))) in
+      let old_count := asZ (hget s name count_f) in
       let new_count := old_count + (if is_new then 1 else 0) in
       ceval (CDictSet name key_e val_e) s
-            (upd (upd (upd s dk (aeval val_e s))
-                      (parray_len_key dk) (VZ 1))
-                 (dict_count_key name) (VZ new_count))
+            (hupd (hupd (hupd s name (dval_f k) (aeval val_e s))
+                        name (dlen_f k) (VZ 1))
+                  name count_f (VZ new_count))
   | E_DictGet : forall name key_e target s,
       ceval (CDictGet name key_e target) s
-            (upd s target (s (dict_key name (asZ (aeval key_e s)))))
+            (lupd s target (hget s name (dval_f (asZ (aeval key_e s)))))
   | E_DictEnsureList : forall name key_e s,
-      let dk := dict_key name (asZ (aeval key_e s)) in
+      let dk_len := dlen_f (asZ (aeval key_e s)) in
       ceval (CDictEnsureList name key_e) s
-            (if Z.eqb (asZ (s (parray_len_key dk))) 0
-             then upd s (parray_len_key dk) (VZ 0)
+            (if Z.eqb (asZ (hget s name dk_len)) 0
+             then hupd s name dk_len (VZ 0)
              else s)
   | E_DictAppend : forall name key_e val_e s,
-      let dk := dict_key name (asZ (aeval key_e s)) in
-      let len := asZ (s (parray_len_key dk)) in
+      let k := asZ (aeval key_e s) in
+      let dk_len := dlen_f k in
+      let len := asZ (hget s name dk_len) in
       ceval (CDictAppend name key_e val_e) s
-            (upd (upd s (parray_key dk len) (aeval val_e s))
-                 (parray_len_key dk) (VZ (len + 1)))
+            (hupd (hupd s name (elem_f len) (aeval val_e s))
+                  name dk_len (VZ (len + 1)))
   | E_DictAppendKv : forall name key_e val_e s,
-      let dk := dict_key name (asZ (aeval key_e s)) in
-      let is_new := Z.eqb 0 (asZ (s (parray_len_key dk))) in
-      let c := asZ (s (dict_count_key name)) in
+      let k := asZ (aeval key_e s) in
+      let is_new := Z.eqb 0 (asZ (hget s name (dlen_f k))) in
+      let c := asZ (hget s name count_f) in
       let new_c := c + (if is_new then 1 else 0) in
-      let s1 := upd (upd (upd s dk (aeval val_e s))
-                         (parray_len_key dk) (VZ 1))
-                    (parray_key (dict_vals_key name) c) (aeval val_e s) in
+      let s1 := hupd (hupd (hupd s name (dval_f k) (aeval val_e s))
+                           name (dlen_f k) (VZ 1))
+                     name (elem_f c) (aeval val_e s) in
       ceval (CDictAppendKv name key_e val_e) s
-            (upd (upd s1 (parray_key (dict_keys_key name) c) (aeval key_e s))
-                 (dict_count_key name) (VZ new_c))
+            (hupd (hupd s1 name (elem_f c) (aeval key_e s))
+                  name count_f (VZ new_c))
   | E_Call : forall name args pre post writes target s r,
       pre s ->
-      post (upd s target (VZ r)) ->
+      post (lupd s target (VZ r)) ->
       ceval (CCall name args pre post writes target) s
-            (clobber (upd s target (VZ r)) writes)
+            (clobber (lupd s target (VZ r)) writes)
   | E_Assume : forall P s,
       P s ->
       ceval (CAssume P) s s.

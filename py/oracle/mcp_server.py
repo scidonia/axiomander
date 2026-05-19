@@ -1548,7 +1548,7 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
             len_var = f"{p}__len"
             expanded.append(len_var)
             parts.append(f"({len_var} : Z)")
-            init_state = f'(upd {init_state} "{p}._len"%string (VZ {len_var}))'
+            init_state = f'(hupd {init_state} "{p}"%string len_f (VZ {len_var}))'
             # For string params, also store the value at the original key
             if p in string_params:
                 string_var = f"{p}_str"
@@ -1560,13 +1560,13 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
             count_var = f"{p}__count"
             expanded.append(count_var)
             parts.append(f"({count_var} : Z)")
-            init_state = f'(upd {init_state} (dict_count_key "{p}"%string) (VZ {count_var}))'
+            init_state = f'(hupd {init_state} "{p}"%string count_f (VZ {count_var}))'
         elif func_node and func_node.args.vararg and p == func_node.args.vararg.arg:
             # *args (vararg) — always treated as list
             len_var = f"{p}__len"
             expanded.append(len_var)
             parts.append(f"({len_var} : Z)")
-            init_state = f'(upd {init_state} "{p}._len"%string (VZ {len_var}))'
+            init_state = f'(hupd {init_state} "{p}"%string len_f (VZ {len_var}))'
         elif cls_name:
             for f in class_fields[cls_name]:
                 expanded.append(f"{p}_{f}")

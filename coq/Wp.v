@@ -8,14 +8,12 @@ Definition assertion := state -> Prop.
 
 (** ** Weakest Precondition for Commands *)
 
-(** [wp c Q] is the weakest precondition such that if it holds before
-    executing [c], then [Q] holds after (assuming termination). *)
 Fixpoint wp (c : com) (Q : assertion) : assertion :=
   match c with
   | CSkip =>
       Q
   | CAss x a =>
-      fun s => Q (upd s x (aeval a s))
+      fun s => Q (lupd s x (aeval a s))
   | CSeq c1 c2 =>
       wp c1 (wp c2 Q)
   | CIf b c1 c2 =>
@@ -24,65 +22,66 @@ Fixpoint wp (c : com) (Q : assertion) : assertion :=
   | CWhile b inv body =>
       inv
   | CHavoc A =>
-      fun s => forall s', (forall x, ~ In x A -> s' x = s x) -> Q s'
+      fun s => forall s', (forall x, ~ In x A -> lget s' x = lget s x) -> Q s'
   | CListNew name =>
-      fun s => Q (upd s (parray_len_key name) (VZ 0))
+      fun s => Q (hupd s name len_f (VZ 0))
   | CListAppend name val =>
-      fun s => let len := asZ (s (parray_len_key name)) in
-               Q (upd (upd s (parray_key name len) (aeval val s))
-                      (parray_len_key name) (VZ (len + 1)))
+      fun s => let len := asZ (hget s name len_f) in
+               Q (hupd (hupd s name (elem_f len) (aeval val s))
+                       name len_f (VZ (len + 1)))
   | CListPop name =>
-      fun s => Q (upd s (parray_len_key name) (VZ (asZ (s (parray_len_key name)) - 1)))
+      fun s => Q (hupd s name len_f (VZ (asZ (hget s name len_f) - 1)))
   | CListSet name idx_e val_e =>
-      fun s => Q (upd s (parray_key name (asZ (aeval idx_e s))) (aeval val_e s))
+      fun s => Q (hupd s name (elem_f (asZ (aeval idx_e s))) (aeval val_e s))
   | CDictSet name key_e val_e =>
-      fun s => let dk := dict_key name (asZ (aeval key_e s)) in
-               let is_new := Z.eqb 0 (asZ (s (parray_len_key dk))) in
-               let old_count := asZ (s (dict_count_key name)) in
+      fun s => let k := asZ (aeval key_e s) in
+               let is_new := Z.eqb 0 (asZ (hget s name (dlen_f k))) in
+               let old_count := asZ (hget s name count_f) in
                let new_count := old_count + (if is_new then 1 else 0) in
-               Q (upd (upd (upd s dk (aeval val_e s))
-                           (parray_len_key dk) (VZ 1))
-                      (dict_count_key name) (VZ new_count))
+               Q (hupd (hupd (hupd s name (dval_f k) (aeval val_e s))
+                             name (dlen_f k) (VZ 1))
+                       name count_f (VZ new_count))
   | CDictGet name key_e target =>
-      fun s => Q (upd s target (s (dict_key name (asZ (aeval key_e s)))))
+      fun s => Q (lupd s target (hget s name (dval_f (asZ (aeval key_e s)))))
   | CDictEnsureList name key_e =>
-      fun s => let dk := dict_key name (asZ (aeval key_e s)) in
-               Q (if Z.eqb (asZ (s (parray_len_key dk))) 0
-                  then upd s (parray_len_key dk) (VZ 0)
+      fun s => let dk_len := dlen_f (asZ (aeval key_e s)) in
+               Q (if Z.eqb (asZ (hget s name dk_len)) 0
+                  then hupd s name dk_len (VZ 0)
                   else s)
   | CDictAppend name key_e val_e =>
-      fun s => let dk := dict_key name (asZ (aeval key_e s)) in
-               let len := asZ (s (parray_len_key dk)) in
-               Q (upd (upd s (parray_key dk len) (aeval val_e s))
-                      (parray_len_key dk) (VZ (len + 1)))
+      fun s => let k := asZ (aeval key_e s) in
+               let dk_len := dlen_f k in
+               let len := asZ (hget s name dk_len) in
+               Q (hupd (hupd s name (elem_f len) (aeval val_e s))
+                       name dk_len (VZ (len + 1)))
   | CDictAppendKv name key_e val_e =>
-      fun s => let dk := dict_key name (asZ (aeval key_e s)) in
-               let is_new := Z.eqb 0 (asZ (s (parray_len_key dk))) in
-               let c := asZ (s (dict_count_key name)) in
+      fun s => let k := asZ (aeval key_e s) in
+               let is_new := Z.eqb 0 (asZ (hget s name (dlen_f k))) in
+               let c := asZ (hget s name count_f) in
                let new_c := c + (if is_new then 1 else 0) in
-               let s1 := upd (upd (upd s dk (aeval val_e s))
-                                  (parray_len_key dk) (VZ 1))
-                             (parray_key (dict_vals_key name) c) (aeval val_e s) in
-               Q (upd (upd s1 (parray_key (dict_keys_key name) c) (aeval key_e s))
-                      (dict_count_key name) (VZ new_c))
+               let s1 := hupd (hupd (hupd s name (dval_f k) (aeval val_e s))
+                                    name (dlen_f k) (VZ 1))
+                              name (elem_f c) (aeval val_e s) in
+               Q (hupd (hupd s1 name (elem_f c) (aeval key_e s))
+                       name count_f (VZ new_c))
   | CCall name args pre post writes target =>
-      fun s => pre s /\ (forall r, post (upd s target (VZ r)) ->
-        Q (clobber (upd s target (VZ r)) writes) /\
-        (forall x, ~ In x (target :: writes) -> s x = (clobber (upd s target (VZ r)) writes) x))
+      fun s => pre s /\ (forall r, post (lupd s target (VZ r)) ->
+        Q (clobber (lupd s target (VZ r)) writes) /\
+        (forall x, ~ In x (target :: writes) -> s x = (clobber (lupd s target (VZ r)) writes) x))
   | CAssume P =>
       fun s => P s -> Q s
   end.
 
-(** ** Soundness — [wp c Q] implies the Hoare triple {wp c Q} c {Q}. *)
+(** ** Soundness *)
 Theorem wp_sound : forall (c : com) (Q : assertion) s s',
   wp c Q s -> ceval c s s' -> Q s'.
 Proof. Admitted.
 
-(** VCG while-exit condition: invariant + exit → postcondition *)
+(** VCG while-exit condition *)
 Definition vcg_while_exit (b : bexp) (inv Q : assertion) : Prop :=
   forall s, inv s -> beval b s = false -> Q s.
 
-(** ** Monotonicity — [wp] preserves implication *)
+(** ** Monotonicity *)
 Lemma wp_monotone : forall (c : com) (Q1 Q2 : assertion) s,
   (forall s', Q1 s' -> Q2 s') ->
   wp c Q1 s -> wp c Q2 s.

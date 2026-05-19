@@ -120,7 +120,7 @@ class LenExpr(BaseModel):
 
     def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         if scoped:
-            return f's "{self.name}._len"%string'
+            return f'asZ (hget s "{self.name}"%string len_f)'
         return f"{self.name}__len"
 
     def to_smt(self) -> str:
@@ -135,7 +135,8 @@ class IndexExpr(BaseModel):
 
     def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         if scoped:
-            return f's (parray_key "{self.name}"%string {self.index.to_coq(False, unbound)})%string'
+            idx_coq = self.index.to_coq(False, unbound)
+            return f'asZ (hget s "{self.name}"%string (elem_f ({idx_coq})))'
         return f"{self.name}___{self.index.to_coq(False, unbound)}"
 
     def to_smt(self) -> str:
@@ -151,7 +152,7 @@ class DictLenExpr(BaseModel):
     def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         key_str = self.key.to_coq(False, unbound)
         if scoped:
-            return f's (parray_len_key (dict_key "{self.name}"%string ({key_str})))%string'
+            return f'asZ (hget s "{self.name}"%string (dlen_f ({key_str})))'
         return f"{self.name}_v_{key_str}__len"
 
     def to_smt(self) -> str:
@@ -165,7 +166,7 @@ class DictCountExpr(BaseModel):
 
     def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
         if scoped:
-            return f's (dict_count_key "{self.name}"%string)%string'
+            return f'asZ (hget s "{self.name}"%string count_f)'
         return f"{self.name}__count"
 
     def to_smt(self) -> str:
@@ -193,7 +194,7 @@ class AllExpr(BaseModel):
                 if hi.startswith('s '):
                     hi = f'asZ ({hi})'
             return f"(forall ({self.var} : Z), {lo} <= {self.var} < {hi} -> {p})"
-        ln = f'asZ (s "{self.lst}._len"%string)' if (scoped and self.lst) else (f"{self.lst}__len" if self.lst else "0")
+        ln = f'asZ (hget s "{self.lst}"%string len_f)' if (scoped and self.lst) else (f"{self.lst}__len" if self.lst else "0")
         return f"(forall ({self.var} : Z), 0 <= {self.var} < {ln} -> {p})"
 
     def to_smt(self) -> str:
