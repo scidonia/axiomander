@@ -41,7 +41,7 @@ from .purity_analyzer import (
     analyze_purity, generate_frame_conditions, generate_havoc_body,
     PurityReport,
 )
-from .python_to_imp import python_to_imp
+from .py_to_imp import PyToImpLowerer
 from .reporting import (
     Action, GoalStatus, ProofLevel, PipelineReport,
     build_report, action_guidance,
@@ -57,6 +57,43 @@ PROJECT_ROOT = Path(os.environ.get(
 BUILD_DIR = PROJECT_ROOT / "_build" / "default" / "coq"
 
 _cache = VerificationCache()
+
+
+from .py_to_imp import PyToImpLowerer
+
+
+def _gen_imp_body(tree, func_node, contract_map=None) -> str:
+    """Generate IMP body via PyIR -> ImpIR pipeline.
+    
+    This is the canonical IMP body generator. All call sites MUST use
+    this path rather than the legacy python_to_imp string assembler.
+    """
+    import ast
+    predicates = _collect_predicates(tree) if tree else {}
+    ghost_vars = _detect_ghost_vars(func_node)
+    ghost_var_names = frozenset(ghost_vars.keys())
+    var_types = _infer_var_types(func_node)
+    params = [name for name, _ in _func_params(func_node)]
+    expanded, class_fields, _, _, _ = _expand_params(tree, params, func_node)
+
+    param_types = {a.arg: a.annotation.id
+                   for a in func_node.args.args
+                   if a.annotation and isinstance(a.annotation, ast.Name)}
+
+    pylinter = ContractLinter(expanded, "precondition", predicates=predicates,
+                              unbound=ghost_var_names)
+    pylinter.var_types = var_types
+    pytranslator = PyIRTranslator(contract_linter=pylinter)
+    py_func = pytranslator.translate_function(func_node)
+    lowerer = PyToImpLowerer(
+        func_name=func_node.name,
+        record_fields=class_fields,
+        param_types=param_types,
+        annot_guard_mode=True,
+        contract_map=contract_map,
+    )
+    imp_ir = lowerer.lower_function(py_func)
+    return imp_ir.to_coq() if hasattr(imp_ir, 'to_coq') else "CSkip"
 
 
 def _compute_hashes(source: str, func_name: str, tree: "ast.Module | None" = None) -> FunctionHashes | None:
@@ -81,8 +118,8 @@ def _compute_hashes(source: str, func_name: str, tree: "ast.Module | None" = Non
     params = [name for name, _ in _func_params(func_node)]
     expanded, _, _, _, _ = _expand_params(tree, params, func_node)
 
-    # Generate IMP body (normalized IR — good for hashing)
-    imp_body = python_to_imp(func_node, contract_map=_build_contract_map(tree), tree=tree)
+    # Generate IMP body via PyIR -> ImpIR (normalized IR — good for hashing)
+    imp_body = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
     body_hash = compute_body_hash(func_node, imp_body)
 
     # Classify and extract contracts
@@ -729,7 +766,7 @@ def tool_explain_cache(args: dict) -> str:
     params = [name for name, _ in _func_params(func_node)]
     expanded, _, _, _, _ = _expand_params(tree, params, func_node)
     contract_map = _build_contract_map(tree)
-    imp_body = python_to_imp(func_node, contract_map=contract_map, tree=tree)
+    imp_body = _gen_imp_body(tree, func_node, contract_map=contract_map)
     body_hash = compute_body_hash(func_node, imp_body)
 
     linter_pre = ContractLinter(expanded, "precondition")
@@ -1059,25 +1096,8 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
                           suggested_action=Action.REFACTOR,
                           suggestion_text="Fix lint errors in assertions.")
 
-    # Generate IMP via PyIR → ImpIR
-    ghost_var_names_imp = set(ghost_vars.keys())
-    param_types = {a.arg: a.annotation.id
-                   for a in func_node.args.args
-                   if a.annotation and isinstance(a.annotation, ast.Name)}
-    pylinter = ContractLinter(expanded, "precondition", predicates=predicates,
-                              unbound=ghost_var_names)
-    pylinter.var_types = var_types
-    pytranslator = PyIRTranslator(contract_linter=pylinter)
-    py_func = pytranslator.translate_function(func_node)
-    lowerer = PyToImpLowerer(
-        func_name=func_name,
-        record_fields=class_fields,
-        param_types=param_types,
-        annot_guard_mode=True,
-        contract_map=_build_contract_map(tree),
-    )
-    imp_ir = lowerer.lower_function(py_func)
-    imp_body = imp_ir.to_coq() if hasattr(imp_ir, 'to_coq') else "CSkip"
+    # Generate IMP via PyIR -> ImpIR
+    imp_body = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
     coq_source = _generate_coq(func_node, lint_results, imp_body, tree, hint,
                                ghost_vars=ghost_vars)
 
@@ -1253,7 +1273,7 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
 
     params = [name for name, _ in _func_params(func_node)]
     expanded, _, params_coq, _, _ = _expand_params(tree, params, func_node)
-    imp_body = python_to_imp(func_node, contract_map=_build_contract_map(tree), tree=tree)
+    imp_body = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
 
     # Generate full Coq source
     var_types2 = _infer_var_types(func_node)
