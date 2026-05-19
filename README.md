@@ -206,6 +206,43 @@ PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 | z3 | SMT solver (Level 2 — preferred for string/float theories) |
 | coqpyt | Interactive Coq proof session (LLM oracle) |
 
+## MCP Setup
+
+Axiomander exposes its tools as an MCP server. Wire it into your editor for inline verification.
+
+**Cursor / VS Code / Claude Desktop** — add to your MCP config (`~/.cursor/mcp.json`, `~/.vscode/mcp.json`, or `claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "axiomander": {
+      "command": "uv",
+      "args": ["run", "python", "-m", "oracle.mcp_server"],
+      "cwd": "/path/to/axiomander",
+      "env": {
+        "AXIOMANDER_ROOT": "/path/to/axiomander",
+        "DEEPSEEK_API_KEY": "sk-...",
+        "PATH": "/usr/bin:/bin:/usr/local/bin"
+      }
+    }
+  }
+}
+```
+
+**Tools exposed:**
+
+| Tool | What it does |
+|---|---|
+| `check-file` | Analyze a file for contract adornment opportunities |
+| `check-function` | Verify a single function (Level 1) + suggest contracts |
+| `verify-function` | Full verification (Level 1 → 2 → 3) |
+| `verify-changed` | Incremental — re-verify only changed functions |
+| `verify-impacted` | Dry-run — show what would be re-verified |
+| `explain-cache` | Show cache state for a function |
+| `frame-report` | Show pre/post/invariant + frame conditions |
+
+**Requirements:** `uv` installed, `eval $(opam env)` in the environment. The MCP server starts Coq and SMT on demand. First verification run compiles Coq (a few seconds); subsequent runs use the cache (milliseconds).
+
 ## Architecture
 
 ```
