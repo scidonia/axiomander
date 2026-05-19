@@ -719,6 +719,40 @@ def bad_int_to_bool(n: int) -> int:
     result = toggle(n)
     assert result == 1 or result == 0
     return result'''),
+    # ── Student schedule (business logic) ────────────────────────
+    ("count_eligible", '''class Student:
+    completed_base: int = Field(ge=0, le=1)
+
+def count_eligible(student: Student, courses: list[int]) -> int:
+    assert student.completed_base >= 0
+    assert len(courses) >= 0
+    count = 0
+    i = 0
+    while i < len(courses):
+        assert count <= i
+        assert i <= len(courses)
+        if courses[i] == 0 or student.completed_base == 1:
+            count += 1
+        i += 1
+    result = count
+    assert result <= len(courses)
+    return result'''),
+    ("enroll", '''class Course:
+    capacity: int = Field(ge=0)
+    enrolled_count: int = Field(ge=0)
+
+def enroll(course: Course) -> int:
+    assert course.capacity >= 0
+    assert course.enrolled_count >= 0
+    if course.enrolled_count >= course.capacity:
+        result = 0
+        assert result == 0
+        return result
+    course.enrolled_count += 1
+    result = 1
+    assert course.enrolled_count <= course.capacity
+    assert result == 1
+    return result'''),
 ]
 
 NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail", "all_positive", "use_wrong", "user_no_post", "inv_body_violation",     "bad_pass_str", "bad_call_str", "bad_int_to_bool",

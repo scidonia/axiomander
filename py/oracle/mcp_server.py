@@ -1534,6 +1534,7 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
             for f in class_fields[cls_name]:
                 expanded.append(f"{p}_{f}")
                 parts.append(f"({p}_{f} : Z)")
+                init_state = f'(upd {init_state} "{p}_{f}"%string (VZ {p}_{f}))'
         else:
             expanded.append(p)
             parts.append(f"({p} : {coq_type})")
@@ -1541,13 +1542,6 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
                 init_state = f'(upd {init_state} "{p}"%string (VFloat {p}))'
             else:
                 init_state = f'(upd {init_state} "{p}"%string (VZ {p}))'
-
-    for p in params:
-        cls_name = next((c for c in class_fields if c.lower() == p.lower()), None)
-        if cls_name:
-            for f in class_fields[cls_name]:
-                init_state = f'(store_field "{p}"%string "{f}"%string (VZ {p}_{f}) {init_state})'
-
     return expanded, class_fields, " ".join(parts), init_state, record_section
 
 
