@@ -27,6 +27,6 @@ Theorem max_correct : forall (a b : Z),
      (updZ (updZ empty_state "a"%string a) "b"%string b).
 Proof.
   intros a b Ha Hb. wp_reduce.
-  split; [intro Hleb; apply Z.leb_le in Hleb; wp_prove; split; lia
-         | intro Hleb; apply Z.leb_gt in Hleb; wp_prove; split; lia].
+  split; [intro Hleb; apply Z.leb_le in Hleb; split; lia
+         | intro Hleb; apply Z.leb_gt in Hleb; split; lia].
 Qed.

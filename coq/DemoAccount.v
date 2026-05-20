@@ -53,5 +53,6 @@ Theorem withdraw_correct : forall (balance overdraft amount : Z),
      (init_account_state balance overdraft amount).
 Proof.
   intros balance overdraft amount Hamt Hfunds.
-  wp_prove.
+  wp_reduce.
+  split; [reflexivity | lia].
 Qed.
