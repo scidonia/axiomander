@@ -124,3 +124,86 @@ Python source
 | `py_to_imp.py` | Compute `frame_vars` in `_lower_ccall()` |
 | `mcp_server.py` | Generate lemmas + proof uses in `_generate_coq()` |
 | `WpTactics.v` | No changes needed (uses existing `wp_ccall_frame`) |
+
+## Staged Proof Generation
+
+Instead of emitting a single `wp_prove.` tactic, the proof is emitted as
+named stages connected by `;` or nested `{ }` blocks. Each stage is
+independently identifiable and can fail without losing earlier progress.
+
+### Template
+
+```coq
+Theorem {name}_correct : forall ...,
+  ...
+Proof.
+  intros.
+  wp_reduce.
+
+  (* ── stage: pre ── *)
+  { {split; [assumption | reflexivity]} ; intro r ; intro Hr_post ; split } ;
+
+  (* ── stage: frame inc/a ── *)
+  { apply inc_frame_a. } ;
+
+  (* ── stage: frame inc/b ── *)
+  { apply inc_frame_b. } ;
+
+  (* ── stage: frame inc/old_a ── *)
+  { apply inc_frame_old_a. } ;
+
+  (* ── stage: frame inc/old_b ── *)
+  { apply inc_frame_old_b. } ;
+
+  (* ── stage: post ── *)
+  { lia. }
+Qed.
+```
+
+### Benefits
+
+| Stage | ID | Artifact |
+|-------|----|---------|
+| `pre` | `{name}.pre` | Split + assumption proof |
+| `frame inc/a` | `{name}.inc.frame_a` | `apply inc_frame_a` |
+| `frame inc/b` | `{name}.inc.frame_b` | `apply inc_frame_b` |
+| `post` | `{name}.post` | Arithmetic via `lia` |
+
+Each stage:
+- Has a stable identifier `{function}.{callee}.frame_{var}`
+- Is cached independently — re-proving only the stage that changed
+- Produces residual state on failure (hypotheses + goal)
+- Feeds narrow LLM prompt: "Stage `frame_two_calls.inc.frame_a` failed. Remaining goal: ..."
+
+### Residual Capture
+
+When stage `{name}.{callee}.frame_{var}` fails:
+
+```
+proof-cache/{name}.{callee}.frame_{var}/
+  source.py           — original Python source
+  ir.json             — ImpIR tree
+  wp.v                — generated Coq
+  normalized_goal.v   — goal after wp_reduce
+  tactic_trace.json   — ["intros", "wp_reduce", "split", "intro r", ...]
+  stage_goal.v        — residual goal at this stage
+  stage_hyps.v        — hypotheses at this stage
+  llm_prompt.md       — generated prompt with residual state
+  llm_candidate.v     — LLM's suggested proof patch
+  status.json         — {stage, status, error, suggested_action}
+```
+
+### Integration with Pipeline Tiers
+
+```
+Stage pre       → Level 1: wp_reduce + wp_prove (structural)
+Stage frame/*   → apply lemma_name  (trivial, via wp_ccall_frame)
+Stage post      → Level 2: SMT (cvc4) or Level 3: LLM oracle
+```
+
+If `lia` fails on Stage post:
+1. Save residual goal to `.v` fragment
+2. Export to SMT-LIB via `to_smt()`
+3. If SMT finds counterexample → suggest weaker invariant
+4. If SMT proves → reconstruct Coq proof from hammer
+5. If SMT fails → prompt LLM with residual goal + hypotheses

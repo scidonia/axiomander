@@ -44,6 +44,46 @@ lemma is trivial (`apply wp_ccall_frame`).  The caller proof uses `apply
 lemma_name` instead of matching the general forall.  Design at
 [`docs/frame-lemmas.md`](docs/frame-lemmas.md).
 
+**Lemmas generate correctly;** remaining work is wiring them into the proof
+so each `apply lemma_name` fires independently, producing residual state on
+failure.
+
+### Staged Proof Engineering — Assessment
+
+A gap analysis against [`staged_proof_engineering_guide.md`](staged_proof_engineering_guide.md):
+
+| Principle | Current | Gap |
+|-----------|---------|-----|
+| Small named obligations | Per-function theorems + VCG lemmas | CCall frames are one `forall`; per-variable lemmas being built |
+| Durable artifacts | Binary cache per function | No tactic trace, no residual goals, no per-obligation dirs |
+| Mechanical tactic ladder | `wp_reduce` → `wp_prove` | No trace of which tactic fired/succeeded/failed |
+| Residual goal capture | Raw `coqc` error string | No structured residual state with hypotheses |
+| Narrow LLM tasks | Prompt gives context | Doesn't include residual goal with hypotheses |
+| Multi-level caching | Function-level hash | No per-obligation, per-stage caching |
+| Failure classification | `UNPROVED/COUNTEREXAMPLE/LEVEL*` | Doesn't distinguish "bug" vs "missing lemma" vs "weak automation" |
+
+**Root cause:** `wp_prove.` is a single monolithic tactic. When it fails we
+lose all intermediate proof state. The fix is to break proofs into staged
+named obligations that can fail independently.
+
+### Next Steps (priority order)
+
+1. **Wire frame lemmas into proofs** — replace the general `forall` frame
+   subgoal with `apply inc_frame_a. apply inc_frame_b. ...` per variable.
+   Each `apply` can fail independently with its own residual state.
+
+2. **Staged proof output** — generate proofs as sequences of named stages
+   (preconditions, frame lemmas, postcondition) instead of `wp_prove.` only.
+
+3. **Residual goal capture** — when a stage fails, save the goal state
+   with hypotheses to a `.v` fragment for coq-lsp / LLM consumption.
+
+4. **Tactic trace** — log which tactic fired, which subgoal it produced,
+   and whether it succeeded or failed. Feed into caching.
+
+5. **Failure classification** — distinguish "weak invariant" from
+   "missing lemma" from "arithmetic too complex for lia/SMT."
+
 **Loop predicates — RESOLVED.** Predicates containing loops are handled via
 postcondition-inlining: the predicate is verified as a standalone function, its
 semantic postcondition (guarded by `implies(result == 1, property)`) is extracted,
