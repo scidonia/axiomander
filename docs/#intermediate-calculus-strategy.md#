@@ -1,0 +1,160 @@
+# Intermediate Calculus Strategy
+
+## Why a Strategy Document
+
+We hit a tension: `pop([x])` should be trivial — we know the list has one element, `pop` returns it. But our pipeline models `pop` as an opaque CCall with a `True` postcondition, generating frame conditions that `wp_prove` can't discharge. The result: 3 frame tests that should pass, but can't.
+
+The root cause is not CCall frame tactics. It's that we're doing too much at the Coq level that could be done at the Python→IMP translation level with **partial evaluation**.
+
+## The Principle
+
+> Compute everything you can at translate time. Leave only what you *must* as symbolic IMP.
+
+If the translator knows the value of an expression, it should compute it. If it knows partial structure, it should partially evaluate. The IMP body should contain only the irreducible core — the parts that genuinely depend on unknown inputs.
+
+## Partial Evaluation (Driving)
+
+Supercompilation / driving is the technique of executing a program given *partial* knowledge about its inputs. For Axiomander, the inputs are:
+
+- **Concrete values:** list literals `[x]`, string literals `"hello"`, integer constants `5`
+- **Concrete structure:** a list `[a, b]` with 2 elements (values unknown)
+- **Type information:** `x: int` means `x` is a `VZ` value
+- **Contracts:** `assert x >= 0` means `x` is non-negative at that point. It also implies it is a numeric value (but not necessarily an integer)
+
+### Current State
+
+```
+Python:     v = pop([x])
+            ↓
+IMP:        CSeq (CListNew ...) (CCall "pop" ... (fun s => True) ...)
+            ↓
+Coq:        wp (CCall "pop") Q s = True /\ (forall r, True -> Q(clobber ...) /\ frame)
+```
+
+The translator sees `pop([x])` as a CCall to an opaque stub. It generates list construction code (`CListNew`, `CListAppend`), then a CCall with `True` pre/post. The Coq proof must handle frame conditions through a generic CCall mechanism.
+
+### Target State
+
+```
+Python:     v = pop([x])
+            ↓
+IMP:        CAss "v" (AVar "x")
+            ↓
+Coq:        wp (CAss "v" (AVar "x")) Q s = Q (upd s "v" (VZ x))
+```
+
+The translator recognizes the list literal `[x]`, partially evaluates `pop`: the list has one element, `pop` removes and returns it. The list literal construction is eliminated entirely. No CCall, no stub, no frame. Just a direct assignment.
+
+## What We Can Drive
+
+### Concrete Lists
+
+| Expression | Knowledge | Drivable To |
+|---|---|---|
+| `pop([x])` | List literal `[x]` | `CAss "v" (AVar "x")` |
+| `len([x, y])` | List literal `[x, y]` | `(ANum 2)` |
+| `sum([])` | Empty list literal | `(ANum 0)` |
+| `max([a, b])` | 2-element list | `(if a >= b then AVar "a" else AVar "b")` |
+
+### Concrete Strings
+
+| Expression | Knowledge | Drivable To |
+|---|---|---|
+| `len("hello")` | String literal | `(ANum 5)` |
+| `"abc"[0]` | String literal + index | `(ANum 97)` (ord('a')) |
+| `text == "hello"` | String literal comparison | `(BEq (AVar "text") (AString "hello"))` (already done) |
+
+### Known Return Types
+
+| Expression | Knowledge | Drivable To |
+|---|---|---|
+| `len(lst)` where `lst: list[int]` | Annotation | `ALen "lst"` (already done) |
+| `abs(x)` where `x: int` | Annotation + pure function | Inline `abs` body |
+
+### Contract-Guided Driving
+
+| Context | Knowledge | Drivable To |
+|---|---|---|
+| `x` after `assert x >= 0` | `x` is non-negative | `AMinus x 1` stays symbolic but `x >= 0` is known for proofs |
+| `i` after `while i < n` loop | `i <= n` from invariant | Exit condition: `i = n` (after loop) |
+
+## Architecture
+
+The driving pass sits between the Python AST and the IMP translator:
+
+```
+Python AST
+    │
+    ▼
+  Contract Linter (asserts → IR, contracts)
+    │
+    ▼
+  Partial Evaluator (drive known expressions)    ← NEW
+    │
+    ▼
+  IMP Translator (ast → IMP commands)
+    │
+    ▼
+  Coq Generator (IMP + contracts → Coq theorem)
+```
+
+The partial evaluator is an AST-to-AST transformer. It walks the function body and replaces driven expressions with their computed forms:
+
+```python
+def drive_expr(node, context):
+    if is_list_literal(node) and context.is_pop_call:
+        # pop([x]) → return the element
+        return node.elts[-1]
+    if is_list_literal(node) and context.is_len_call:
+        # len([...]) → return the count
+        return ast.Constant(value=len(node.elts))
+    # ... more driving rules ...
+    return node  # not drivable, leave as-is
+```
+
+## What This Unblocks
+
+### frame_stub_pop
+
+```
+v = pop([x])
+```
+Drives to: `v = x`. The postcondition `result >= x` becomes `x >= x` — trivial.
+
+### frame_stub_disjoint
+
+```
+a = pop([x])        → a = x
+b = len([x, x+1])   → b = 2
+result = a + b      → result = x + 2
+assert result >= 2  → x + 2 >= 2 → x >= 0 (from precondition)
+```
+
+Both drivable. No CCall, no stub, no frame. Pure arithmetic.
+
+### frame_triple_compose
+
+```
+a = plus_one(n)     → CCall (cross-function, can't drive)
+b = times_two(n)    → CCall (cross-function, can't drive)
+result = a + b      → arithmetic (already direct)
+```
+
+The CCall chain remains, but the `+` is direct arithmetic. The CCall frame lemma (`clobber_upd_commute`) handles the composition.
+
+## Relation to Supercompilation
+
+Driving is a form of supercompilation restricted to known values. A full supercompiler would:
+
+1. **Inline function bodies** — replace CCall with the callee's IMP body
+2. **Specialize loops** — unroll loops for known iteration counts
+3. **Residualize** — leave unknown parts as IMP, compute known parts as values
+
+For Axiomander, we start with the simplest driver: concrete list/string literals. This alone unblocks the 3 failing frame tests. Full supercompilation (function inlining, loop specialization) is a longer-term goal.
+
+## Priority
+
+1. **List literal driver** — `pop([x])`, `len([x, y])`, `sum([])`. Unblocks frame tests.
+2. **String literal driver** — `len("hello")`, string indexing.
+3. **CCall frame lemma** — `clobber_upd_commute`. Unblocks CCall chain tests.
+4. **Supercompilation** — function inlining, loop specialization.

@@ -2980,7 +2980,7 @@ Theorem {name}_vcg_exit : forall {vcg_params},
                     frame_applies += f"  apply {callee}_frame_{v}.\n"
 
     if frame_lemmas:
-        pass  # lemmas generated; wp_prove handles proof via wp_ccall_frame match
+        pass  # lemmas generated; still need to restructure proof to use them
 
     return f"""(* Auto-generated from {name} *){frame_comment}
 {source_notes}
