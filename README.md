@@ -245,6 +245,8 @@ Axiomander exposes its tools as an MCP server. Wire it into your editor for inli
 
 ## Architecture
 
+![Axiomander Architecture](docs/architecture.png)
+
 ```
 py/
   oracle/

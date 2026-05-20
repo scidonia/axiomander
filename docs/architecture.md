@@ -27,49 +27,48 @@
 flowchart TB
     subgraph SOURCE["🐍 Python Source"]
         direction TB
-        PY["def withdraw(amt):<br/>  <span style='color:#34d399'>assert</span> amt &gt;= 0<br/>  <span style='color:#34d399'>assert</span> bal + overdraft &gt;= amt<br/>  bal = bal - amt<br/>  <span style='color:#34d399'>assert</span> bal &gt;= -overdraft<br/>  <span style='color:#f472b6'>return</span> bal"]
+        PY["<div style='text-align:left'>def withdraw(amt):<br/>  <span style='color:#34d399'>assert</span> amt &gt;= 0<br/>  <span style='color:#34d399'>assert</span> bal + overdraft &gt;= amt<br/>  bal = bal - amt<br/>  <span style='color:#34d399'>assert</span> bal &gt;= -overdraft<br/>  <span style='color:#f472b6'>return</span> bal</div>"]
     end
 
     subgraph IR["🔬 Intermediate Representations"]
         direction LR
-        PYIR["<b>Faithful Python Core IR</b><br/>PyAssign, PyCall, PyFor,<br/>PyWhile, PyIf, PyReturn<br/><br/><i>ast → PyIRTranslator</i>"]
-        IMPIR["<b>Verification IR</b><br/>CAss, CSeq, CIf, CWhile,<br/>CCall, CHavoc, CListAppend,<br/>CDictSet, CAssume, …<br/><br/><i>PyToImpLowerer</i>"]
-        COQ["<b>Coq IMP AST</b><br/>com, aexp, bexp, value<br/>state ≜ { ls; hs }<br/><br/><i>to_coq() serialisation</i>"]
+        PYIR["<div style='text-align:left'><b>Faithful Python Core IR</b><br/>PyAssign, PyCall, PyFor, PyWhile, PyIf, PyReturn<br/><i>ast → PyIRTranslator</i></div>"]
+        IMPIR["<div style='text-align:left'><b>Verification IR</b><br/>CAss, CSeq, CIf, CWhile, CCall,<br/>CHavoc, CListAppend, CDictSet, CAssume, …<br/><i>PyToImpLowerer</i></div>"]
+        COQ["<div style='text-align:left'><b>Coq IMP AST</b><br/>com, aexp, bexp, value<br/>state ≜ { ls; hs }<br/><i>to_coq() serialisation</i></div>"]
     end
 
     subgraph CONTRACTS["📜 Contract Linter"]
         direction LR
-        ASSERT["<span style='color:#34d399'>assert</span> x &gt;= 0<br/><span style='color:#34d399'>assert</span> result == x + 1"]
+        ASSERT["<div style='text-align:left'><span style='color:#34d399'>assert</span> x &gt;= 0<br/><span style='color:#34d399'>assert</span> result == x + 1</div>"]
         LINT["<b>ContractLinter</b><br/>classify → lint → IR<br/>pre / post / invariant"]
-        IR_EXPR["<b>Contract IR</b><br/>BinOp, Var, IntLit,<br/>LenExpr, IndexExpr, …<br/><br/><i>SMT export via to_smt()</i>"]
+        IR_EXPR["<div style='text-align:left'><b>Contract IR</b><br/>BinOp, Var, IntLit, LenExpr, IndexExpr, …<br/><i>SMT export via to_smt()</i></div>"]
     end
 
     subgraph WP["📐 Weakest Precondition"]
-        direction TB
-        WP_CALC["<b>WP Calculus (Imp.v / Wp.v)</b><br/>wp(CAss x a, Q) = Q[lupd s x ⟦a⟧]<br/>wp(CSeq c₁ c₂, Q) = wp(c₁, wp(c₂, Q))<br/>wp(CIf b c₁ c₂, Q) = (⟦b⟧ → wp(c₁, Q)) ∧ (¬⟦b⟧ → wp(c₂, Q))<br/>wp(CWhile b I c, Q) = I ∧ VCG-exit ∧ VCG-body<br/>wp(CCall …) = pre s ∧ ∀r. post(s[result↦r]) → …"]
-        VC["<b>Verification Condition</b><br/>params → pre → wp(body, post, init_state)"]
+        direction LR
+        WP_RULES["<div style='text-align:left'><b>WP Calculus (Imp.v / Wp.v)</b><br/><br/>wp(CAss x a, Q) = Q[lupd s x ⟦a⟧]<br/>wp(CSeq c₁ c₂, Q) = wp(c₁, wp(c₂, Q))<br/>wp(CIf b c₁ c₂, Q) = (⟦b⟧ → wp(c₁, Q)) ∧ (¬⟦b⟧ → wp(c₂, Q))<br/>wp(CWhile b I c, Q) = I ∧ VCG<br/>wp(CCall f …) = pre ∧ ∀r. post[r] → Q</div>"]
+        WP_VC["<div style='text-align:left'><b>Verification Condition</b><br/>∀ params st, pre(st) → wp(body, post)(st)</div>"]
+        PROOF["<div style='text-align:left'><b>Coq Theorem</b><br/>Theorem f_correct :<br/>  ∀ params st, pre(st) → wp body post st</div>"]
     end
-
-    PROOF["<b>Coq Theorem</b><br/>Theorem fn_correct : ∀ params,<br/>&nbsp;&nbsp;pre → wp body post init_state."]
 
     subgraph PIPELINE["⚡ Proof Pipeline (3 Tiers)"]
         direction TB
-        L1["<b>Level 1 — Ltac</b><br/>wp_reduce / wp_prove<br/>Structural + linear arithmetic<br/><br/><span style='color:#22d3ee'>Handles ~80% of goals</span><br/>assignments, conditionals,<br/>reflexivity, lia"]
+        L1["<div style='text-align:left'><b>Level 1 — Ltac</b><br/>wp_reduce / wp_prove<br/>Structural + linear arithmetic<br/><br/><span style='color:#22d3ee'>Handles ~80% of goals</span><br/>assignments, conditionals,<br/>reflexivity, lia</div>"]
         L1_CHECK{"Dispatched?"}
         L1_DONE["✅ <b>LEVEL1_LTAC</b>"]
 
-        L2["<b>Level 2 — SMT</b><br/>coq-hammer → cvc4 / eprover<br/>Z arithmetic, first-order logic<br/><br/><span style='color:#22d3ee'>Non-linear, division,<br/>boolean combinations</span>"]
+        L2["<div style='text-align:left'><b>Level 2 — SMT</b><br/>coq-hammer → cvc4 / eprover<br/>Z arithmetic, first-order logic<br/><br/><span style='color:#22d3ee'>Non-linear, division,<br/>boolean combinations</span></div>"]
         L2_CHECK{"Dispatched?"}
         L2_DONE["✅ <b>LEVEL2_SMT</b>"]
 
-        L3["<b>Level 3 — LLM Oracle</b><br/>DeepSeek via coqpyt<br/>interactive proof search<br/><br/><span style='color:#fbbf24'>Loop invariants, induction,<br/>complex data structures</span>"]
+        L3["<div style='text-align:left'><b>Level 3 — LLM Oracle</b><br/>DeepSeek via coqpyt<br/>interactive proof search<br/><br/><span style='color:#fbbf24'>Loop invariants, induction,<br/>complex data structures</span></div>"]
         L3_CHECK{"Dispatched?"}
         L3_DONE["✅ <b>LEVEL3_LLM</b>"]
         L3_FAIL["❌ <b>UNPROVED</b><br/><span style='color:#f87171'>SMT counterexample,<br/>suggested action</span>"]
     end
 
     subgraph SOUNDNESS["🏛️ Trust Base"]
-        WP_SOUND["<b>wp_sound</b> — Admitted<br/>wp c Q s → ceval c s s' → Q s'"]
+        WP_SOUND["<div style='text-align:left'><b>wp_sound</b> — Admitted<br/>wp c Q s → ceval c s s' → Q s'</div>"]
     end
 
     SOURCE --> PYIR
