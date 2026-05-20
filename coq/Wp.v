@@ -64,10 +64,10 @@ Fixpoint wp (c : com) (Q : assertion) : assertion :=
                               name (elem_f c) (aeval val_e s) in
                Q (hupd (hupd s1 name (elem_f c) (aeval key_e s))
                        name count_f (VZ new_c))
-  | CCall name args pre post writes target =>
-      fun s => pre s /\ (forall r, post (lupd s target (VZ r)) ->
-        Q (clobber (lupd s target (VZ r)) writes) /\
-        (forall x, ~ In x (target :: writes) -> s x = (clobber (lupd s target (VZ r)) writes) x))
+   | CCall name args pre post writes target =>
+       fun s => pre s /\ (forall r, post (lupd s target (VZ r)) ->
+         Q (clobber (lupd s target (VZ r)) writes) /\
+         (forall x, ~ In x (target :: writes) -> lget s x = lget (clobber (lupd s target (VZ r)) writes) x))
   | CAssume P =>
       fun s => P s -> Q s
   end.

@@ -26,7 +26,7 @@ Theorem max_correct : forall (a b : Z),
      (fun s => a <= asZ (s "result"%string) /\ b <= asZ (s "result"%string))
      (updZ (updZ empty_state "a"%string a) "b"%string b).
 Proof.
-  intros a b Ha Hb. wp_reduce.
+  intros a b Ha Hb. wp_reduce. unfold upd, updZ; cbn.
   split; [intro Hleb; apply Z.leb_le in Hleb; split; lia
          | intro Hleb; apply Z.leb_gt in Hleb; split; lia].
 Qed.

@@ -54,5 +54,6 @@ Theorem withdraw_correct : forall (balance overdraft amount : Z),
 Proof.
   intros balance overdraft amount Hamt Hfunds.
   wp_reduce.
+  unfold upd, updZ; cbn.
   split; [reflexivity | lia].
 Qed.
