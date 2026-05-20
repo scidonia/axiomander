@@ -77,6 +77,8 @@ Qed.
 
 Opaque In.
 
+Hint Resolve lupd_eq clobber_nil : core.
+
 (** Coercion-form state-lookup lemmas.
 
     The coercion [Coercion ls : state >-> Funclass] makes [s "x"] work
@@ -122,7 +124,9 @@ Ltac wp_prove :=
   | [ H: Z.eqb ?a ?b = false |- _ ] => apply Z.eqb_neq in H; wp_prove
   | |- _ /\ _ => split; wp_prove
   | |- _ -> _ => intro; wp_prove
-  | |- forall _, ~ In _ (_ :: _) -> _ = clobber (upd _ _ (VZ _)) _ _ => apply wp_ccall_frame
+  | |- forall _, ~ In _ (_ :: _) -> lget _ _ = lget (clobber (lupd _ _ (VZ _)) _) _ => apply wp_ccall_frame
+  | |- forall _, ~ In _ (_ :: _) -> (ls ?s) _ = (ls (clobber (lupd ?s ?t (VZ _)) ?w)) _ => 
+      apply (wp_ccall_frame s t w)
   | |- forall _, _ => intro; wp_prove
   | |- exists _, _ => eexists; wp_prove
   | |- (if ?c then _ else _) = 1 \/ (if ?c then _ else _) = 0 =>
