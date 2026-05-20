@@ -2,7 +2,7 @@
 
 ```mermaid
 %%{init: {'theme': 'dark', 'themeVariables': {
-  'fontSize': '14px',
+  'fontSize': '13px',
   'primaryColor': '#7c3aed',
   'primaryTextColor': '#f5f3ff',
   'primaryBorderColor': '#a78bfa',
@@ -26,29 +26,47 @@
 
 flowchart TB
     subgraph SOURCE["🐍 Python Source"]
-        direction TB
-        PY["<div style='text-align:left'><b>def withdraw</b>(acct: Account, amount: int) → int:<br/>&nbsp;&nbsp;<span style='color:#34d399'>assert</span> amount &gt;= 0<br/>&nbsp;&nbsp;<span style='color:#94a3b8'># ⟨ghost⟩</span> old_balance = acct.balance<br/>&nbsp;&nbsp;<span style='color:#c084fc'>if</span> amount > acct.balance + acct.overdraft_limit:<br/>&nbsp;&nbsp;&nbsp;&nbsp;result = 0<br/>&nbsp;&nbsp;&nbsp;&nbsp;<span style='color:#34d399'>assert</span> result == 0<br/>&nbsp;&nbsp;&nbsp;&nbsp;<span style='color:#f472b6'>return</span> result<br/>&nbsp;&nbsp;acct.balance -= amount<br/>&nbsp;&nbsp;<span style='color:#34d399'>assert</span> acct.balance + acct.overdraft_limit &gt;= 0<br/>&nbsp;&nbsp;result = 1<br/>&nbsp;&nbsp;<span style='color:#34d399'>assert</span> result == 1<br/>&nbsp;&nbsp;<span style='color:#f472b6'>return</span> result</div>"]
+        PY["<pre style='text-align:left;white-space:pre;margin:0'><span style='color:#c084fc'>def</span> <b>withdraw</b>(acct, amount):
+    <span style='color:#34d399'>assert</span> amount >= 0
+    <span style='color:#94a3b8'># ghost: old = acct.balance</span>
+    <span style='color:#c084fc'>if</span> amount > acct.balance + acct.overdraft:
+        result = 0
+        <span style='color:#34d399'>assert</span> result == 0
+        <span style='color:#c084fc'>return</span> result
+    acct.balance -= amount
+    result = 1
+    <span style='color:#34d399'>assert</span> acct.balance + acct.overdraft >= 0
+    <span style='color:#34d399'>assert</span> result == 1
+    <span style='color:#c084fc'>return</span> result</pre>"]
     end
 
     subgraph IR["🔬 Intermediate Representations"]
         direction LR
-        PYIR["<div style='text-align:left'><b>Faithful Python Core IR</b><br/>PyAssign, PyCall, PyFor, PyWhile, PyIf, PyReturn<br/><i>ast → PyIRTranslator</i></div>"]
-        IMPIR["<div style='text-align:left'><b>Verification IR</b><br/>CAss, CSeq, CIf, CWhile, CCall,<br/>CHavoc, CListAppend, CDictSet, CAssume, …<br/><i>PyToImpLowerer</i></div>"]
-        COQ["<div style='text-align:left'><b>Coq IMP AST</b><br/>com, aexp, bexp, value<br/>state ≜ { ls; hs }<br/><i>to_coq() serialisation</i></div>"]
+        PYIR["<div style='text-align:left'><b>Faithful Python Core IR</b><br/>PyAssign, PyCall, PyFor,<br/>PyWhile, PyIf, PyReturn<br/><br/><i>ast → PyIRTranslator</i></div>"]
+        IMPIR["<div style='text-align:left'><b>Verification IR</b><br/>CAss, CSeq, CIf, CWhile,<br/>CCall, CHavoc, CListAppend,<br/>CDictSet, CAssume, …<br/><br/><i>PyToImpLowerer</i></div>"]
+        COQ["<div style='text-align:left'><b>Coq IMP AST</b><br/>com, aexp, bexp, value<br/>state ≜ { ls; hs }<br/><br/><i>to_coq() serialisation</i></div>"]
     end
 
     subgraph CONTRACTS["📜 Contract Linter"]
         direction LR
-        ASSERT["<div style='text-align:left'><span style='color:#34d399'>assert</span> amount &gt;= 0</br><span style='color:#34d399'>assert</span> acct.balance + overdraft_limit &gt;= 0</br><span style='color:#34d399'>assert</span> result == 1</div>"]
-        LINT["<b>ContractLinter</b><br/>classify → lint → IR<br/>pre / post / invariant"]
-        IR_EXPR["<div style='text-align:left'><b>Contract IR</b><br/>BinOp, Var, IntLit, LenExpr, IndexExpr, …<br/><i>SMT export via to_smt()</i></div>"]
+        ASSERT["<div style='text-align:left'><b>extracted from source</b><br/><br/><span style='color:#34d399'>assert</span> amount &gt;= 0<br/><span style='color:#34d399'>assert</span> acct.balance + acct.overdraft &gt;= 0<br/><span style='color:#34d399'>assert</span> result == 1</div>"]
+        LINT["<div style='text-align:left'><b>ContractLinter</b><br/>classify → lint → IR<br/>pre / post / invariant<br/><br/><i>position-based<br/>classification</i></div>"]
+        IR_EXPR["<div style='text-align:left'><b>Contract IR</b><br/>BinOp, Var, IntLit,<br/>LenExpr, IndexExpr, …<br/><br/><i>to_smt() → SMT-LIB<br/>to_coq() → Coq Prop</i></div>"]
     end
 
-    subgraph WP["📐 Weakest Precondition"]
+    subgraph WP["📐 Weakest Precondition Calculus"]
         direction LR
-        WP_RULES["<div style='text-align:left'><b>WP Calculus (Imp.v / Wp.v)</b><br/><br/>wp(CAss x a, Q) = Q[lupd s x ⟦a⟧]<br/>wp(CSeq c₁ c₂, Q) = wp(c₁, wp(c₂, Q))<br/>wp(CIf b c₁ c₂, Q) = (⟦b⟧ → wp(c₁, Q)) ∧ (¬⟦b⟧ → wp(c₂, Q))<br/>wp(CWhile b I c, Q) = I ∧ VCG<br/>wp(CCall f …) = pre ∧ ∀r. post[r] → Q</div>"]
-        WP_VC["<div style='text-align:left'><b>Verification Condition</b><br/>∀ params st, pre(st) → wp(body, post)(st)</div>"]
-        PROOF["<div style='text-align:left'><b>Coq Theorem</b><br/>Theorem f_correct :<br/>  ∀ params st, pre(st) → wp body post st</div>"]
+        WP_RULES["<pre style='text-align:left;white-space:pre;margin:0'><b>WP Calculus (Imp.v / Wp.v)</b>
+
+wp(CAss x a, Q) = Q[ s{x ↦ ⟦a⟧} ]
+wp(CSeq c1 c2, Q) = wp(c1, wp(c2, Q))
+wp(CIf b c1 c2, Q) = (⟦b⟧ → wp(c1,Q)) ∧ (¬⟦b⟧ → wp(c2,Q))
+wp(CWhile b I c, Q) = I ∧
+  (I ∧ ¬⟦b⟧ → Q) ∧ (I ∧ ⟦b⟧ → wp(c, I))
+wp(CCall f a Q) = pre ∧ ∀r. post[r/result] →
+  clobber(v′, writes) → Q</pre>"]
+        WP_VC["<div style='text-align:left'><b>Verification Condition</b><br/><br/>∀ params st.<br/>  pre(st) →<br/>  wp(body, post)(st)</div>"]
+        PROOF["<div style='text-align:left'><b>Coq Theorem</b><br/><br/>Theorem f_correct:<br/>  ∀ params st,<br/>  pre st →<br/>  wp body post st</div>"]
     end
 
     subgraph PIPELINE["⚡ Proof Pipeline (3 Tiers)"]
@@ -77,10 +95,10 @@ flowchart TB
     IMPIR --> COQ
     ASSERT --> LINT
     LINT --> IR_EXPR
-    COQ --> WP_CALC
-    IR_EXPR --> WP_CALC
-    WP_CALC --> VC
-    VC --> PROOF
+    COQ --> WP_RULES
+    IR_EXPR --> WP_RULES
+    WP_RULES --> WP_VC
+    WP_VC --> PROOF
 
     PROOF --> L1
     L1 --> L1_CHECK
@@ -112,8 +130,8 @@ flowchart TB
     style ASSERT fill:#1e1b4b,stroke:#06b6d4,color:#e2e8f0
     style LINT fill:#1e293b,stroke:#22d3ee,color:#cbd5e1
     style IR_EXPR fill:#1e293b,stroke:#22d3ee,color:#cbd5e1
-    style WP_CALC fill:#1e1b4b,stroke:#a78bfa,color:#e2e8f0
-    style VC fill:#1e293b,stroke:#a78bfa,color:#cbd5e1
+    style WP_RULES fill:#1e1b4b,stroke:#a78bfa,color:#e2e8f0
+    style WP_VC fill:#1e293b,stroke:#a78bfa,color:#cbd5e1
     style PROOF fill:#1e1b4b,stroke:#c084fc,color:#e2e8f0
 
     style L1 fill:#1e1b4b,stroke:#22d3ee,color:#e2e8f0
