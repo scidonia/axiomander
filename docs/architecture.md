@@ -27,7 +27,7 @@
 flowchart TB
     subgraph SOURCE["🐍 Python Source"]
         direction TB
-        PY["<div style='text-align:left'>def withdraw(amt):<br/>  <span style='color:#34d399'>assert</span> amt &gt;= 0<br/>  <span style='color:#34d399'>assert</span> bal + overdraft &gt;= amt<br/>  bal = bal - amt<br/>  <span style='color:#34d399'>assert</span> bal &gt;= -overdraft<br/>  <span style='color:#f472b6'>return</span> bal</div>"]
+        PY["<div style='text-align:left'><b>def withdraw</b>(acct: Account, amount: int) → int:<br/>&nbsp;&nbsp;<span style='color:#34d399'>assert</span> amount &gt;= 0<br/>&nbsp;&nbsp;<span style='color:#94a3b8'># ⟨ghost⟩</span> old_balance = acct.balance<br/>&nbsp;&nbsp;<span style='color:#c084fc'>if</span> amount > acct.balance + acct.overdraft_limit:<br/>&nbsp;&nbsp;&nbsp;&nbsp;result = 0<br/>&nbsp;&nbsp;&nbsp;&nbsp;<span style='color:#34d399'>assert</span> result == 0<br/>&nbsp;&nbsp;&nbsp;&nbsp;<span style='color:#f472b6'>return</span> result<br/>&nbsp;&nbsp;acct.balance -= amount<br/>&nbsp;&nbsp;<span style='color:#34d399'>assert</span> acct.balance + acct.overdraft_limit &gt;= 0<br/>&nbsp;&nbsp;result = 1<br/>&nbsp;&nbsp;<span style='color:#34d399'>assert</span> result == 1<br/>&nbsp;&nbsp;<span style='color:#f472b6'>return</span> result</div>"]
     end
 
     subgraph IR["🔬 Intermediate Representations"]
@@ -39,7 +39,7 @@ flowchart TB
 
     subgraph CONTRACTS["📜 Contract Linter"]
         direction LR
-        ASSERT["<div style='text-align:left'><span style='color:#34d399'>assert</span> x &gt;= 0<br/><span style='color:#34d399'>assert</span> result == x + 1</div>"]
+        ASSERT["<div style='text-align:left'><span style='color:#34d399'>assert</span> amount &gt;= 0</br><span style='color:#34d399'>assert</span> acct.balance + overdraft_limit &gt;= 0</br><span style='color:#34d399'>assert</span> result == 1</div>"]
         LINT["<b>ContractLinter</b><br/>classify → lint → IR<br/>pre / post / invariant"]
         IR_EXPR["<div style='text-align:left'><b>Contract IR</b><br/>BinOp, Var, IntLit, LenExpr, IndexExpr, …<br/><i>SMT export via to_smt()</i></div>"]
     end
