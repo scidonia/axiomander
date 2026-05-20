@@ -93,6 +93,19 @@ export ORACLE_MODEL="deepseek-chat"
   and step through the proof one command at a time with `Show.` to inspect
   the goal state.  The error text alone cannot tell you what the goal looks like
   after reduction — you need to see the actual terms.
+- **Prefer coq-lsp for interactive proof development.**  The coq-lsp MCP
+  provides goal inspection (`coq_open_goals`), speculative tactic execution
+  (`coq_try_tactic`), term checking (`coq_check_term`), and lemma search
+  (`coq_search`) without leaving the editor session.  It is strictly better
+  than raw `coqtop` for stepping through proofs.  SESSION RULE: always
+  use coq-lsp tools for interactive Coq debugging before falling back to
+  `coqtop`.
+- **Internal prover evaluation note (OPEN).**  The pipeline currently uses
+  `coqtop` subprocesses (`py/oracle/coq_session.py:22`) and `coqc` for
+  validation.  coq-lsp may be a better foundation for the internal proof
+  engine — it provides structured goal inspection, incremental checking,
+  and could replace the heuristic `coq_session.py` with goal-directed
+  search.  Evaluate and migrate if it simplifies the proof search.
 - **Coercion normalisation in compiled Ltac.**  If a source pattern uses
   `(ls (lupd …)) ?x`, the compiled `.vo` will normalise the coercion away and
   store `lupd ?s ?x ?v ?x` instead.  The compiled pattern then cannot match the
