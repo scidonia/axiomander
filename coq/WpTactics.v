@@ -10,7 +10,7 @@ Open Scope Z_scope.
 
 (** [wp_reduce] — unfold state, aeval, beval, asZ; simplify. *)
 Ltac wp_reduce :=
-  unfold wp, aeval, beval, asString, asFloat; cbn -[In clobber lget ls lupd]; unfold asZ.
+  unfold wp, aeval, beval, asZ, asString, asFloat; cbn -[In clobber].
 
 (** Frame condition lemmas for CCall writes enforcement. *)
 Lemma upd_unchanged : forall s x y v, x <> y -> lget (upd s y v) x = lget s x.
@@ -89,28 +89,25 @@ Proof. intros. exact (lupd_eq s x v). Qed.
 Lemma ls_lupd_ne : forall s x y v, x <> y -> (ls (lupd s x v)) y = (ls s) y.
 Proof. intros. rewrite lupd_ne; [reflexivity | auto]. Qed.
 
-(** [ccall_simpl] — rewrite clobber-nil, ls_lupd_eq, ls_lupd_ne, then simplify.
-    We [unfold lget] so that every state lookup uses the explicit [ls]
-    projection, which our [[ls (lupd …)]] patterns can match. *)
+(** [ccall_simpl] — lightweight: only rewrite [clobber nil] then [cbn].
+    The more aggressive [[ls (lupd …)]] rewrites are blocked by Coq's
+    coercion normalisation in compiled Ltac (patterns lose the [ls]
+    wrapper).  For CCall frame proofs we fall back to hand-written
+    lemmas that are generated per-function. *)
 Ltac ccall_simpl :=
-  unfold upd, lget;
-  repeat (
-    match goal with
-    | [ H : context[clobber ?s nil] |- _ ] => rewrite (clobber_nil s) in H
-    | [ |- context[clobber ?s nil] ] => rewrite (clobber_nil s)
-    end
-  );
-  repeat (
-    match goal with
-    | [ H : context[(ls (lupd ?s ?x ?v)) ?x] |- _ ] => rewrite ls_lupd_eq in H
-    | [ |- context[(ls (lupd ?s ?x ?v)) ?x] ] => rewrite ls_lupd_eq
-    | [ H : context[(ls (lupd ?s ?y ?v)) ?x] |- _ ] =>
-        destruct (string_dec x y); [ subst; rewrite ls_lupd_eq in H | rewrite ls_lupd_ne in H by assumption ]
-    | [ |- context[(ls (lupd ?s ?y ?v)) ?x] ] =>
-        destruct (string_dec x y); [ subst; rewrite ls_lupd_eq | rewrite ls_lupd_ne by assumption ]
-    end
-  );
-  cbn -[ls lupd].
+  tryif (lazymatch goal with
+    | [ |- context[clobber ?s nil] ] => idtac
+    end)
+  then (
+    repeat (
+      match goal with
+      | [ H : context[clobber ?s nil] |- _ ] => rewrite (clobber_nil s) in H
+      | [ |- context[clobber ?s nil] ] => rewrite (clobber_nil s)
+      end
+    );
+    cbn -[lget ls lupd]
+  )
+  else idtac.
 
 (** [wp_prove] — structural recursion over goal shape after wp_reduce.
     Handles conjunctions, disjunctions, ABool, comparisons, reflexivity, lia. *)
