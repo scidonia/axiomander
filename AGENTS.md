@@ -36,6 +36,14 @@ and extensible verification stack that holds up under real-world use.
 
 ### Open Architecture Decisions
 
+**Per-Callee Frame Lemmas — IN PROGRESS.** CCall frame conditions produce
+a `forall x, ~ In x (target :: writes) -> ...` subgoal that causes WP term
+blowup and compiled-Ltac pattern matching problems.  Solution: generate one
+Coq lemma per (callee, frame-variable) pair at the Python IR level.  Each
+lemma is trivial (`apply wp_ccall_frame`).  The caller proof uses `apply
+lemma_name` instead of matching the general forall.  Design at
+[`docs/frame-lemmas.md`](docs/frame-lemmas.md).
+
 **Loop predicates — RESOLVED.** Predicates containing loops are handled via
 postcondition-inlining: the predicate is verified as a standalone function, its
 semantic postcondition (guarded by `implies(result == 1, property)`) is extracted,
