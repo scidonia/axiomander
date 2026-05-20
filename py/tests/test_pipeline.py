@@ -315,61 +315,61 @@ def frame_old_unchanged(a: int):
     # requires a >= 0 && b >= 0
     # modifies {result}  — each callee writes only its own result
     # ensures result == a + b + 2
-    ("frame_two_calls", '''def inc(x: int):
-    assert x>=0
-    result=x+1
-    assert result==x+1
-    return result
+     ("frame_two_calls", '''def inc(x: int):
+     assert x>=0
+     result=x+1
+     assert result==x+1
+     return result
 
 def frame_two_calls(a: int, b: int):
-    assert a>=0; assert b>=0
-    old_a = a; old_b = b
-    a2 = inc(a)
-    b2 = inc(b)
-    assert a == old_a; assert b == old_b
-    result = a2 + b2
-    assert result == a + b + 2
-    return result'''),
-    # requires n >= 0 && n % 2 == 0
-    # modifies {result}
-    # ensures result == n  — old(n) = result + result  (half + half = n)
-    ("frame_old_equals_result", '''def half(x: int):
-    assert x%2==0
-    result=x//2
-    assert result*2==x
-    return result
+     assert a>=0; assert b>=0
+     if __debug__: old_a = a; old_b = b
+     a2 = inc(a)
+     b2 = inc(b)
+     assert a == old_a; assert b == old_b
+     result = a2 + b2
+     assert result == a + b + 2
+     return result'''),
+     # requires n >= 0 && n % 2 == 0
+     # modifies {result}
+     # ensures result == n  — old(n) = result + result  (half + half = n)
+     ("frame_old_equals_result", '''def half(x: int):
+     assert x%2==0
+     result=x//2
+     assert result*2==x
+     return result
 
 def frame_old_equals_result(n: int):
-    assert n>=0; assert n%2==0
-    snapshot = n
-    h = half(n)
-    assert n == snapshot
-    result = h + h
-    assert result == n
-    return result'''),
-    # Three callees, each writes only result — prove triple composition.
-    # requires n >= 0
-    # modifies {result}
-    # ensures result == 3*n + 1
-    ("frame_triple_compose", '''def plus_one(x: int):
-    assert x>=0
-    result=x+1
-    assert result==x+1
-    return result
-def times_two(x: int):
-    assert x>=0
-    result=x*2
-    assert result==x*2
-    return result
+     assert n>=0; assert n%2==0
+     if __debug__: snapshot = n
+     h = half(n)
+     assert n == snapshot
+     result = h + h
+     assert result == n
+     return result'''),
+     # Three callees, each writes only result — prove triple composition.
+     # requires n >= 0
+     # modifies {result}
+     # ensures result == 3*n + 1
+     ("frame_triple_compose", '''def plus_one(x: int):
+     assert x>=0
+     result=x+1
+     assert result==x+1
+     return result
+ def times_two(x: int):
+     assert x>=0
+     result=x*2
+     assert result==x*2
+     return result
 
-def frame_triple_compose(n: int):
-    assert n>=0
-    a = plus_one(n)
-    b = times_two(n)
-    assert n == n
-    result = a + b
-    assert result == 3*n + 1
-    return result'''),
+ def frame_triple_compose(n: int):
+     assert n>=0
+     a = plus_one(n)
+     b = times_two(n)
+     assert n == n
+     result = a + b
+     assert result == 3*n + 1
+     return result'''),
     # Frame via stub — pop writes {lst}, caller's x should be framed out.
     ("frame_stub_pop", '''def frame_stub_pop(x: int):
     assert x>=0

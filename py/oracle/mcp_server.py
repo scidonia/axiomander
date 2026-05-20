@@ -62,13 +62,13 @@ _cache = VerificationCache()
 from .py_to_imp import PyToImpLowerer
 
 
-def _gen_imp_body(tree, func_node, contract_map=None) -> str:
+def _gen_imp_body(tree, func_node, contract_map=None) -> "tuple[str, object]":
     """Generate IMP body via PyIR -> ImpIR pipeline.
     
-    This is the canonical IMP body generator. All call sites MUST use
-    this path rather than the legacy python_to_imp string assembler.
+    Returns (coq_string, imp_ir_root_node).
     """
     import ast
+    from oracle.imp_ir import ImpCom
     predicates = _collect_predicates(tree) if tree else {}
     ghost_vars = _detect_ghost_vars(func_node)
     ghost_var_names = frozenset(ghost_vars.keys())
@@ -81,7 +81,7 @@ def _gen_imp_body(tree, func_node, contract_map=None) -> str:
                    if a.annotation and isinstance(a.annotation, ast.Name)}
 
     pylinter = ContractLinter(expanded, "precondition", predicates=predicates,
-                              unbound=ghost_var_names)
+                               unbound=ghost_var_names)
     pylinter.var_types = var_types
     pytranslator = PyIRTranslator(contract_linter=pylinter)
     py_func = pytranslator.translate_function(func_node)
@@ -93,7 +93,8 @@ def _gen_imp_body(tree, func_node, contract_map=None) -> str:
         contract_map=contract_map,
     )
     imp_ir = lowerer.lower_function(py_func)
-    return imp_ir.to_coq() if hasattr(imp_ir, 'to_coq') else "CSkip"
+    coq_str = imp_ir.to_coq() if hasattr(imp_ir, 'to_coq') else "CSkip"
+    return coq_str, imp_ir
 
 
 def _compute_hashes(source: str, func_name: str, tree: "ast.Module | None" = None) -> FunctionHashes | None:
@@ -119,7 +120,7 @@ def _compute_hashes(source: str, func_name: str, tree: "ast.Module | None" = Non
     expanded, _, _, _, _ = _expand_params(tree, params, func_node)
 
     # Generate IMP body via PyIR -> ImpIR (normalized IR — good for hashing)
-    imp_body = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
+    imp_body, _ = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
     body_hash = compute_body_hash(func_node, imp_body)
 
     # Classify and extract contracts
@@ -766,7 +767,7 @@ def tool_explain_cache(args: dict) -> str:
     params = [name for name, _ in _func_params(func_node)]
     expanded, _, _, _, _ = _expand_params(tree, params, func_node)
     contract_map = _build_contract_map(tree)
-    imp_body = _gen_imp_body(tree, func_node, contract_map=contract_map)
+    imp_body, _ = _gen_imp_body(tree, func_node, contract_map=contract_map)
     body_hash = compute_body_hash(func_node, imp_body)
 
     linter_pre = ContractLinter(expanded, "precondition")
@@ -1097,9 +1098,9 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
                           suggestion_text="Fix lint errors in assertions.")
 
     # Generate IMP via PyIR -> ImpIR
-    imp_body = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
+    imp_body, imp_ir = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
     coq_source = _generate_coq(func_node, lint_results, imp_body, tree, hint,
-                               ghost_vars=ghost_vars)
+                                ghost_vars=ghost_vars, imp_ir=imp_ir)
 
     # Try SMT on the remaining goals after wp_reduce
     goals = _capture_wp_reduce_goal(coq_source)
@@ -1273,7 +1274,7 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
 
     params = [name for name, _ in _func_params(func_node)]
     expanded, _, params_coq, _, _ = _expand_params(tree, params, func_node)
-    imp_body = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
+    imp_body, _ = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
 
     # Generate full Coq source
     var_types2 = _infer_var_types(func_node)
@@ -1848,14 +1849,25 @@ def _get_attribute_base(node: ast.Attribute) -> str | None:
 def _detect_ghost_vars(func_node: ast.FunctionDef) -> dict[str, str]:
     """Detect ghost variables and their initialiser expressions.
 
-    Returns dict of ghost_var_name → Coq expression for its initial value.
+    Returns dict of ghost_var_name -> Coq expression for its initial value.
     Ghost variables are excluded from the IMP body and added as logical
     existentials in the Coq theorem.
+
+    Three patterns are recognised:
+      1. if __debug__: old_x = x          (zero-cost, stripped by python -O)
+      2. old_x: 'ghost' = x               (compact annotation form)
+      3. Local vars read only inside assert statements
     """
     import ast as ast_module
     param_names = {a.arg for a in func_node.args.args}
     ghost: set[str] = set()
     ghost_inits: dict[str, str] = {}
+
+    def _extract_simple_rhs(node) -> str | None:
+        """If the value is a simple Name, return its id."""
+        if isinstance(node, ast_module.Name):
+            return node.id
+        return None
 
     # Pass 1: variables assigned inside 'if __debug__:' blocks
     for node in ast_module.walk(func_node):
@@ -1866,14 +1878,32 @@ def _detect_ghost_vars(func_node: ast.FunctionDef) -> dict[str, str]:
                         for t in stmt.targets:
                             if isinstance(t, ast_module.Name) and t.id not in param_names:
                                 ghost.add(t.id)
-                                # Extract init expression: only simple Name RHS for now
-                                if isinstance(stmt.value, ast_module.Name):
-                                    ghost_inits[t.id] = stmt.value.id
+                                init = _extract_simple_rhs(stmt.value)
+                                if init:
+                                    ghost_inits[t.id] = init
                     elif isinstance(stmt, ast_module.AnnAssign) and isinstance(stmt.target, ast_module.Name):
                         if stmt.target.id not in param_names:
                             ghost.add(stmt.target.id)
-                            if isinstance(stmt.value, ast_module.Name):
-                                ghost_inits[stmt.target.id] = stmt.value.id
+                            init = _extract_simple_rhs(stmt.value)
+                            if init:
+                                ghost_inits[stmt.target.id] = init
+
+    # Pass 1b: ghost annotation form — old_x: 'ghost' = x
+    for node in ast_module.walk(func_node):
+        if isinstance(node, ast_module.AnnAssign) and isinstance(node.target, ast_module.Name):
+            if node.target.id not in param_names:
+                annotation = node.annotation
+                is_ghost = False
+                if isinstance(annotation, ast_module.Constant) and isinstance(annotation.value, str):
+                    if annotation.value.lower() == 'ghost':
+                        is_ghost = True
+                elif isinstance(annotation, ast_module.Name) and annotation.id.lower() == 'ghost':
+                    is_ghost = True
+                if is_ghost:
+                    ghost.add(node.target.id)
+                    init = _extract_simple_rhs(node.value)
+                    if init:
+                        ghost_inits[node.target.id] = init
 
     # Pass 2: locals where every read is inside an assert
     local_assigns: dict[str, str] = {}
@@ -2553,7 +2583,7 @@ def _try_smt_vcg_ir(inv_irs: list, exit_cond: str, post_irs: list, scaffold: str
             tmp_path.unlink(missing_ok=True)
 
 
-def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: str | None = None, ghost_vars: dict[str, str] | None = None) -> str:
+def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: str | None = None, ghost_vars: dict[str, str] | None = None, imp_ir: object = None) -> str:
     """Generate Coq theorem file for a function."""
     import ast
 
@@ -2890,6 +2920,68 @@ Theorem {name}_vcg_exit : forall {vcg_params},
      ({init_state}))"""
         ghost_proof_suffix = ""
 
+    # --- Per-callee frame lemmas ---
+    frame_lemmas = ""
+    frame_applies = ""
+    if imp_ir is not None:
+        from oracle.imp_ir import ImpCCall
+
+        def _collect_ccalls(node) -> list[ImpCCall]:
+            ccalls = []
+            if isinstance(node, ImpCCall):
+                ccalls.append(node)
+            if hasattr(node, 'commands'):
+                for c in node.commands:
+                    ccalls.extend(_collect_ccalls(c))
+            if hasattr(node, 'then_branch'):
+                ccalls.extend(_collect_ccalls(node.then_branch))
+                ccalls.extend(_collect_ccalls(node.else_branch))
+            if hasattr(node, 'body'):
+                ccalls.extend(_collect_ccalls(node.body))
+            return ccalls
+
+        # Frame vars = params + ghost vars (exist before any CCall)
+        all_frame_vars = set(params)
+        if ghost_vars:
+            all_frame_vars |= set(ghost_vars.keys())
+
+        # Names to avoid in lemma parameters
+        used_names = set(params) | {c.target for c in _collect_ccalls(imp_ir)}
+        if ghost_vars:
+            used_names |= set(ghost_vars.keys())
+        for c in _collect_ccalls(imp_ir):
+            used_names |= set(c.writes)
+        s_name = "s" if "s" not in used_names else next(f"s{i}" for i in range(10) if f"s{i}" not in used_names)
+        r_name = "r" if "r" not in used_names else next(f"r{i}" for i in range(10) if f"r{i}" not in used_names)
+
+        seen_lemmas: set[tuple[str, str]] = set()
+        for ccall in _collect_ccalls(imp_ir):
+            target = ccall.target
+            writes = set(ccall.writes)
+            callee = ccall.name
+            for v in sorted(all_frame_vars):
+                if v != target and v not in writes:
+                    key = (callee, v)
+                    if key not in seen_lemmas:
+                        seen_lemmas.add(key)
+                        writes_list = " :: ".join(f'"{w}"%string' for w in ccall.writes) if ccall.writes else ""
+                        writes_coq = f'("{writes_list}" :: nil)%string' if writes_list else "nil"
+                        frame_lemmas += (
+                            f"Lemma {callee}_frame_{v} : forall ({s_name} : state) ({r_name} : Z),\n"
+                            f"  ~ In \"{v}\"%string (\"{target}\"%string :: {writes_coq}) ->\n"
+                            f"  lget {s_name} \"{v}\"%string = "
+                            f"lget (clobber (lupd {s_name} \"{target}\"%string (VZ {r_name})) {writes_coq}) \"{v}\"%string.\n"
+                            f"Proof.\n"
+                            f"  intros {s_name} {r_name} H.\n"
+                            f"  apply (wp_ccall_frame {s_name} \"{target}\"%string {writes_coq} {r_name} \"{v}\"%string).\n"
+                            f"  assumption.\n"
+                            f"Qed.\n\n"
+                        )
+                    frame_applies += f"  apply {callee}_frame_{v}.\n"
+
+    if frame_lemmas:
+        pass  # lemmas generated; wp_prove handles proof via wp_ccall_frame match
+
     return f"""(* Auto-generated from {name} *){frame_comment}
 {source_notes}
 {hammer_import}
@@ -2902,6 +2994,7 @@ Open Scope Z_scope.
 Definition {name}_body : com :=
   {imp_body}.
 
+{frame_lemmas}
 Theorem {name}_correct{f' : forall {params_coq},' if params_coq.strip() else ' :'} 
 {ghost_wrap}.
 Proof.

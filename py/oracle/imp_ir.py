@@ -464,6 +464,7 @@ class ImpCCall(ImpCom):
     postcondition: str  # Coq assertion string: (fun s => ...)
     writes: list[str] = Field(default_factory=list)
     target: str = ""
+    frame_vars: list[str] = Field(default_factory=list)
 
     def to_coq(self) -> str:
         args_str = (
