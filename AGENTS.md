@@ -88,6 +88,17 @@ export ORACLE_MODEL="deepseek-chat"
 - File names: PascalCase.v (matching module name)
 - Proof style: short, structured proofs using stdlib tactics
 - `Admitted` for WIP lemmas, never leave stray `Admitted` in committed proofs
+- **Debug proofs with coqtop, not by staring at error messages.**  When
+  a tactic fails with "No applicable tactic", run `coqtop -R _build/default/coq Imp`
+  and step through the proof one command at a time with `Show.` to inspect
+  the goal state.  The error text alone cannot tell you what the goal looks like
+  after reduction — you need to see the actual terms.
+- **Coercion normalisation in compiled Ltac.**  If a source pattern uses
+  `(ls (lupd …)) ?x`, the compiled `.vo` will normalise the coercion away and
+  store `lupd ?s ?x ?v ?x` instead.  The compiled pattern then cannot match the
+  internal representation that still has the `ls` wrapper.  Prefer explicit
+  `lget` patterns (which are definitions, not coercions) or accept that
+  cross-coercion matching needs hand-written proofs per function.
 
 ### OCaml
 - Library modules: `snake_case.ml` with `snake_case.mli` interface
