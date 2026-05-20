@@ -2903,13 +2903,20 @@ Theorem {name}_vcg_exit : forall {vcg_params},
     if ghost_vars:
         # Ghost vars are already unscoped by the linter (via unbound parameter)
         inner = f"""  (({pre_coq}) ->
-  wp {name}_body
-     (fun s => {post_coq})
-     ({init_state}))"""
+   wp {name}_body
+      (fun s => {post_coq})
+      ({init_state}))"""
         for v, init in reversed(list(ghost_vars.items())):
             inner = f"""(exists ({v} : Z), (({v} = {init}) /\\
-  {inner}))"""
-            ghost_proof_prefix += f"  exists {init}.\n  split.\n  - reflexivity.\n  - "
+   {inner}))"""
+        # Proof prefix matches forall-template order (outermost first).
+        # Bullets nest: -, --, ---, etc. First ghost var is at base level.
+        for i, (v, init) in enumerate(ghost_vars.items()):
+            depth = i + 1
+            ghost_proof_prefix += f"  exists {init}.\n"
+            ghost_proof_prefix += f"  split.\n"
+            ghost_proof_prefix += f"  {'-' * depth} reflexivity.\n"
+            ghost_proof_prefix += f"  {'-' * depth} \n"
         ghost_wrap = inner
         # Insert ghost exists/split after intros
         proof = proof.replace("intros.", "intros.\n" + ghost_proof_prefix, 1)
