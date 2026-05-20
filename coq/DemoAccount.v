@@ -32,9 +32,9 @@ Record Account : Type := {
 }.
 
 Definition init_account_state (bal overdraft amt : Z) : state :=
-  let s := store_field "account"%string "overdraft_limit"%string overdraft empty_state in
-  let s := store_field "account"%string "balance"%string bal s in
-  upd s "amount"%string amt.
+  let s := store_field "account"%string "overdraft_limit"%string (VZ overdraft) empty_state in
+  let s := store_field "account"%string "balance"%string (VZ bal) s in
+  upd s "amount"%string (VZ amt).
 
 Definition withdraw_body : com :=
   CSeq
@@ -48,13 +48,10 @@ Theorem withdraw_correct : forall (balance overdraft amount : Z),
   balance + overdraft >= amount ->
   (* Postconditions: *)
   wp withdraw_body
-     (fun s => s "result"%string = balance - amount
-            /\ s "result"%string >= -overdraft)
+     (fun s => s "result"%string = VZ (balance - amount)
+            /\ asZ (s "result"%string) >= -overdraft)
      (init_account_state balance overdraft amount).
 Proof.
   intros balance overdraft amount Hamt Hfunds.
-  unfold wp, withdraw_body, init_account_state.
-  unfold store_field, flat_key, upd; simpl.
-  repeat rewrite eqb_refl; simpl.
-  split; lia.
+  wp_prove.
 Qed.

@@ -70,7 +70,7 @@ Definition sum_body (n : Z) : com :=
 Theorem sum_correct : forall (n : Z),
   0 <= n ->
   wp (sum_body n)
-     (fun s => s "result"%string = n * (n + 1) / 2)
+     (fun s => s "result"%string = VZ (n * (n + 1) / 2))
      (updZ empty_state "n"%string n).
 Proof.
   intros n Hn.

@@ -14,13 +14,10 @@ Ltac wp_reduce :=
   unfold wp, aeval, beval, asZ, asString, asFloat; cbn -[In clobber].
 
 (** Frame condition lemmas for CCall writes enforcement. *)
-Lemma upd_unchanged : forall s x y v, x <> y -> upd s y v x = s x.
+Lemma upd_unchanged : forall s x y v, x <> y -> lget (upd s y v) x = lget s x.
 Proof.
   intros s x y v H.
-  unfold upd; cbn.
-  destruct (String.eqb y x) eqn:Heq.
-  - apply String.eqb_eq in Heq. congruence.
-  - reflexivity.
+  unfold upd. apply lupd_ne. auto.
 Qed.
 
 Lemma clobber_nil : forall s, clobber s nil = s.
@@ -28,7 +25,7 @@ Proof.
   intros s. unfold clobber. reflexivity.
 Qed.
 
-Lemma clobber_unchanged : forall (s : state) (vars : list var) (x : var), ~ In x vars -> clobber s vars x = s x.
+Lemma clobber_unchanged : forall (s : state) (vars : list var) (x : var), ~ In x vars -> lget (clobber s vars) x = lget s x.
 Proof.
   intros s vars. revert s.
   induction vars as [|v vars IH]; intros s x H; simpl.
@@ -40,28 +37,45 @@ Proof.
        * intro. apply H. right. auto.
 Qed.
 
-Lemma clobber_in : forall s writes x,
-  In x writes -> lget (clobber s writes) x = VZ 0.
+Lemma clobber_in : forall writes st x,
+  In x writes -> lget (clobber st writes) x = VZ 0.
 Proof.
-Admitted.
+  induction writes as [|w ws IH]; simpl; intros st x Hin.
+  - inversion Hin.
+  - destruct Hin as [Hx|Hin'].
+    + subst x. destruct (in_dec string_dec w ws).
+      * apply (IH (lupd st w (VZ 0)) w). auto.
+      * rewrite clobber_unchanged by auto. apply lupd_eq.
+    + destruct (in_dec string_dec w ws).
+      * apply (IH (lupd st w (VZ 0)) x). auto.
+      * apply (IH (lupd st w (VZ 0)) x). auto.
+Qed.
 
 (** Commute [upd] past [clobber] when the updated variable is not in writes.
     This normalises deeply-nested CCall states so [wp_ccall_frame] can match. *)
-Lemma clobber_upd_commute : forall (st : state) (x : var) (v : value) (writes : list var),
+Lemma clobber_upd_commute : forall writes st x v,
   ~ In x writes ->
   lupd (clobber st writes) x v = clobber (lupd st x v) writes.
 Proof.
-Admitted.
+  induction writes as [|w ws IH]; simpl; intros st x v Hnotin; auto.
+  assert (Hx : x <> w).
+  { intro Heq. apply Hnotin. left. auto. }
+  assert (Hnotin_ws : ~ In x ws).
+  { intro Hin. apply Hnotin. right. auto. }
+  rewrite IH with (st := lupd st w (VZ 0)).
+  - rewrite lupd_swap; auto.
+  - auto.
+Qed.
 
 (** Single lemma for the CCall frame conjunct — avoids fragile Ltac pattern matching. *)
 Lemma wp_ccall_frame : forall (s : state) (target : var) (writes : list var) (r : Z) (x : var),
-  ~ In x (target :: writes) -> s x = (clobber (upd s target (VZ r)) writes) x.
+  ~ In x (target :: writes) -> lget s x = lget (clobber (lupd s target (VZ r)) writes) x.
 Proof.
   intros s target writes r x Hnotin.
   destruct (string_dec x target) as [Heq|Hne].
   - exfalso. apply Hnotin. left. auto.
   - rewrite clobber_unchanged.
-    + rewrite upd_unchanged. reflexivity. auto.
+    + symmetry. apply lupd_ne. auto.
     + intro Hin. apply Hnotin. right. auto.
 Qed.
 

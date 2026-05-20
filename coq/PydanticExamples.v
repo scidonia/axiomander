@@ -31,8 +31,8 @@ Record Rect : Type := {
 }.
 
 Definition init_rect_state (rw rh : Z) : state :=
-  let s := store_field "r"%string "h"%string rh empty_state in
-  store_field "r"%string "w"%string rw s.
+  let s := store_field "r"%string "h"%string (VZ rh) empty_state in
+  store_field "r"%string "w"%string (VZ rw) s.
 
 Definition area_body : com :=
   CAss "result"%string
@@ -41,7 +41,7 @@ Definition area_body : com :=
 Theorem area_correct : forall (w h : Z),
   w > 0 -> h > 0 ->
   wp area_body
-     (fun s => s "result"%string = s "r.w"%string * s "r.h"%string)
+     (fun s => asZ (s "result"%string) = asZ (s "r.w"%string) * asZ (s "r.h"%string))
      (init_rect_state w h).
 Proof.
   intros. unfold wp, area_body, init_rect_state, store_field, flat_key; simpl. reflexivity.
