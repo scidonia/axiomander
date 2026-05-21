@@ -130,7 +130,8 @@ Ltac wp_prove :=
   | |- _ \/ _ => solve [left; wp_prove | right; wp_prove]
   | |- ?x = ?x => reflexivity
   | |- context[clobber ?s nil] => rewrite (clobber_nil s); wp_prove
-  | |- _ => ccall_simpl; unfold lget, upd, updZ; cbn; solve [assumption | reflexivity | lia | auto]
+  | |- _ => ccall_simpl; unfold lget, upd, updZ; vm_compute; solve [assumption | reflexivity | lia | auto]
+
   end.
 
 (** [vcg_exit] — proves the while-exit verification condition. *)
