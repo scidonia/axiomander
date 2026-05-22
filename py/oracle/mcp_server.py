@@ -1236,6 +1236,14 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
                             ce_dict[k.strip()] = int(v.strip())
                         except ValueError:
                             pass
+        # Capture residual goal for LLM oracle fallback
+        residual_goal = None
+        coq_err_match = _re.search(r'line (\d+)', error)
+        if coq_err_match:
+            residual_goal = _capture_residual_goal(coq_source, int(coq_err_match.group(1)))
+        if residual_goal:
+            error += "\n\n--- Residual Goal ---\n" + residual_goal
+
         return GoalStatus(name=func_name,
                         goal_statement=f"wp {func_name}_body ...",
                         level=ProofLevel.COUNTEREXAMPLE if ce_dict else ProofLevel.UNPROVED,
@@ -1247,6 +1255,76 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
     finally:
         if tmp_path:
             tmp_path.unlink(missing_ok=True)
+
+
+def _capture_residual_goal(coq_source: str, error_line: int) -> "str | None":
+    """Generate a Coq fragment with Show at the error point, compile, parse goal."""
+    lines = coq_source.split("\n")
+    if error_line < 1 or error_line > len(lines):
+        return None
+    # Keep everything up to the error line, replace error line with Show.
+    prefix = lines[: error_line - 1]
+    modified = "\n".join(prefix) + "\nShow.\n"
+    import tempfile as _tf, subprocess as _sp, os as _os
+    from pathlib import Path as _Path
+    BUILD_DIR_L = _Path(__file__).resolve().parent.parent.parent / "_build" / "default" / "coq"
+    with _tf.NamedTemporaryFile(mode="w", suffix=".v", delete=False, prefix="mcp_residual_") as f:
+        f.write(modified)
+        rp = _Path(f.name)
+    try:
+        res = _sp.run(
+            ["coqc", "-R", str(BUILD_DIR_L), "Imp", str(rp)],
+            capture_output=True, text=True, timeout=30,
+            env={**_os.environ},
+        )
+        return _parse_coq_goal(res.stderr + res.stdout)
+    except Exception:
+        return None
+    finally:
+        rp.unlink(missing_ok=True)
+
+
+def _parse_coq_goal(coqc_output: str) -> "str | None":
+    """Parse the goal state block from coqc output."""
+    import re
+    m = re.search(r"(\d+)\s+(?:goal|subgoal)", coqc_output)
+    if not m:
+        return None
+    start = m.start()
+    rest = coqc_output[start:]
+    for marker in ["\nFile ", "\nError:", "\nDone:"]:
+        pos = rest.find(marker)
+        if pos > 0:
+            rest = rest[:pos]
+    return rest.strip()
+
+
+def _generate_residual_prompt(
+    function_name: str,
+    source: str,
+    contracts: str,
+    residual_goal: str,
+    stage_name: str,
+) -> str:
+    """Generate an LLM prompt for a stuck verification stage."""
+    return f"""The Axiomander verification pipeline proof for '{function_name}' failed at stage '{stage_name}'.
+
+Write the Coq proof fragment to close this residual goal.
+
+## Function Source
+```python
+{source}
+```
+
+## Callee Contracts
+{contracts}
+
+## Residual Goal (with accumulated hypotheses)
+```
+{residual_goal}
+```
+
+Return only the Coq tactics. Use lia, reflexivity, assumption, or rewrite."""
 
 
 def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | None = None) -> GoalStatus:
