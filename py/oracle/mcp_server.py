@@ -1244,6 +1244,15 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
         if residual_goal:
             error += "\n\n--- Residual Goal ---\n" + residual_goal
 
+        # Classify the failure and extract tactic trace
+        coq_line = int(coq_err_match.group(1)) if coq_err_match else 0
+        failure_class = _classify_failure(coq_source, coq_line, func_name)
+        tactic_trace = _extract_tactic_trace(coq_source, coq_line)
+        if failure_class:
+            error += "\n\nFailure: " + failure_class
+        if tactic_trace:
+            error += "\nTactic: " + tactic_trace
+
         return GoalStatus(name=func_name,
                         goal_statement=f"wp {func_name}_body ...",
                         level=ProofLevel.COUNTEREXAMPLE if ce_dict else ProofLevel.UNPROVED,
@@ -1325,6 +1334,71 @@ Write the Coq proof fragment to close this residual goal.
 ```
 
 Return only the Coq tactics. Use lia, reflexivity, assumption, or rewrite."""
+
+
+def _classify_failure(coq_source: str, error_line: int, func_name: str) -> str:
+    """Classify the type of proof failure from the Coq source near the error."""
+    if error_line < 1:
+        return ""
+    lines = coq_source.split("\n")
+    if error_line > len(lines):
+        return ""
+    # Search backward from error line to find the actual tactic that failed
+    context_lines = lines[max(0, error_line - 6): error_line]
+    context = "\n".join(context_lines)
+    for line in reversed(context_lines):
+        s = line.strip()
+        if not s or s.startswith("(*") or s.startswith("Qed") or s.startswith("Proof"):
+            continue
+        # Precondition check failures
+        if ("split" in s and ("assumption" in s or "lia" in s or "reflexivity" in s)):
+            if any("rewrite H" in l for l in context_lines):
+                return "precondition check — callee pre with value rewrite"
+            return "precondition check — callee pre"
+        # Postcondition check failures
+        if "rewrite Hr" in s:
+            return "postcondition check — rewrite Hr"
+        if "repeat split" in s:
+            return "postcondition check — repeat split"
+        # Frame lemma
+        if "apply" in s and "frame_" in s:
+            return "frame lemma application"
+        # Final assignment
+        if "wp_prove" in s:
+            return "final assignment — wp_prove"
+        if "simpl. unfold lget" in s:
+            return "final assignment — arithmetic"
+        # General arithmetic
+        if "lia" in s:
+            return "arithmetic — lia could not close goal"
+        # VCG
+        if "Admitted" in s:
+            return "VCG obligation — unproved"
+        # wp_seq_decompose
+        if "wp_seq_decompose" in s:
+            return "stage chaining — wp_seq_decompose"
+
+    # Fallback: check for specific error patterns
+    if "No applicable tactic" in context or "No applicable tactic" in "\n".join(lines[error_line-1:error_line+1]):
+        return "wp_prove — no matching case"
+    if "Unable to unify" in context:
+        return "type mismatch in proof term"
+    return "unknown failure"
+
+
+def _extract_tactic_trace(coq_source: str, error_line: int) -> str:
+    """Extract the tactic being attempted at the error line."""
+    if error_line < 1:
+        return ""
+    lines = coq_source.split("\n")
+    if error_line > len(lines):
+        return ""
+    # Show the failing line and the previous tactic line
+    failing = lines[error_line - 1].strip()
+    prev = lines[error_line - 2].strip() if error_line >= 2 else ""
+    if prev and prev != "Proof." and not prev.startswith("Qed"):
+        return prev + "  →  " + failing if prev else failing
+    return failing
 
 
 def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | None = None) -> GoalStatus:
