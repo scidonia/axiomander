@@ -2583,6 +2583,587 @@ def _try_smt_vcg_ir(inv_irs: list, exit_cond: str, post_irs: list, scaffold: str
             tmp_path.unlink(missing_ok=True)
 
 
+def _has_initial_assignments(imp_ir, ccalls) -> bool:
+    """Check if there are non-CCall, non-ghost assignments before the first CCall."""
+    from oracle.imp_ir import ImpCSeq, ImpCCall, ImpCIf, ImpCAss
+    if not ccalls:
+        return False
+    segs: list[tuple[str, object]] = []
+
+    def _walk(node):
+        if isinstance(node, ImpCSeq):
+            for c in node.commands:
+                if isinstance(c, ImpCCall):
+                    segs.append(('ccall', c))
+                elif isinstance(c, ImpCSeq):
+                    has_c = any(isinstance(sub, ImpCCall) for sub in c.commands)
+                    if has_c:
+                        segs.append(('ccall', c))
+                    else:
+                        segs.append(('other', c))
+                else:
+                    segs.append(('other', c))
+        else:
+            segs.append(('other', node))
+
+    _walk(imp_ir)
+    for kind, seg in segs:
+        if kind == 'ccall':
+            return False
+        if kind == 'other' and not isinstance(seg, ImpCIf):
+            return True
+    return False
+
+
+def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
+                        init_state, pre_coq, post_coq, name) -> "tuple[str, str, str]":
+    """Build staged proof definitions, lemmas, and main proof for CCall functions.
+
+    Returns (definitions, lemmas, proof_body) strings.
+    Each is embedded as separate Coq blocks: defs then lemmas then proof body.
+    """
+    import re
+    from oracle.imp_ir import (
+        ImpCSeq, ImpCCall, ImpCAss, ImpCIf, ImpCSkip,
+        ImpAVar, ImpANum, ImpAPlus, ImpAMinus, ImpAMult,
+        ImpAMod, ImpADiv, ImpABool,
+    )
+
+    all_params = set(params)
+    if ghost_vars:
+        all_params |= set(ghost_vars.keys())
+    fv = sorted(all_params)  # frame variables sorted
+
+    # ── Extract segments and CCalls from imp_ir ──
+    def _has_ccall(node):
+        if isinstance(node, ImpCCall): return True
+        if isinstance(node, ImpCSeq): return any(_has_ccall(c) for c in node.commands)
+        if isinstance(node, ImpCIf):
+            return _has_ccall(node.then_branch) or _has_ccall(node.else_branch)
+        return False
+
+    segments: list = []
+    def _extract(node):
+        if isinstance(node, ImpCSeq):
+            for cmd in node.commands:
+                if _has_ccall(cmd):
+                    segments.append(cmd)
+                else:
+                    _extract(cmd)
+        else:
+            segments.append(node)
+    _extract(imp_ir)
+
+    ccall_segs = [(i, seg) for i, seg in enumerate(segments)
+                  if _has_ccall(seg) and not isinstance(seg, ImpCIf)]
+    if len(ccall_segs) == 0:
+        return "", "", ""
+    if len(ccall_segs) > 8:
+        return "", "", ""  # too many stages, fall back to wp_prove
+
+    def _get_ccall(seg):
+        if isinstance(seg, ImpCCall):
+            return seg
+        if isinstance(seg, ImpCSeq):
+            for c in seg.commands:
+                if isinstance(c, ImpCCall):
+                    return c
+        return None
+
+    def _get_callee_param_bindings(seg):
+        """Get the CAss bindings that bind callee params before the CCall."""
+        bindings: list[tuple[str, str]] = []  # [(callee_param, arg_name), ...]
+        if isinstance(seg, ImpCSeq):
+            for cmd in seg.commands:
+                if isinstance(cmd, ImpCAss) and isinstance(cmd.value, ImpAVar):
+                    bindings.append((cmd.target, cmd.value.name))
+        return bindings
+
+    # ── Helper: convert ImpAExp to Z-term using theorem params ──
+    def _aexp_to_zterm(aexp) -> str:
+        if isinstance(aexp, ImpAVar):
+            if aexp.name in all_params:
+                return aexp.name
+            return 'asZ (s "' + aexp.name + '"%string)'
+        elif isinstance(aexp, ImpANum):
+            return str(aexp.value)
+        elif isinstance(aexp, ImpAPlus):
+            return ("(" + _aexp_to_zterm(aexp.left) + " + "
+                    + _aexp_to_zterm(aexp.right) + ")%Z")
+        elif isinstance(aexp, ImpAMinus):
+            return ("(" + _aexp_to_zterm(aexp.left) + " - "
+                    + _aexp_to_zterm(aexp.right) + ")%Z")
+        elif isinstance(aexp, ImpAMult):
+            return ("(" + _aexp_to_zterm(aexp.left) + " * "
+                    + _aexp_to_zterm(aexp.right) + ")%Z")
+        elif isinstance(aexp, ImpAMod):
+            return ("(" + _aexp_to_zterm(aexp.left) + " mod "
+                    + _aexp_to_zterm(aexp.right) + ")%Z")
+        elif isinstance(aexp, ImpADiv):
+            return ("(" + _aexp_to_zterm(aexp.left) + " / "
+                    + _aexp_to_zterm(aexp.right) + ")%Z")
+        return aexp.to_coq()
+
+    # ── Helper: substitute callee postcondition for Q_mid ──
+    def _subst_post_for_qmid(callee_post: str, callee_params: list[str],
+                              ccall) -> str:
+        post = callee_post.strip()
+        if post.startswith("(") and post.endswith(")"):
+            post = post[1:-1].strip()
+        post = post.replace('s "result"%string', 's "' + ccall.target + '"%string')
+        for param, arg in zip(callee_params, ccall.args):
+            term = _aexp_to_zterm(arg)
+            post = re.sub(
+                r'asZ\s*\(\s*s\s+"' + re.escape(param) + r'"%string\s*\)',
+                term, post,
+            )
+        return post
+
+    # ── Build Q definitions and collect value conjuncts ──
+    params_list_str = " ".join(params)
+    if ghost_vars:
+        for g in sorted(ghost_vars.keys()):
+            params_list_str += " " + g
+
+    q_defs = ""
+    q_value_conjs: list[str] = []  # Q_k value conjunct for each stage
+    q_all_conjs: list[list[str]] = []  # all conjuncts (value + type + frame) per stage
+    seg_names: list[str] = []
+    seg_coqs: list[str] = []
+
+    for k, (flt_idx, seg) in enumerate(ccall_segs):
+        ccall = _get_ccall(seg)
+        if ccall is None:
+            continue
+        seg_name = "s" + str(k + 1)
+        seg_names.append(seg_name)
+        seg_coqs.append(seg.to_coq())
+
+        # Get callee info
+        callee_params, _, callee_post, _, _ = contract_map[ccall.name]
+        val_conj = _subst_post_for_qmid(callee_post, callee_params, ccall)
+
+        # Build all conjuncts for Q_k
+        conj_strs: list[str] = []
+        # This stage: value + type
+        conj_strs.append("(" + val_conj + ")")
+        conj_strs.append("(isVZ (s \042" + ccall.target + "\042%string) = true)")
+        # Accumulated from previous stages
+        for pi in range(k):
+            prev_val = q_value_conjs[pi]
+            prev_target = _get_ccall(ccall_segs[pi][1]).target
+            conj_strs.append("(" + prev_val + ")")
+            conj_strs.append("(isVZ (s \042" + prev_target + "\042%string) = true)")
+        # Frame conditions
+        for p in fv:
+            conj_strs.append("(asZ (s \042" + p + "\042%string) = " + p + ")")
+            conj_strs.append("(isVZ (s \042" + p + "\042%string) = true)")
+
+        q_value_conjs.append(val_conj)
+
+        qn = "Q_" + name + "_" + str(k + 1)
+        body = " /\\ ".join(conj_strs)
+        q_defs += (
+            "Definition " + qn + " (" + params_list_str + " : Z) : assertion :=\n"
+            "  fun s => " + body + ".\n\n"
+        )
+
+        stype: list[list[str]] = conj_strs
+        q_all_conjs.append(stype)
+
+    # ── Segment definitions ──
+    seg_defs = ""
+    for seg_name, seg_coq in zip(seg_names, seg_coqs):
+        seg_defs += "Definition " + seg_name + " : com := " + seg_coq + ".\n"
+    seg_defs += "\n"
+
+    # ── Params in Coq forall format ──
+    params_forall = " ".join("(" + p + " : Z)" for p in params)
+    if ghost_vars:
+        for g in sorted(ghost_vars.keys()):
+            params_forall += " (" + g + " : Z)"
+
+    params_call = " ".join(params)
+    if ghost_vars:
+        params_call += " " + " ".join(sorted(ghost_vars.keys()))
+
+    # ── Count precondition conjuncts ──
+    pre_parts = pre_coq.split(" /\\ ") if " /\\ " in pre_coq else [pre_coq]
+
+    # ── Generate stage lemmas ──
+    stage_lemmas = ""
+
+    for k, (flt_idx, seg) in enumerate(ccall_segs):
+        ccall = _get_ccall(seg)
+        if ccall is None:
+            continue
+        bindings = _get_callee_param_bindings(seg)
+        seg_name = seg_names[k]
+        qn = "Q_" + name + "_" + str(k + 1)
+        stagen = name + "_stage_" + str(k + 1) + "_correct"
+
+        if k == 0:
+            # ── Stage 1: from init state ──
+            stage_lemmas += (
+                "Lemma " + stagen + " : forall " + params_forall + ",\n"
+                "  " + pre_coq.strip() + " ->\n"
+                "  wp " + seg_name + "\n"
+                "     (" + qn + " " + params_call + ")\n"
+                "     (" + init_state + ").\n"
+                "Proof.\n"
+            )
+            stage_lemmas += "  intros " + params_call + " Hpre.\n"
+            if len(pre_parts) > 1:
+                pre_hyps = " ".join("H" + str(i) for i in range(len(pre_parts)))
+                stage_lemmas += "  destruct Hpre as [" + pre_hyps + "].\n"
+
+            # Precondition check body
+            stage_lemmas += "  wp_reduce. split.\n"
+            stage_lemmas += "  - unfold lget, upd, updZ; cbn.\n"
+            # Always use lia + reflexivity: handles literal args, variable args,
+            # and complex expressions correctly. lia can use caller's pre hyps.
+            stage_lemmas += "    split; [try lia | reflexivity].\n"
+
+            # Postcondition + frame — use repeat split + lia (handles both = and >=)
+            stage_lemmas += "  - intro r. intro Hr. split.\n"
+            stage_lemmas += (
+                "    + unfold " + qn + "; cbn. repeat split; "
+                "try (unfold asZ, lget in *; lia); try reflexivity; try assumption.\n"
+            )
+            stage_lemmas += (
+                '    + apply (wp_ccall_frame _ "'
+                + ccall.target + '"%string nil r).\n'
+            )
+            stage_lemmas += "Qed.\n\n"
+
+        else:
+            # ── Stage k>1: from arbitrary state ──
+            prev_conjs = q_all_conjs[k - 1]
+            arg_name = bindings[0][1] if bindings else None
+
+            # Find the frame hypothesis index for the arg
+            arg_hyp_idx = None
+            if arg_name:
+                for ci, conj in enumerate(prev_conjs):
+                    if 'asZ (s "' + arg_name + '"%string) = ' + arg_name in conj:
+                        arg_hyp_idx = ci
+                        break
+
+            # Build hypothesis list
+            hyp_count = len(prev_conjs)
+            hyp_names = " ".join("H" + str(i) for i in range(hyp_count))
+
+            # Write lemma statement
+            stage_lemmas += (
+                "Lemma " + stagen + " : forall (" + params_forall
+                + ") (s : state),\n"
+            )
+            # Extra pre hypothesis
+            stage_lemmas += "  (" + arg_name + " >= 0)%Z ->\n" if arg_name else ""
+            for ci, h in enumerate(prev_conjs):
+                sep = " ->" if ci < hyp_count - 1 else " ->"
+                stage_lemmas += "  " + h + sep + "\n"
+            stage_lemmas += (
+                "  wp " + seg_name + "\n"
+                "     (" + qn + " " + params_call + ")\n"
+                "     s.\n"
+            )
+            stage_lemmas += "Proof.\n"
+            stage_lemmas += (
+                "  intros " + params_call + " s "
+                + ("Hpre " if arg_name else "")
+                + hyp_names + ".\n"
+            )
+            stage_lemmas += "  wp_reduce. split.\n"
+
+            # Precondition check — use lia for both literal and variable args
+            if arg_hyp_idx is not None:
+                stage_lemmas += "  - unfold asZ, lget.\n"
+                stage_lemmas += "    unfold asZ in H" + str(arg_hyp_idx) + ".\n"
+                stage_lemmas += "    rewrite H" + str(arg_hyp_idx) + ".\n"
+                stage_lemmas += "    split; [try lia | assumption].\n"
+            else:
+                stage_lemmas += "  - unfold lget, upd, updZ; cbn.\n"
+                stage_lemmas += "    split; [try lia | reflexivity].\n"
+
+            # Postcondition + frame — use repeat split + lia (handles both = and >=)
+            stage_lemmas += "  - intro r. intro Hr. split.\n"
+            stage_lemmas += (
+                "    + unfold " + qn + "; simpl. unfold lget, asZ in *.\n"
+                "      repeat split; try lia; try reflexivity; try assumption.\n"
+            )
+            stage_lemmas += (
+                '    + apply (wp_ccall_frame _ "'
+                + ccall.target + '"%string nil r).\n'
+            )
+            stage_lemmas += "Qed.\n\n"
+
+    # ── Generate main chaining proof ──
+    # Build the body segments for the wp_seq_decompose chain
+    # Initial block (segments before first CCall)
+    first_ccall_idx = ccall_segs[0][0]
+    initial_segs = segments[:first_ccall_idx]
+    initial_com = _compose_segs(initial_segs) if initial_segs else "CSkip"
+
+    # Final block (segments after last CCall)
+    last_ccall_idx = ccall_segs[-1][0]
+    final_segs = segments[last_ccall_idx + 1:]
+    final_com = _compose_segs(final_segs) if final_segs else "CSkip"
+
+    # Build the postcondition as a Coq assertion
+    post_str = "(fun s => " + post_coq + ")"
+
+    # Build main proof body
+    main_proof_lines: list[str] = []
+    main_proof_lines.append("  intros " + params_call + " Hpre.")
+    if len(pre_parts) > 1:
+        pre_hyps = " ".join("Hpc" + str(i) for i in range(len(pre_parts)))
+        main_proof_lines.append("  destruct Hpre as [" + pre_hyps + "].")
+
+    # Build the chain: for N stages, generate nested wp_seq_decompose calls
+    # Chain segments left to right
+    # s1 ; (s2 ; (s3 ; ... final))
+    # wp_seq_decompose s1 (CSeq s2 ...) Q1 Q_final init
+    #   -> wp_seq_decompose s2 (CSeq s3 ...) Q2 Q_final s_mid
+    #     -> wp_seq_decompose s3 final Q3 Q_final s_mid2
+
+    n_stages = len(ccall_segs)
+
+    if n_stages == 1:
+        # Single CCall: just apply the stage lemma
+        seg_name = seg_names[0]
+        qn = "Q_" + name + "_1"
+        stagen = name + "_stage_1_correct"
+        if final_com != "CSkip":
+            main_proof_lines.append(
+                "  apply (wp_seq_decompose " + seg_name + " " + final_com
+                + " (" + qn + " " + params_call + ") " + post_str + " _)."
+            )
+            main_proof_lines.append(
+                "  { apply " + stagen + ". "
+                + _gen_pre_apply(pre_coq, pre_parts) + ". }"
+            )
+            main_proof_lines.append(
+                "  { intros s1 Hq. unfold " + qn + " in Hq. "
+                + _gen_destruct_and_final_proof(
+                    qn, q_all_conjs[0], fv, final_com, post_str,
+                    n_stages, params_call, name) + " }"
+            )
+        else:
+            main_proof_lines.append(
+                "  apply (" + stagen + " " + params_call + "). "
+                + _gen_pre_apply(pre_coq, pre_parts) + "."
+            )
+    else:
+        # Multiple stages: chain pairwise
+        # Start with the outermost chain
+        # Build CSeq for remaining segments after first stage
+        rest_com = _compose_seg_seq(seg_names[1:], final_com, seg_coqs[1:])
+        q1 = "Q_" + name + "_1"
+        q_final = post_str
+
+        main_proof_lines.append(
+            "  apply (wp_seq_decompose " + seg_names[0] + " " + rest_com
+            + " (" + q1 + " " + params_call + ") " + q_final + " _)."
+        )
+        main_proof_lines.append(
+            "  { apply " + name + "_stage_1_correct. "
+            + _gen_pre_apply(pre_coq, pre_parts) + ". }"
+        )
+
+        # Inner chains for stages 2..N
+        prev_state = "s1"
+        prev_q = q1
+        prev_conjs_outer = q_all_conjs[0]
+
+        for k in range(1, n_stages):
+            prev_q_base = "Q_" + name + "_" + str(k)
+            qn = "Q_" + name + "_" + str(k + 1)
+            stagen = name + "_stage_" + str(k + 1) + "_correct"
+            this_seg = seg_names[k]
+
+            if k == n_stages - 1:
+                # Last stage: chain with final assignment
+                next_com = final_com
+            else:
+                next_com = _compose_seg_seq(
+                    seg_names[k + 1:], final_com, seg_coqs[k + 1:])
+
+            next_state = "s" + str(k + 1)
+
+            main_proof_lines.append(
+                "  { intros " + prev_state + " Hq. unfold " + prev_q_base
+                + " in Hq."
+            )
+            main_proof_lines.append(
+                "    destruct Hq as " + _gen_q_destruct_pat(prev_conjs_outer) + "."
+            )
+
+            # Build the stage lemma application with hypotheses
+            # Find which hypotheses from Q_{k-1} are needed
+            hyps_from_prev = _get_relevant_hyps_for_stage(k, prev_conjs_outer,
+                                                            ccall_segs)
+
+            main_proof_lines.append(
+                "    apply (wp_seq_decompose " + this_seg + " " + next_com
+                + " (" + qn + " " + params_call + ") " + q_final + " _)."
+            )
+            # Apply stage lemma
+            pre_hyp = _get_pre_hyp_name_for_stage(k, ccall_segs, pre_parts)
+            main_proof_lines.append(
+                "    { apply (" + stagen + " " + params_call + " "
+                + prev_state + " " + pre_hyp + " "
+                + " ".join(hyps_from_prev) + "). }"
+            )
+
+            prev_state = next_state
+            prev_q = qn
+            prev_conjs_outer = q_all_conjs[k]
+
+            if k == n_stages - 1:
+                # Innermost: final assignment proof
+                main_proof_lines.append(
+                    "    { intros " + next_state + " Hq2. unfold " + qn
+                    + " in Hq2."
+                )
+                main_proof_lines.append(
+                    "      destruct Hq2 as "
+                    + _gen_q_destruct_pat(prev_conjs_outer) + "."
+                )
+                final_proof = _gen_final_assign_proof(
+                    fv, q_value_conjs, n_stages, name)
+                main_proof_lines.extend(final_proof)
+                main_proof_lines.append("    }")
+            # Close each level's closing brace
+        # Close braces from outer level inward
+        for _ in range(1, n_stages):
+            main_proof_lines.append("  }")
+
+    main_proof = "\n".join(main_proof_lines)
+
+    return seg_defs + q_defs, stage_lemmas, main_proof
+
+
+def _compose_segs(segs) -> str:
+    """Compose a list of ImpCom segments into a Coq CSeq string."""
+    if not segs:
+        return "CSkip"
+    result = segs[0].to_coq()
+    for seg in segs[1:]:
+        result = "(CSeq " + result + " " + seg.to_coq() + ")"
+    return result
+
+
+def _compose_seg_seq(seg_names: list[str], final_com: str,
+                     seg_coqs: list[str]) -> str:
+    """Compose segment names into a CSeq chain: CSeq s2 (CSeq s3 ... final)."""
+    if not seg_names:
+        return final_com
+    result = final_com
+    for sn in reversed(seg_names):
+        result = "(CSeq " + sn + " " + result + ")"
+    return result
+
+
+def _gen_q_destruct_pat(conjs: list[str]) -> str:
+    """Generate destruct pattern for Q conjuncts."""
+    n = len(conjs)
+    if n <= 1:
+        return "[Hq0]"
+    pat = "[Hq0"
+    for i in range(1, n):
+        if i == n - 1:
+            pat += " Hq" + str(i)
+        else:
+            pat += " [Hq" + str(i)
+    pat += "]" * (n - 1)
+    return pat
+
+
+def _gen_pre_apply(pre_coq: str, pre_parts: list[str]) -> str:
+    """Generate the precondition application pattern."""
+    if len(pre_parts) <= 1:
+        return "assumption"
+    return "split; assumption"
+
+
+def _get_relevant_hyps_for_stage(stage_idx: int, prev_conjs: list[str],
+                                  ccall_segs) -> list[str]:
+    """Get the hypothesis names that need to be passed to a stage lemma."""
+    import re
+    from oracle.imp_ir import ImpAVar
+
+    # Find the CCall for this stage
+    _, seg = ccall_segs[stage_idx]
+    if hasattr(seg, 'to_coq'):
+        # Find bindings for this stage's CCall
+        target_set = set()
+        for pi in range(stage_idx):
+            pseg = ccall_segs[pi][1]
+            if hasattr(pseg, 'commands'):
+                for cmd in pseg.commands:
+                    if hasattr(cmd, 'target'):
+                        ccall_target = cmd.target
+                    elif isinstance(cmd, type(seg)) and hasattr(cmd, 'commands'):
+                        for sub in cmd.commands:
+                            if hasattr(sub, 'target'):
+                                target_set.add(sub.target)
+
+    # Return all hypotheses (simplified)
+    return ["Hq" + str(i) for i in range(len(prev_conjs))]
+
+
+def _get_pre_hyp_name_for_stage(stage_idx: int, ccall_segs,
+                                 pre_parts: list[str]) -> str:
+    """Get the name of the precondition hypothesis for the stage lemma."""
+    # For stage 2+, the precondition for the callee's arg value
+    # is the inequality from the overall precondition
+    # This is a simplification - return a placeholder
+    bindings = []
+    seg = ccall_segs[stage_idx][1]
+    if hasattr(seg, 'commands'):
+        from oracle.imp_ir import ImpCAss, ImpAVar
+        for cmd in seg.commands:
+            if isinstance(cmd, ImpCAss) and isinstance(cmd.value, ImpAVar):
+                bindings.append((cmd.target, cmd.value.name))
+    if bindings:
+        arg_name = bindings[0][1]
+        # Find which pre part has the inequality for this arg
+        for i, p in enumerate(pre_parts):
+            if arg_name in p and (">=" in p or ">" in p or "<" in p):
+                return "Hpc" + str(i)
+    return "Hpc0"
+
+
+def _gen_destruct_and_final_proof(qn: str, conjs: list[str], fv: list[str],
+                                   final_com: str, post_str: str,
+                                   n_stages: int, params_call: str,
+                                   name: str) -> str:
+    """Generate the innermost final assignment proof for single CCall."""
+    lines = []
+    pat = _gen_q_destruct_pat(conjs)
+    num_conjs = len(conjs)
+    lines.append("      " + "destruct Hq as " + pat + ".")
+    lines.append("      " + "simpl. unfold lget.")
+    # Direct proof: rewrite with value hypotheses and use lia
+    lines.append("      " + "repeat (try rewrite Hq0; try rewrite Hq1; try rewrite Hq2; try rewrite Hq3; try rewrite Hq4; try rewrite Hq5; try rewrite Hq6; try rewrite Hq7).")
+    lines.append("      " + "try reflexivity; try lia.")
+    return "\n".join(lines)
+
+
+def _gen_final_assign_proof(fv: list[str], q_value_conjs: list[str],
+                              n_stages: int, name: str) -> list[str]:
+    """Generate the final assignment proof for multi-CCall chain."""
+    lines = []
+    # For each CCall target, destruct value and drop non-VZ cases
+    for k in range(n_stages):
+        qn = "Q_" + name + "_" + str(n_stages)
+        # We're in the innermost block with Hq2 hypotheses
+    lines.append("        simpl. unfold lget.")
+    lines.append("        wp_prove.")
+    return lines
+
+
 def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: str | None = None, ghost_vars: dict[str, str] | None = None, imp_ir: object = None) -> str:
     """Generate Coq theorem file for a function."""
     import ast
@@ -2986,8 +3567,35 @@ Theorem {name}_vcg_exit : forall {vcg_params},
                         )
                     frame_applies += f"  apply {callee}_frame_{v}.\n"
 
-    if frame_lemmas:
-        pass  # lemmas generated; still need to restructure proof to use them
+    # --- Staged proof for CCall sequences ---
+    staged_defs = ""
+    staged_lemma_text = ""
+    staged_proof_body = ""
+    if (imp_ir is not None and full_tree is not None
+            and len(_collect_ccalls(imp_ir)) >= 1
+            and not ghost_vars):  # skip when ghost vars present (TODO: support ghost vars)
+        # Check for non-trivial initial segments (assignments before first CCall)
+        # that aren't part of CCall bindings — staged proof doesn't handle these yet.
+        ccalls = _collect_ccalls(imp_ir)
+        has_initial = _has_initial_assignments(imp_ir, ccalls)
+        if not has_initial:
+            contract_map_staged = _build_contract_map(full_tree)
+            try:
+                staged_defs, staged_lemma_text, staged_proof_body = _build_staged_proof(
+                    imp_ir, contract_map_staged, params, {},
+                    init_state, pre_coq, post_coq, name,
+                )
+            except Exception:
+                pass  # fall back to wp_prove if generation fails
+
+    if staged_proof_body:
+        frame_lemmas += staged_lemma_text
+        proof_block = staged_proof_body
+    else:
+        # Keep existing frame lemmas but fall back to wp_prove
+        if frame_lemmas:
+            pass
+        proof_block = proof
 
     return f"""(* Auto-generated from {name} *){frame_comment}
 {source_notes}
@@ -3001,11 +3609,12 @@ Open Scope Z_scope.
 Definition {name}_body : com :=
   {imp_body}.
 
+{staged_defs}
 {frame_lemmas}
 Theorem {name}_correct{f' : forall {params_coq},' if params_coq.strip() else ' :'} 
 {ghost_wrap}.
 Proof.
-  {proof}
+{proof_block}
 Qed.
 {vcg_section}"""
 
