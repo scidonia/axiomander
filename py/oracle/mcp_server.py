@@ -2745,6 +2745,9 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
 
         # Build all conjuncts for Q_k
         conj_strs: list[str] = []
+        # Overall precondition — ensures all stages have access to it
+        if pre_coq != "True":
+            conj_strs.append("(" + pre_coq + ")")
         # This stage: value + type
         conj_strs.append("(" + val_conj + ")")
         conj_strs.append("(isVZ (s \042" + ccall.target + "\042%string) = true)")
@@ -2819,16 +2822,14 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
 
             # Precondition check body
             stage_lemmas += "  wp_reduce. split.\n"
-            stage_lemmas += "  - unfold lget, upd, updZ; cbn.\n"
-            # Always use lia + reflexivity: handles literal args, variable args,
-            # and complex expressions correctly. lia can use caller's pre hyps.
-            stage_lemmas += "    split; [try lia | reflexivity].\n"
+            stage_lemmas += "  - unfold lget, upd, updZ; simpl.\n"
+            stage_lemmas += "    split; [try assumption; try lia | reflexivity].\n"
 
-            # Postcondition + frame — use repeat split + lia (handles both = and >=)
+            # Postcondition + frame — stage 1: init state has VZ values, unfold ok
             stage_lemmas += "  - intro r. intro Hr. split.\n"
             stage_lemmas += (
-                "    + unfold " + qn + "; cbn. repeat split; "
-                "try (unfold asZ, lget in *; lia); try reflexivity; try assumption.\n"
+                "    + unfold " + qn + "; simpl. repeat split; "
+                "try (unfold asZ, lget in *; simpl; lia); try reflexivity; try assumption.\n"
             )
             stage_lemmas += (
                 '    + apply (wp_ccall_frame _ "'
@@ -2841,11 +2842,11 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
             prev_conjs = q_all_conjs[k - 1]
             arg_name = bindings[0][1] if bindings else None
 
-            # Find the frame hypothesis index for the arg
+            # Find any hypothesis that gives the value of arg_name (value or frame conjunct)
             arg_hyp_idx = None
             if arg_name:
                 for ci, conj in enumerate(prev_conjs):
-                    if 'asZ (s "' + arg_name + '"%string) = ' + arg_name in conj:
+                    if 'asZ (s "' + arg_name + '"%string)' in conj:
                         arg_hyp_idx = ci
                         break
 
@@ -2855,11 +2856,13 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
 
             # Write lemma statement
             stage_lemmas += (
-                "Lemma " + stagen + " : forall (" + params_forall
-                + ") (s : state),\n"
+                "Lemma " + stagen + " : forall " + params_forall
+                + " (s : state),\n"
             )
-            # Extra pre hypothesis
-            stage_lemmas += "  (" + arg_name + " >= 0)%Z ->\n" if arg_name else ""
+            # Extra pre hypothesis — only for function params that have pre conditions
+            # If arg_name is not a function param, the pre is discharged by lia via frame hyps
+            if arg_name and arg_name in all_params:
+                stage_lemmas += "  (" + arg_name + " >= 0)%Z ->\n"
             for ci, h in enumerate(prev_conjs):
                 sep = " ->" if ci < hyp_count - 1 else " ->"
                 stage_lemmas += "  " + h + sep + "\n"
@@ -2869,28 +2872,27 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
                 "     s.\n"
             )
             stage_lemmas += "Proof.\n"
+            has_pre_hyp = arg_name and arg_name in all_params
             stage_lemmas += (
                 "  intros " + params_call + " s "
-                + ("Hpre " if arg_name else "")
+                + ("Hpre " if has_pre_hyp else "")
                 + hyp_names + ".\n"
             )
             stage_lemmas += "  wp_reduce. split.\n"
 
-            # Precondition check — use lia for both literal and variable args
+            # Precondition check — rewrite asZ using the value conjunct, then lia
             if arg_hyp_idx is not None:
-                stage_lemmas += "  - unfold asZ, lget.\n"
-                stage_lemmas += "    unfold asZ in H" + str(arg_hyp_idx) + ".\n"
-                stage_lemmas += "    rewrite H" + str(arg_hyp_idx) + ".\n"
-                stage_lemmas += "    split; [try lia | assumption].\n"
+                stage_lemmas += "  - unfold lget, upd, updZ; simpl.\n"
+                stage_lemmas += "    rewrite H" + str(arg_hyp_idx) + "; try lia.\n"
             else:
-                stage_lemmas += "  - unfold lget, upd, updZ; cbn.\n"
-                stage_lemmas += "    split; [try lia | reflexivity].\n"
+                stage_lemmas += "  - unfold lget, upd, updZ; simpl.\n"
+                stage_lemmas += "    split; [try lia | try reflexivity; try assumption].\n"
 
-            # Postcondition + frame — use repeat split + lia (handles both = and >=)
+            # Postcondition + frame — use simpl (not cbn) to keep asZ unexpanded
             stage_lemmas += "  - intro r. intro Hr. split.\n"
             stage_lemmas += (
-                "    + unfold " + qn + "; simpl. unfold lget, asZ in *.\n"
-                "      repeat split; try lia; try reflexivity; try assumption.\n"
+                "    + unfold " + qn + "; simpl. repeat split; "
+                "try lia; try reflexivity; try assumption.\n"
             )
             stage_lemmas += (
                 '    + apply (wp_ccall_frame _ "'
@@ -3010,9 +3012,10 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
             )
             # Apply stage lemma
             pre_hyp = _get_pre_hyp_name_for_stage(k, ccall_segs, pre_parts)
+            extra_args = (pre_hyp + " ") if pre_hyp else ""
             main_proof_lines.append(
                 "    { apply (" + stagen + " " + params_call + " "
-                + prev_state + " " + pre_hyp + " "
+                + prev_state + " " + extra_args
                 + " ".join(hyps_from_prev) + "). }"
             )
 
@@ -3066,16 +3069,16 @@ def _compose_seg_seq(seg_names: list[str], final_com: str,
 
 
 def _gen_q_destruct_pat(conjs: list[str]) -> str:
-    """Generate destruct pattern for Q conjuncts."""
+    """Generate destruct pattern for Q conjuncts. Uses H0, H1, ... names."""
     n = len(conjs)
     if n <= 1:
-        return "[Hq0]"
-    pat = "[Hq0"
+        return "[H0]"
+    pat = "[H0"
     for i in range(1, n):
         if i == n - 1:
-            pat += " Hq" + str(i)
+            pat += " H" + str(i)
         else:
-            pat += " [Hq" + str(i)
+            pat += " [H" + str(i)
     pat += "]" * (n - 1)
     return pat
 
@@ -3109,16 +3112,16 @@ def _get_relevant_hyps_for_stage(stage_idx: int, prev_conjs: list[str],
                             if hasattr(sub, 'target'):
                                 target_set.add(sub.target)
 
-    # Return all hypotheses (simplified)
-    return ["Hq" + str(i) for i in range(len(prev_conjs))]
+    # Return all hypotheses — names match _gen_q_destruct_pat (H0, H1, ...)
+    return ["H" + str(i) for i in range(len(prev_conjs))]
 
 
 def _get_pre_hyp_name_for_stage(stage_idx: int, ccall_segs,
                                  pre_parts: list[str]) -> str:
-    """Get the name of the precondition hypothesis for the stage lemma."""
-    # For stage 2+, the precondition for the callee's arg value
-    # is the inequality from the overall precondition
-    # This is a simplification - return a placeholder
+    """Get the name of the precondition hypothesis for the stage lemma.
+    
+    Returns a string like 'Hpc0' or empty string if no extra pre hyp needed.
+    """
     bindings = []
     seg = ccall_segs[stage_idx][1]
     if hasattr(seg, 'commands'):
@@ -3128,11 +3131,10 @@ def _get_pre_hyp_name_for_stage(stage_idx: int, ccall_segs,
                 bindings.append((cmd.target, cmd.value.name))
     if bindings:
         arg_name = bindings[0][1]
-        # Find which pre part has the inequality for this arg
         for i, p in enumerate(pre_parts):
             if arg_name in p and (">=" in p or ">" in p or "<" in p):
                 return "Hpc" + str(i)
-    return "Hpc0"
+    return ""  # no extra pre hyp — lia handles it
 
 
 def _gen_destruct_and_final_proof(qn: str, conjs: list[str], fv: list[str],
@@ -3146,7 +3148,7 @@ def _gen_destruct_and_final_proof(qn: str, conjs: list[str], fv: list[str],
     lines.append("      " + "destruct Hq as " + pat + ".")
     lines.append("      " + "simpl. unfold lget.")
     # Direct proof: rewrite with value hypotheses and use lia
-    lines.append("      " + "repeat (try rewrite Hq0; try rewrite Hq1; try rewrite Hq2; try rewrite Hq3; try rewrite Hq4; try rewrite Hq5; try rewrite Hq6; try rewrite Hq7).")
+    lines.append("      " + "repeat (try rewrite H0; try rewrite H1; try rewrite H2; try rewrite H3; try rewrite H4; try rewrite H5; try rewrite H6; try rewrite H7).")
     lines.append("      " + "try reflexivity; try lia.")
     return "\n".join(lines)
 
@@ -3155,12 +3157,9 @@ def _gen_final_assign_proof(fv: list[str], q_value_conjs: list[str],
                               n_stages: int, name: str) -> list[str]:
     """Generate the final assignment proof for multi-CCall chain."""
     lines = []
-    # For each CCall target, destruct value and drop non-VZ cases
-    for k in range(n_stages):
-        qn = "Q_" + name + "_" + str(n_stages)
-        # We're in the innermost block with Hq2 hypotheses
     lines.append("        simpl. unfold lget.")
-    lines.append("        wp_prove.")
+    lines.append("        repeat (try rewrite H0; try rewrite H1; try rewrite H2; try rewrite H3; try rewrite H4; try rewrite H5; try rewrite H6; try rewrite H7).")
+    lines.append("        try reflexivity; try lia.")
     return lines
 
 
