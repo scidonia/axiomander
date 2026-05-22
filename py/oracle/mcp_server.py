@@ -2782,8 +2782,11 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
     )
 
     all_params = set(params)
+    # Build init value map: param name -> initial Coq expression
+    val_init: dict[str, str] = {p: p for p in params}
     if ghost_vars:
         all_params |= set(ghost_vars.keys())
+        val_init.update(ghost_vars)
     fv = sorted(all_params)  # frame variables sorted
 
     # ── Extract segments and CCalls from imp_ir ──
@@ -2911,7 +2914,8 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
             conj_strs.append("(isVZ (s \042" + prev_target + "\042%string) = true)")
         # Frame conditions
         for p in fv:
-            conj_strs.append("(asZ (s \042" + p + "\042%string) = " + p + ")")
+            init_val = val_init.get(p, p)
+            conj_strs.append("(asZ (s \042" + p + "\042%string) = " + init_val + ")")
             conj_strs.append("(isVZ (s \042" + p + "\042%string) = true)")
 
         q_value_conjs.append(val_conj)
@@ -2939,8 +2943,12 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
             params_forall += " (" + g + " : Z)"
 
     params_call = " ".join(params)
+    params_lemma_call = params_call  # lemma signatures use ghost names
     if ghost_vars:
-        params_call += " " + " ".join(sorted(ghost_vars.keys()))
+        ghost_names = " ".join(sorted(ghost_vars.keys()))
+        ghost_values = " ".join(ghost_vars[g] for g in sorted(ghost_vars.keys()))
+        params_lemma_call = params_call + " " + ghost_names
+        params_call = params_call + " " + ghost_values  # main proof uses witnesses
 
     # ── Count precondition conjuncts ──
     pre_parts = pre_coq.split(" /\\ ") if " /\\ " in pre_coq else [pre_coq]
@@ -2963,11 +2971,11 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
                 "Lemma " + stagen + " : forall " + params_forall + ",\n"
                 "  " + pre_coq.strip() + " ->\n"
                 "  wp " + seg_name + "\n"
-                "     (" + qn + " " + params_call + ")\n"
+                "     (" + qn + " " + params_lemma_call + ")\n"
                 "     (" + init_state + ").\n"
                 "Proof.\n"
             )
-            stage_lemmas += "  intros " + params_call + " Hpre.\n"
+            stage_lemmas += "  intros " + params_lemma_call + " Hpre.\n"
             if len(pre_parts) > 1:
                 pre_hyps = " ".join("H" + str(i) for i in range(len(pre_parts)))
                 stage_lemmas += "  destruct Hpre as [" + pre_hyps + "].\n"
@@ -3020,13 +3028,13 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
                 stage_lemmas += "  " + h + sep + "\n"
             stage_lemmas += (
                 "  wp " + seg_name + "\n"
-                "     (" + qn + " " + params_call + ")\n"
+                "     (" + qn + " " + params_lemma_call + ")\n"
                 "     s.\n"
+                "Proof.\n"
             )
-            stage_lemmas += "Proof.\n"
             has_pre_hyp = arg_name and arg_name in all_params
             stage_lemmas += (
-                "  intros " + params_call + " s "
+                "  intros " + params_lemma_call + " s "
                 + ("Hpre " if has_pre_hyp else "")
                 + hyp_names + ".\n"
             )
@@ -3069,7 +3077,18 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
 
     # Build main proof body
     main_proof_lines: list[str] = []
-    main_proof_lines.append("  intros " + params_call + " Hpre.")
+    ghost_has = ghost_vars is not None and len(ghost_vars) > 0
+    if ghost_has:
+        main_proof_lines.append("  intros.")
+        for i, (v, init) in enumerate(ghost_vars.items()):
+            depth = i + 1
+            main_proof_lines.append(f"  exists {init}.")
+            main_proof_lines.append(f"  split.")
+            main_proof_lines.append(f"  {'-' * depth} reflexivity.")
+            main_proof_lines.append(f"  {'-' * depth} ")
+        main_proof_lines.append("  intros Hpre.")
+    else:
+        main_proof_lines.append("  intros " + params_call + " Hpre.")
     if len(pre_parts) > 1:
         pre_hyps = " ".join("Hpc" + str(i) for i in range(len(pre_parts)))
         main_proof_lines.append("  destruct Hpre as [" + pre_hyps + "].")
@@ -3196,7 +3215,12 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
 
     main_proof = "\n".join(main_proof_lines)
 
-    return seg_defs + q_defs, stage_lemmas, main_proof
+    # Build the staged body composition for theorem statement
+    staged_body = _compose_seg_seq(seg_names, final_com, seg_coqs)
+    if initial_com != "CSkip":
+        staged_body = f"(CSeq {initial_com} {staged_body})"
+
+    return seg_defs + q_defs, stage_lemmas, main_proof, staged_body
 
 
 def _compose_segs(segs) -> str:
@@ -3734,33 +3758,37 @@ Theorem {name}_vcg_exit : forall {vcg_params},
     staged_defs = ""
     staged_lemma_text = ""
     staged_proof_body = ""
+    staged_body_composition = ""
     if (imp_ir is not None and full_tree is not None
-            and len(_collect_ccalls(imp_ir)) >= 1
-            and not ghost_vars):  # skip when ghost vars present (TODO: support ghost vars)
-        # Check for non-trivial initial segments (assignments before first CCall)
-        # that aren't part of CCall bindings — staged proof doesn't handle these yet.
+            and len(_collect_ccalls(imp_ir)) >= 1):
         ccalls = _collect_ccalls(imp_ir)
         has_initial = _has_initial_assignments(imp_ir, ccalls)
-        # Skip if any param is non-int — frame conditions use asZ/isVZ (TODO: string/list/dict)
         has_non_int = any(
             _is_string_param(a) or _is_list_param(a) or _is_dict_param(a) or _is_float_param(a)
             for _, a in _func_params(func_node)
         ) if func_node else False
         if not has_initial and not has_non_int:
+            # Extend init state with ghost var initializations
+            extended_init = init_state
+            if ghost_vars:
+                for g, init_expr in ghost_vars.items():
+                    extended_init = f'(upd {extended_init} "{g}"%string (VZ {init_expr}))'
             contract_map_staged = _build_contract_map(full_tree)
             try:
-                staged_defs, staged_lemma_text, staged_proof_body = _build_staged_proof(
-                    imp_ir, contract_map_staged, params, {},
-                    init_state, pre_coq, post_coq, name,
+                staged_defs, staged_lemma_text, staged_proof_body, staged_body_composition = _build_staged_proof(
+                    imp_ir, contract_map_staged, params, ghost_vars or {},
+                    extended_init, pre_coq, post_coq, name,
                 )
             except Exception:
-                pass  # fall back to wp_prove if generation fails
+                pass
 
     if staged_proof_body:
         frame_lemmas += staged_lemma_text
         proof_block = staged_proof_body
+        # When ghost vars exist, replace {name}_body with staged composition
+        if ghost_vars and staged_body_composition:
+            ghost_wrap = ghost_wrap.replace(f"wp {name}_body", f"wp {staged_body_composition}")
     else:
-        # Keep existing frame lemmas but fall back to wp_prove
         if frame_lemmas:
             pass
         proof_block = proof
