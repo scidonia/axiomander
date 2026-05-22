@@ -3692,20 +3692,30 @@ Theorem {name}_vcg_exit : forall {vcg_params},
         s_name = "s" if "s" not in used_names else next(f"s{i}" for i in range(10) if f"s{i}" not in used_names)
         r_name = "r" if "r" not in used_names else next(f"r{i}" for i in range(10) if f"r{i}" not in used_names)
 
-        seen_lemmas: set[tuple[str, str]] = set()
+        seen_lemmas: set[tuple[str, str, str, str]] = set()
+        # Detect callees called multiple times (different targets)
+        callee_targets: dict[str, list[str]] = {}
+        for ccall in _collect_ccalls(imp_ir):
+            callee_targets.setdefault(ccall.name, []).append(ccall.target)
+        multi_call_callees = {c for c, ts in callee_targets.items() if len(set(ts)) > 1}
+
         for ccall in _collect_ccalls(imp_ir):
             target = ccall.target
             writes = set(ccall.writes)
             callee = ccall.name
+            writes_sorted = "::".join(sorted(writes))
             for v in sorted(all_frame_vars):
                 if v != target and v not in writes:
-                    key = (callee, v)
+                    key = (callee, v, target, writes_sorted)
                     if key not in seen_lemmas:
                         seen_lemmas.add(key)
                         writes_list = " :: ".join(f'"{w}"%string' for w in ccall.writes) if ccall.writes else ""
                         writes_coq = f'("{writes_list}" :: nil)%string' if writes_list else "nil"
+                        lemma_name = (f"{callee}_frame_{v}_{target}"
+                                       if callee in multi_call_callees
+                                       else f"{callee}_frame_{v}")
                         frame_lemmas += (
-                            f"Lemma {callee}_frame_{v} : forall ({s_name} : state) ({r_name} : Z),\n"
+                            f"Lemma {lemma_name} : forall ({s_name} : state) ({r_name} : Z),\n"
                             f"  ~ In \"{v}\"%string (\"{target}\"%string :: {writes_coq}) ->\n"
                             f"  lget {s_name} \"{v}\"%string = "
                             f"lget (clobber (lupd {s_name} \"{target}\"%string (VZ {r_name})) {writes_coq}) \"{v}\"%string.\n"
@@ -3715,7 +3725,10 @@ Theorem {name}_vcg_exit : forall {vcg_params},
                             f"  assumption.\n"
                             f"Qed.\n\n"
                         )
-                    frame_applies += f"  apply {callee}_frame_{v}.\n"
+                    apply_name = (f"{callee}_frame_{v}_{target}"
+                                  if callee in multi_call_callees
+                                  else f"{callee}_frame_{v}")
+                    frame_applies += f"  apply {apply_name}.\n"
 
     # --- Staged proof for CCall sequences ---
     staged_defs = ""
