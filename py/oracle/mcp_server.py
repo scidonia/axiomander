@@ -2825,7 +2825,7 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
             stage_lemmas += "  - unfold lget, upd, updZ; simpl.\n"
             stage_lemmas += "    split; [try assumption; try lia | reflexivity].\n"
 
-            # Postcondition + frame — stage 1: init state has VZ values, unfold ok
+            # Postcondition + frame — stage 1: init VZ values, unfold asZ+lget ok
             stage_lemmas += "  - intro r. intro Hr. split.\n"
             stage_lemmas += (
                 "    + unfold " + qn + "; simpl. repeat split; "
@@ -2883,16 +2883,16 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
             # Precondition check — rewrite asZ using the value conjunct, then lia
             if arg_hyp_idx is not None:
                 stage_lemmas += "  - unfold lget, upd, updZ; simpl.\n"
-                stage_lemmas += "    rewrite H" + str(arg_hyp_idx) + "; try lia.\n"
+                stage_lemmas += "    rewrite H" + str(arg_hyp_idx) + ". split; [lia | assumption].\n"
             else:
                 stage_lemmas += "  - unfold lget, upd, updZ; simpl.\n"
                 stage_lemmas += "    split; [try lia | try reflexivity; try assumption].\n"
 
-            # Postcondition + frame — use simpl (not cbn) to keep asZ unexpanded
+            # Postcondition + frame — rewrite Hr (equality) + assumption/lia
             stage_lemmas += "  - intro r. intro Hr. split.\n"
             stage_lemmas += (
-                "    + unfold " + qn + "; simpl. repeat split; "
-                "try lia; try reflexivity; try assumption.\n"
+                "    + unfold " + qn + "; simpl. rewrite Hr. repeat split; "
+                "try assumption; try lia.\n"
             )
             stage_lemmas += (
                 '    + apply (wp_ccall_frame _ "'
@@ -3031,7 +3031,7 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
                 )
                 main_proof_lines.append(
                     "      destruct Hq2 as "
-                    + _gen_q_destruct_pat(prev_conjs_outer) + "."
+                    + _gen_q_destruct_pat(prev_conjs_outer, prefix="G") + "."
                 )
                 final_proof = _gen_final_assign_proof(
                     fv, q_value_conjs, n_stages, name)
@@ -3068,17 +3068,17 @@ def _compose_seg_seq(seg_names: list[str], final_com: str,
     return result
 
 
-def _gen_q_destruct_pat(conjs: list[str]) -> str:
-    """Generate destruct pattern for Q conjuncts. Uses H0, H1, ... names."""
+def _gen_q_destruct_pat(conjs: list[str], prefix: str = "H") -> str:
+    """Generate destruct pattern for Q conjuncts with given prefix."""
     n = len(conjs)
     if n <= 1:
-        return "[H0]"
-    pat = "[H0"
+        return "[" + prefix + "0]"
+    pat = "[" + prefix + "0"
     for i in range(1, n):
         if i == n - 1:
-            pat += " H" + str(i)
+            pat += " " + prefix + str(i)
         else:
-            pat += " [H" + str(i)
+            pat += " [" + prefix + str(i)
     pat += "]" * (n - 1)
     return pat
 
@@ -3091,7 +3091,7 @@ def _gen_pre_apply(pre_coq: str, pre_parts: list[str]) -> str:
 
 
 def _get_relevant_hyps_for_stage(stage_idx: int, prev_conjs: list[str],
-                                  ccall_segs) -> list[str]:
+                                  ccall_segs, prefix: str = "H") -> list[str]:
     """Get the hypothesis names that need to be passed to a stage lemma."""
     import re
     from oracle.imp_ir import ImpAVar
@@ -3099,7 +3099,6 @@ def _get_relevant_hyps_for_stage(stage_idx: int, prev_conjs: list[str],
     # Find the CCall for this stage
     _, seg = ccall_segs[stage_idx]
     if hasattr(seg, 'to_coq'):
-        # Find bindings for this stage's CCall
         target_set = set()
         for pi in range(stage_idx):
             pseg = ccall_segs[pi][1]
@@ -3112,8 +3111,8 @@ def _get_relevant_hyps_for_stage(stage_idx: int, prev_conjs: list[str],
                             if hasattr(sub, 'target'):
                                 target_set.add(sub.target)
 
-    # Return all hypotheses — names match _gen_q_destruct_pat (H0, H1, ...)
-    return ["H" + str(i) for i in range(len(prev_conjs))]
+    # Return all hypotheses — names match _gen_q_destruct_pat
+    return [prefix + str(i) for i in range(len(prev_conjs))]
 
 
 def _get_pre_hyp_name_for_stage(stage_idx: int, ccall_segs,
@@ -3158,7 +3157,7 @@ def _gen_final_assign_proof(fv: list[str], q_value_conjs: list[str],
     """Generate the final assignment proof for multi-CCall chain."""
     lines = []
     lines.append("        simpl. unfold lget.")
-    lines.append("        repeat (try rewrite H0; try rewrite H1; try rewrite H2; try rewrite H3; try rewrite H4; try rewrite H5; try rewrite H6; try rewrite H7).")
+    lines.append("        repeat (try rewrite G0; try rewrite G1; try rewrite G2; try rewrite G3; try rewrite G4; try rewrite G5; try rewrite G6; try rewrite G7).")
     lines.append("        try reflexivity; try lia.")
     return lines
 
