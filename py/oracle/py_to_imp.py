@@ -804,7 +804,7 @@ class PyToImpLowerer:
                 if val:
                     bindings.append(ImpCAss(target=callee_params[i], value=val))
 
-        pre = self._scope_ccall_pre(pre_s, callee_params)
+        pre = self._scope_ccall_pre(pre_s, callee_params, name)
         post = self._subst_result(post_s, target, callee_params)
         call = ImpCCall(
             name=name, args=args_list,
@@ -816,15 +816,18 @@ class PyToImpLowerer:
             result = ImpCSeq(commands=[b, result])
         return result
 
-    def _scope_ccall_pre(self, coq_expr: str, params: list[str]) -> str:
+    def _scope_ccall_pre(self, coq_expr: str, params: list[str],
+                          callee_name: str = "") -> str:
         import re
         result = coq_expr
         for p in params:
             result = re.sub(
                 rf'(?<![a-zA-Z0-9_"%]){re.escape(p)}__len(?![a-zA-Z0-9_"%])',
                 f'asZ (s "{p}._len"%string)', result)
+            # Replace bare param name but NOT the state variable s in "s \"...\"" patterns.
+            # A state variable is always followed by optional whitespace then a double-quote.
             result = re.sub(
-                rf'(?<![a-zA-Z0-9_"%]){re.escape(p)}(?![a-zA-Z0-9_"%])',
+                rf'(?<![a-zA-Z0-9_"%]){re.escape(p)}(?!\s*")(?![a-zA-Z0-9_"%])',
                 f'asZ (s "{p}"%string)', result)
         return f"(fun s => {result})"
 

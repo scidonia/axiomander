@@ -3576,7 +3576,12 @@ Theorem {name}_vcg_exit : forall {vcg_params},
         # that aren't part of CCall bindings — staged proof doesn't handle these yet.
         ccalls = _collect_ccalls(imp_ir)
         has_initial = _has_initial_assignments(imp_ir, ccalls)
-        if not has_initial:
+        # Skip if any param is non-int — frame conditions use asZ/isVZ (TODO: string/list/dict)
+        has_non_int = any(
+            _is_string_param(a) or _is_list_param(a) or _is_dict_param(a) or _is_float_param(a)
+            for _, a in _func_params(func_node)
+        ) if func_node else False
+        if not has_initial and not has_non_int:
             contract_map_staged = _build_contract_map(full_tree)
             try:
                 staged_defs, staged_lemma_text, staged_proof_body = _build_staged_proof(
