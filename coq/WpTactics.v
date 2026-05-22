@@ -130,7 +130,14 @@ Ltac wp_prove :=
   | |- _ \/ _ => solve [left; wp_prove | right; wp_prove]
   | |- ?x = ?x => reflexivity
   | |- context[clobber ?s nil] => rewrite (clobber_nil s); wp_prove
-  | |- _ => ccall_simpl; unfold lget, upd, updZ; cbn; solve [assumption | reflexivity | lia | auto]
+  | |- _ =>
+      ccall_simpl; unfold lget, upd, updZ; cbn;
+      solve [ assumption | reflexivity | lia | auto |
+              match goal with
+              | |- (if ?c then _ else _) = 1 => destruct c; [reflexivity | discriminate]
+              | |- (if ?c then _ else _) = 0 => destruct c; [discriminate | reflexivity]
+              | |- (if ?c then _ else _) = 1 \/ (if ?c then _ else _) = 0 => destruct c; auto
+              end ]
 
   end.
 
