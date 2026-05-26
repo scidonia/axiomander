@@ -1128,17 +1128,16 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
     if AI_PROVE_PATH.exists():
         saved_hash = HASH_PATH.read_text().strip() if HASH_PATH.exists() else ""
         current_hash = hashlib.sha256(AI_PROVE_PATH.read_bytes()).hexdigest()
-        # Trigger coq-lsp check when:
-        # 1. Hash file exists, matches generated (same function), but file differs (coq-lsp edited it)
-        # 2. Hash file is missing (external edit like cp), and file differs from generated
+        # Only trigger when: hash file exists AND file was externally modified
+        # (same function was verified, then coq-lsp edited the file).
+        # Do NOT trigger on first call (no hash file) — avoids 120s coqc timeout.
         try_coqlsp = (
-            (saved_hash and current_hash != saved_hash and saved_hash == generated_hash) or
-            (not saved_hash and current_hash != generated_hash and AI_PROVE_PATH.stat().st_size > 0)
+            saved_hash and current_hash != saved_hash and saved_hash == generated_hash
         )
         if try_coqlsp:
             ai_result = subprocess.run(
                 ["coqc", "-R", str(BUILD_DIR), "Imp", str(AI_PROVE_PATH)],
-                capture_output=True, text=True, timeout=120,
+                capture_output=True, text=True, timeout=30,
                 env={**os.environ},
             )
             current_text = AI_PROVE_PATH.read_text()

@@ -15,6 +15,17 @@ from coqpyt.lsp.structs import TextDocumentItem, TextDocumentIdentifier, Positio
 from coqpyt.coq.lsp.client import CoqLspClient
 from coqpyt.coq.lsp.structs import GoalAnswer
 
+_KNOWN_LSP_BINARIES = ["rocq-robot", "rocq-lsp", "coq-lsp"]
+
+
+def _find_coq_lsp() -> str:
+    """Find the LSP binary. Tries newest names first."""
+    import shutil
+    for name in _KNOWN_LSP_BINARIES:
+        if shutil.which(name):
+            return name
+    return _KNOWN_LSP_BINARIES[-1]  # fallback to last known name
+
 
 @dataclass
 class GoalState:
@@ -73,6 +84,7 @@ class CoqpytSession:
         self._client = CoqLspClient(
             f"file://{self.build_dir}",
             timeout=self.timeout,
+            coq_lsp=_find_coq_lsp(),
             coq_lsp_options=(f"--rec-load-path={self.build_dir},Imp",),
             init_options={
                 "max_errors": 120000000,
