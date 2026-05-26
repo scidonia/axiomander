@@ -1531,9 +1531,9 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
         coq_source, re.DOTALL
     )
     staged_seg_text = staged_defs_match.group(1).strip() if staged_defs_match else ""
-    coq_context = f"Definition {func_name}_body : com := {imp_body}.\n"
+    coq_context = ""
     if staged_seg_text:
-        coq_context += "\n" + staged_seg_text
+        coq_context = staged_seg_text
 
     # The generated goal may already use staged body (if imp_ir was passed).
     # Keep it as-is — wp_prove will handle the decomposed segments instantly.
@@ -1559,8 +1559,14 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
     # Use LangGraph with tool-calling: the LLM calls get_goals/try_tactic/finish_proof itself
     from oracle.langgraph_oracle import run_langgraph_oracle
 
-    # Build preamble from context + goal
-    preamble = coq_context + "\n" + goal_text + "\nProof."
+    # Build preamble with imports, body, seg defs, goal — clean, no lemmas
+    import_prefix = (
+        "Require Import ZArith String List Lia.\n"
+        "Require Import Imp Wp WpTactics.\n"
+        "Import ListNotations.\n"
+        "Open Scope Z_scope.\n\n"
+    )
+    preamble = import_prefix + coq_context + "\n" + goal_text + "\nProof."
     ok, proof_script, err = run_langgraph_oracle(preamble)
 
     if ok:
@@ -1573,7 +1579,14 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
         # Save transcript
         proofs_dir = PROJECT_ROOT / ".axiomander" / "proofs"
         proofs_dir.mkdir(parents=True, exist_ok=True)
-        proof_module = coq_context + "\n" + goal_text + "\n" + proof_script
+        # Save full proof — imports + definitions (NOT staged lemmas) + new proof
+        import_prefix_save = (
+            "Require Import ZArith String List Lia.\n"
+            "Require Import Imp Wp WpTactics.\n"
+            "Import ListNotations.\n"
+            "Open Scope Z_scope.\n\n"
+        )
+        proof_module = import_prefix_save + coq_context + "\n" + goal_text + "\n" + proof_script
         (proofs_dir / f"{func_name}.v").write_text(proof_module)
         import time as _time_mod
         (proofs_dir / f"{func_name}_{int(_time_mod.time())}.v").write_text(proof_module)

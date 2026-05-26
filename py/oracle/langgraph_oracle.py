@@ -3,7 +3,7 @@ LangGraph Coq proof oracle.
 
 The LLM has direct function-calling access to coq-lsp:
   get_goals() → current proof state
-  try_tactic(tactic: str) → apply tactic, get result  
+  try_tactic(tactic: str) → apply tactic, get result
   finish_proof() → close with Qed
 """
 
@@ -27,7 +27,6 @@ except ImportError:
     ChatOpenAI = None
     StateGraph = None
     END = None
-    add_messages = None
     ToolNode = None
     MemorySaver = None
     TypedDict = None
@@ -45,20 +44,19 @@ class ProofState(TypedDict):
 
 # ── Coq-lsp tools ──────────────────────────────────────────────────
 
-# Module-level state (one session per oracle invocation)
 _session: Optional[CoqpytSession] = None
 
 
-def _get_session():
+def _s():
     global _session
+    if not _session:
+        raise RuntimeError("No active coq-lsp session")
     return _session
 
 
 def get_goals() -> str:
     """Get current proof state: goals with hypotheses."""
-    s = _get_session()
-    if not s:
-        return "ERROR: no active session"
+    s = _s()
     state = s.get_goals()
     goals = "\n".join(state.goals[:3]) if state.goals else "(no open goals — proof may be complete)"
     hyps = "\n".join(state.hypotheses[-15:]) if state.hypotheses else "(no hypotheses)"
@@ -67,9 +65,7 @@ def get_goals() -> str:
 
 def try_tactic(tactic: str) -> str:
     """Apply a Coq tactic. Returns new goal state or error."""
-    s = _get_session()
-    if not s:
-        return "ERROR: no active session"
+    s = _s()
     t = tactic.strip()
     if not t.endswith('.'):
         t += '.'
@@ -87,9 +83,7 @@ def try_tactic(tactic: str) -> str:
 
 def finish_proof() -> str:
     """Close the proof with Qed."""
-    s = _get_session()
-    if not s:
-        return "ERROR: no active session"
+    s = _s()
     if s.finish_proof("Qed."):
         return "PROVED! Theorem closed with Qed."
     return "Qed FAILED — proof not complete. Check remaining goals."
@@ -178,27 +172,25 @@ def run_langgraph_oracle(
     global _session
 
     if ChatOpenAI is None:
-        return False, "", "langgraph not installed (pip install langgraph langchain-openai)"
+        return False, "", "langgraph not installed"
 
-    # Check credit budget — consume upfront for estimated LLM calls
-    from oracle.client import _consume_credit, credit_budget_exhausted
-    est_calls = min(max_steps, 10)  # estimate: each step ~1 LLM call
-    for _ in range(est_calls):
-        if not _consume_credit():
-            return False, "", "Credit budget exhausted"
+    from oracle.client import _consume_credit
 
-    # Open coq-lsp session
     session = CoqpytSession(BUILD_DIR, timeout=60)
     _session = session
+    proof_script = ""
 
     try:
-        in_proof = session.load(preamble)
-        if not in_proof:
-            try:
-                session.load(preamble + "\nAdmitted.")
-            except Exception:
-                pass
+        # Check budget
+        est_calls = min(max_steps, 10)
+        for _ in range(est_calls):
+            if not _consume_credit():
+                return False, "", "Credit budget exhausted"
 
+        # Load preamble into coq-lsp
+        session.load(preamble)
+
+        # Run LangGraph agent
         initial_state = {
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
@@ -210,37 +202,40 @@ def run_langgraph_oracle(
 
         graph = build_graph()
         config = {"configurable": {"thread_id": "proof"}, "recursion_limit": max_steps * 3}
-
         final = graph.invoke(initial_state, config)
 
-        # Extract the proof from tool calls that succeeded
-        tactics = []
-        for msg in final.get("messages", []):
-            if hasattr(msg, 'tool_calls'):
-                for tc in msg.tool_calls:
-                    if tc.get("name") == "try_tactic":
-                        t = tc.get("args", {}).get("tactic", "")
-                        if t:
-                            tactics.append(t)
-
-        proof_script = "\n".join(tactics)
-
-        # Check if proof was closed
+        # Check if proof succeeded by looking for PROVED message
+        proved = False
         for msg in final.get("messages", []):
             content = str(getattr(msg, 'content', ''))
-            if "PROVED" in content or "PROOF COMPLETE" in content:
-                return True, proof_script + "\nQed.", ""
+            if "PROVED" in content:
+                proved = True
+                break
 
-        return False, proof_script, final.get("error", "") or "Proof incomplete"
+        if proved:
+            # Extract actual proof script from session text
+            full_text = getattr(session, '_text', '')
+            # Use rfind to get the LAST Proof. (theorem's, not any lemma's)
+            proof_idx = full_text.rfind("Proof.")
+            if proof_idx >= 0:
+                script = full_text[proof_idx:]
+                # Clean up: strip Admitted fallback, normalize newlines
+                import re
+                script = re.sub(r'\nAdmitted\.\s*\n', '\n', script)
+                script = script.strip()
+                proof_script = script
+            else:
+                proof_script = "Proof.\nQed."
+
+        return proved, proof_script, ""
 
     except Exception as e:
         import traceback
-        tb = traceback.format_exc()[-500:]
-        return False, "", f"{e}\n{tb}"
+        return False, "", f"{e}\n{traceback.format_exc()[-300:]}"
 
     finally:
         try:
-            session.close()
+            session.close(timeout=3)
         except Exception:
             pass
         _session = None
