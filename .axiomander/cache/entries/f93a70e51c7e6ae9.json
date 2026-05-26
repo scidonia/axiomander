@@ -1,0 +1,21 @@
+{
+  "function_name": "prompt_system",
+  "cache_key": "f93a70e51c7e6ae9936766d6192172c85b1fd3ab9236830b80c5de33c5ae5f7a",
+  "body_hash": "17bce7c747ceb3947dc8efec199fb21acfe11fabb0541268ccb5c9b0b7a93f57",
+  "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "local_assert_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "callee_contract_hashes": {},
+  "result": {
+    "level": "level1",
+    "proof_method": "wp_reduce",
+    "elapsed_ms": 0.0,
+    "goal_statement": "wp prompt_system_body ...",
+    "dependencies": [],
+    "counterexample": {},
+    "error_detail": "",
+    "suggested_action": null,
+    "suggestion_text": ""
+  },
+  "tool_version": "0.4.0",
+  "timestamp": 1779782832.7309093
+}

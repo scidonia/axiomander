@@ -1,0 +1,48 @@
+{
+	"name": "npm-keyword",
+	"version": "8.0.0",
+	"description": "Get a list of npm packages with keywords",
+	"license": "MIT",
+	"repository": "sindresorhus/npm-keyword",
+	"funding": "https://github.com/sponsors/sindresorhus",
+	"author": {
+		"name": "Sindre Sorhus",
+		"email": "sindresorhus@gmail.com",
+		"url": "https://sindresorhus.com"
+	},
+	"type": "module",
+	"exports": {
+		"types": "./index.d.ts",
+		"default": "./index.js"
+	},
+	"sideEffects": false,
+	"engines": {
+		"node": ">=18"
+	},
+	"scripts": {
+		"test": "xo && ava && tsd"
+	},
+	"files": [
+		"index.js",
+		"index.d.ts"
+	],
+	"keywords": [
+		"npm",
+		"keyword",
+		"package",
+		"packages",
+		"pkg",
+		"registry",
+		"find",
+		"search"
+	],
+	"dependencies": {
+		"ky": "^1.2.1",
+		"registry-url": "^6.0.1"
+	},
+	"devDependencies": {
+		"ava": "^6.1.1",
+		"tsd": "^0.30.7",
+		"xo": "^0.57.0"
+	}
+}

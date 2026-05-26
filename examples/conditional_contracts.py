@@ -1,0 +1,280 @@
+"""
+Conditional Contract Examples for Weakest Precondition Testing
+
+This file contains examples specifically designed to test weakest precondition
+calculation (WPC) on conditional statements. These examples demonstrate:
+
+- Basic if/else conditionals
+- Nested conditional logic
+- Complex condition expressions
+- Path-dependent postconditions
+- Branch-specific assertions
+
+Usage:
+  axiomander verify examples/conditional_contracts.py --verbose --dump-z3 ./verification_output
+"""
+
+
+def simple_conditional_max(x: int, y: int) -> int:
+    """
+    Simple conditional to test basic WPC on if/else.
+
+    This tests the weakest precondition calculation when the postcondition
+    depends on which branch was taken.
+    """
+    # Preconditions
+    assert x >= -100 and x <= 100, "x must be in bounded range"
+    assert y >= -100 and y <= 100, "y must be in bounded range"
+
+    if x > y:
+        result = x
+    else:
+        result = y
+
+    # Postconditions that depend on the conditional logic
+    assert result >= x, "Result should be at least x"
+    assert result >= y, "Result should be at least y"
+    assert result == x or result == y, "Result should equal one of the inputs"
+
+    return result
+
+
+def conditional_with_computation(n: int) -> int:
+    """
+    Tests WPC when different computations happen in each branch.
+
+    This is more complex than simple assignment - each branch does
+    actual computation that needs to be tracked through WPC.
+    """
+    # Preconditions
+    assert n >= -50 and n <= 50, "n must be in reasonable range"
+
+    if n >= 0:
+        # Positive path: square the number
+        result = n * n
+    else:
+        # Negative path: negate and add constant
+        result = (-n) + 10
+
+    # Path-specific postconditions
+    if n >= 0:
+        assert result == n * n, "For non-negative n, result should be n²"
+        assert result >= n, "For non-negative n, n² ≥ n"
+    else:
+        assert result == (-n) + 10, "For negative n, result should be -n + 10"
+        assert result > 10, "For negative n, result should be > 10"
+
+    # Postconditions that must hold regardless of path
+    assert result >= 0, "Result should always be non-negative"
+    return result
+
+
+def nested_conditionals(a: int, b: int) -> int:
+    """
+    Tests WPC on nested conditional structures.
+
+    This challenges the WPC calculation to handle multiple levels
+    of branching and path-dependent logic.
+    """
+    # Preconditions
+    assert a >= -20 and a <= 20, "a must be bounded"
+    assert b >= -20 and b <= 20, "b must be bounded"
+
+    if a > 0:
+        if b > 0:
+            # Both positive: multiply
+            result = a * b
+        else:
+            # a positive, b non-positive: use a
+            result = a + 5
+    else:
+        if b > 0:
+            # a non-positive, b positive: use b
+            result = b + 3
+        else:
+            # Both non-positive: use constant
+            result = 1
+
+    # Postconditions that must be verified across all paths
+    assert result >= 1, "Result should be at least 1"
+
+    # Path-specific verification
+    if a > 0 and b > 0:
+        assert result == a * b, "Product case"
+        assert result > 0, "Product of positives is positive"
+    elif a > 0 and b <= 0:
+        assert result == a + 5, "a positive, b non-positive case"
+        assert result > 5, "Should be > 5 in this case"
+    elif a <= 0 and b > 0:
+        assert result == b + 3, "a non-positive, b positive case"
+        assert result > 3, "Should be > 3 in this case"
+    else:
+        assert result == 1, "Both non-positive case"
+
+    return result
+
+
+def complex_condition_expression(x: int, y: int, z: int) -> int:
+    """
+    Tests WPC with complex boolean expressions in conditions.
+
+    This tests how WPC handles compound conditions with AND/OR logic.
+    """
+    # Preconditions
+    assert x >= -10 and x <= 10, "x bounded"
+    assert y >= -10 and y <= 10, "y bounded"
+    assert z >= -10 and z <= 10, "z bounded"
+
+    if (x > 0 and y > 0) or (z > 5):
+        # Complex condition: (x > 0 ∧ y > 0) ∨ (z > 5)
+        result = x + y + z
+    else:
+        result = x - y - z
+
+    # Postconditions
+    if (x > 0 and y > 0) or (z > 5):
+        assert result == x + y + z, "Addition case"
+    else:
+        assert result == x - y - z, "Subtraction case"
+
+    # This postcondition should always hold regardless of path
+    assert result >= -30 and result <= 30, "Result should be bounded"
+
+    return result
+
+
+def guard_pattern(value: int) -> int:
+    """
+    Tests WPC with early return pattern (guard clauses).
+
+    This tests how WPC handles multiple return points and
+    different postconditions for each exit path.
+    """
+    # Preconditions
+    assert value >= -100 and value <= 100, "value must be bounded"
+
+    # Guard: handle special case
+    if value == 0:
+        result = 42
+        assert result == 42, "Zero case returns fixed value"
+        return result
+
+    # Guard: handle negative case
+    if value < 0:
+        result = -value * 2
+        assert result > 0, "Negative input produces positive output"
+        assert result == -value * 2, "Negative case: result = -value * 2"
+        assert result % 2 == 0, "Result should be even"
+        return result
+
+    # Default: positive case
+    result = value + 10
+    assert result > value, "Positive case: result > input"
+    assert result == value + 10, "Positive case: result = value + 10"
+    assert result > 10, "Result should be > 10 for positive input"
+
+    return result
+
+
+def conditional_invariant_preservation(n: int) -> int:
+    """
+    Tests WPC with invariants that should be preserved across branches.
+
+    This demonstrates how WPC should maintain certain properties
+    regardless of which execution path is taken.
+    """
+    # Preconditions
+    assert n >= 1 and n <= 20, "n must be positive and bounded"
+
+    # Invariant: we'll maintain that result is always even
+    if n % 2 == 0:
+        # n is even: keep it even
+        result = n + 2
+    else:
+        # n is odd: make it even
+        result = n + 1
+
+    # Postconditions - invariant preservation
+    assert result % 2 == 0, "Result should always be even"
+    assert result > n, "Result should always be greater than input"
+    assert result >= 2, "Result should be at least 2"
+
+    # Path-specific verification
+    if n % 2 == 0:
+        assert result == n + 2, "Even input: add 2"
+    else:
+        assert result == n + 1, "Odd input: add 1"
+
+    return result
+
+
+def three_way_branch(score: int) -> int:
+    """
+    Tests WPC with multiple (more than two) branches.
+
+    This tests WPC calculation with a three-way conditional structure.
+    """
+    # Preconditions
+    assert score >= 0 and score <= 100, "score must be 0-100"
+
+    if score >= 90:
+        grade = "A"
+        numeric_result = 4
+    elif score >= 70:
+        grade = "B"
+        numeric_result = 3
+    else:
+        grade = "C"
+        numeric_result = 2
+
+    # Postconditions for all paths
+    assert numeric_result >= 2 and numeric_result <= 4, "Numeric result bounded"
+    assert grade in ["A", "B", "C"], "Grade should be valid"
+
+    # Path-specific verification
+    if score >= 90:
+        assert grade == "A", "High score gets A"
+        assert numeric_result == 4, "A grade has value 4"
+    elif score >= 70:
+        assert grade == "B", "Medium score gets B"
+        assert numeric_result == 3, "B grade has value 3"
+    else:
+        assert grade == "C", "Low score gets C"
+        assert numeric_result == 2, "C grade has value 2"
+
+    # Return numeric for easier verification
+    return numeric_result
+
+
+if __name__ == "__main__":
+    print("Testing conditional contracts...")
+
+    # Test simple conditional
+    result1 = simple_conditional_max(10, 5)
+    print(f"simple_conditional_max(10, 5) = {result1}")
+
+    # Test conditional with computation
+    result2 = conditional_with_computation(-3)
+    print(f"conditional_with_computation(-3) = {result2}")
+
+    # Test nested conditionals
+    result3 = nested_conditionals(2, -1)
+    print(f"nested_conditionals(2, -1) = {result3}")
+
+    # Test complex condition
+    result4 = complex_condition_expression(1, 2, 3)
+    print(f"complex_condition_expression(1, 2, 3) = {result4}")
+
+    # Test guard pattern
+    result5 = guard_pattern(-5)
+    print(f"guard_pattern(-5) = {result5}")
+
+    # Test invariant preservation
+    result6 = conditional_invariant_preservation(7)
+    print(f"conditional_invariant_preservation(7) = {result6}")
+
+    # Test three-way branch
+    result7 = three_way_branch(85)
+    print(f"three_way_branch(85) = {result7}")
+
+    print("Conditional contracts test completed!")

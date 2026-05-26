@@ -1574,8 +1574,10 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
         # Save transcript
         proofs_dir = PROJECT_ROOT / ".axiomander" / "proofs"
         proofs_dir.mkdir(parents=True, exist_ok=True)
-        transcript = coq_source.replace("Proof.\n  wp_prove.", f"Proof.\n{proof_script}")
-        (proofs_dir / f"{func_name}.v").write_text(transcript)
+        proof_module = coq_context + "\n" + goal_text + "\n" + proof_script
+        (proofs_dir / f"{func_name}.v").write_text(proof_module)
+        import time as _time_mod
+        (proofs_dir / f"{func_name}_{int(_time_mod.time())}.v").write_text(proof_module)
     else:
         goal.error_detail += f" (LangGraph: {err[:120]})"
     return goal

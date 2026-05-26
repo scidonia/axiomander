@@ -1,0 +1,24 @@
+{
+  "function_name": "run_langgraph_oracle",
+  "cache_key": "2e0ade4d4f72a8d1a1d0efbe407ab4d85a0819d7e35a993a2fb14485b6844394",
+  "body_hash": "de6dc1606324f767105a3d4675dde004a7f3056219ff45baa239616213654fe8",
+  "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "local_assert_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "callee_contract_hashes": {
+    "get": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "credit_budget_exhausted": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda"
+  },
+  "result": {
+    "level": "level1",
+    "proof_method": "wp_reduce + conditional split",
+    "elapsed_ms": 0.0,
+    "goal_statement": "wp run_langgraph_oracle_body ...",
+    "dependencies": [],
+    "counterexample": {},
+    "error_detail": "",
+    "suggested_action": null,
+    "suggestion_text": ""
+  },
+  "tool_version": "0.4.0",
+  "timestamp": 1779803445.3914165
+}

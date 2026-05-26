@@ -1,0 +1,30 @@
+{
+  "name": "axiomander",
+  "version": "1.0.0",
+  "description": "VSCode extensions for Axiomander",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/scidonia/axiomander.git"
+  },
+  "keywords": [
+    "Design",
+    "by",
+    "Contract"
+  ],
+  "author": "Gavin Mendel-Gleason",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/scidonia/axiomander/issues"
+  },
+  "homepage": "https://github.com/scidonia/axiomander#readme",
+  "dependencies": {
+    "yo": "^6.0.0"
+  }
+}

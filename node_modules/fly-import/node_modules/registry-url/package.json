@@ -1,0 +1,51 @@
+{
+	"name": "registry-url",
+	"version": "7.2.0",
+	"description": "Get the set npm registry URL",
+	"license": "MIT",
+	"repository": "sindresorhus/registry-url",
+	"funding": "https://github.com/sponsors/sindresorhus",
+	"author": {
+		"name": "Sindre Sorhus",
+		"email": "sindresorhus@gmail.com",
+		"url": "https://sindresorhus.com"
+	},
+	"type": "module",
+	"exports": {
+		"types": "./index.d.ts",
+		"default": "./index.js"
+	},
+	"sideEffects": false,
+	"engines": {
+		"node": ">=18"
+	},
+	"scripts": {
+		"test": "xo && ava && tsd"
+	},
+	"files": [
+		"index.js",
+		"index.d.ts"
+	],
+	"keywords": [
+		"npm",
+		"conf",
+		"config",
+		"npmconf",
+		"registry",
+		"url",
+		"uri",
+		"scope"
+	],
+	"dependencies": {
+		"find-up-simple": "^1.0.1",
+		"ini": "^5.0.0"
+	},
+	"devDependencies": {
+		"ava": "^6.2.0",
+		"tsd": "^0.31.2",
+		"xo": "^0.60.0"
+	},
+	"ava": {
+		"serial": true
+	}
+}

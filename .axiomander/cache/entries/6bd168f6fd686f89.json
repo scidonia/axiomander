@@ -1,0 +1,21 @@
+{
+  "function_name": "load_theory",
+  "cache_key": "6bd168f6fd686f8914d2e972fdc7d2473bfc473b0a3ce0750f8c9eb6e902fdbf",
+  "body_hash": "c4bc92bd298d7a73df5cd71484f4f34b2269f961a4e95da038f860ea13c22ab1",
+  "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "local_assert_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "callee_contract_hashes": {},
+  "result": {
+    "level": "level1",
+    "proof_method": "wp_reduce",
+    "elapsed_ms": 0.0,
+    "goal_statement": "wp load_theory_body ...",
+    "dependencies": [],
+    "counterexample": {},
+    "error_detail": "",
+    "suggested_action": null,
+    "suggestion_text": ""
+  },
+  "tool_version": "0.4.0",
+  "timestamp": 1779740784.1539688
+}

@@ -1,0 +1,7 @@
+(declare-const x_0 Int)
+(declare-const result_1 Int)
+(assert (= result_1 x_0))
+(assert (< 0 x_0))  
+(assert (not (< 0 result_1)))
+(check-sat)
+(get-model)

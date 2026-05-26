@@ -1,0 +1,21 @@
+{
+  "function_name": "run_verification",
+  "cache_key": "83a41527c8d48a9615e47956f5c2f052a83b7785b4f91bbc679f50dc449bd8fc",
+  "body_hash": "8dfb390c8a4e120bde66b7ca73f1f8d1fe601c712c767c63733b8138f040bef5",
+  "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "local_assert_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "callee_contract_hashes": {},
+  "result": {
+    "level": "level1",
+    "proof_method": "wp_reduce",
+    "elapsed_ms": 0.0,
+    "goal_statement": "wp run_verification_body ...",
+    "dependencies": [],
+    "counterexample": {},
+    "error_detail": "",
+    "suggested_action": null,
+    "suggestion_text": ""
+  },
+  "tool_version": "0.4.0",
+  "timestamp": 1779799964.847588
+}

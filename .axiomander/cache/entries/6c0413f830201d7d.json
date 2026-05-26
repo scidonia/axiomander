@@ -1,0 +1,21 @@
+{
+  "function_name": "credit_budget_exhausted",
+  "cache_key": "6c0413f830201d7db720ecca46035921e7c8379596c9b1f8358e9381fe5ebf15",
+  "body_hash": "6839f94719f4e39b487e051822c56f71053b005e8d1fe074355b663c278eedc1",
+  "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "local_assert_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "callee_contract_hashes": {},
+  "result": {
+    "level": "level1",
+    "proof_method": "wp_reduce",
+    "elapsed_ms": 0.0,
+    "goal_statement": "wp credit_budget_exhausted_body ...",
+    "dependencies": [],
+    "counterexample": {},
+    "error_detail": "",
+    "suggested_action": null,
+    "suggestion_text": ""
+  },
+  "tool_version": "0.4.0",
+  "timestamp": 1779783105.0839887
+}

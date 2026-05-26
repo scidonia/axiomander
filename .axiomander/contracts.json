@@ -1,0 +1,146 @@
+{
+  "project_root": "/home/gavin/dev/Scidonia/axiomander",
+  "contracts": {
+    "BankAccount": {
+      "name": "BankAccount",
+      "module": "examples.bank_account",
+      "file": "/home/gavin/dev/Scidonia/axiomander/examples/bank_account.py",
+      "line": 44,
+      "preconditions": [],
+      "postconditions": [],
+      "invariants": [
+        {
+          "module": "examples.bank_account",
+          "name": "balance_non_negative",
+          "file": "/home/gavin/dev/Scidonia/axiomander/examples/bank_account.py",
+          "line": 42,
+          "description": "Account balance must never be negative",
+          "error_message": null,
+          "tags": [],
+          "source_code": "        def placeholder_condition(*args, **kwargs) -> bool:\n            return True\n",
+          "signature": "(*args, **kwargs) -> bool"
+        },
+        {
+          "module": "examples.bank_account",
+          "name": "account_number_positive",
+          "file": "/home/gavin/dev/Scidonia/axiomander/examples/bank_account.py",
+          "line": 43,
+          "description": "Account number must be positive",
+          "error_message": null,
+          "tags": [],
+          "source_code": "        def placeholder_condition(*args, **kwargs) -> bool:\n            return True\n",
+          "signature": "(*args, **kwargs) -> bool"
+        }
+      ],
+      "docstring": "A simple bank account with contract-based validation.",
+      "tags": [],
+      "status": "defined",
+      "depends_on": [],
+      "implements": null,
+      "refines": null,
+      "signature": null,
+      "return_type": null,
+      "parameters": {},
+      "created_at": "2025-12-02T20:30:05.033429",
+      "modified_at": null
+    },
+    "BankAccount.deposit": {
+      "name": "BankAccount.deposit",
+      "module": "examples.bank_account",
+      "file": "/home/gavin/dev/Scidonia/axiomander/examples/bank_account.py",
+      "line": 59,
+      "preconditions": [
+        {
+          "module": "examples.bank_account",
+          "name": "amount_is_positive",
+          "file": "/home/gavin/dev/Scidonia/axiomander/examples/bank_account.py",
+          "line": 57,
+          "description": "Deposit amount must be positive",
+          "error_message": null,
+          "tags": [],
+          "source_code": "        def placeholder_condition(*args, **kwargs) -> bool:\n            return True\n",
+          "signature": "(*args, **kwargs) -> bool"
+        }
+      ],
+      "postconditions": [
+        {
+          "module": "examples.bank_account",
+          "name": "balance_increased_by_amount",
+          "file": "/home/gavin/dev/Scidonia/axiomander/examples/bank_account.py",
+          "line": 58,
+          "description": "Balance should increase by deposit amount",
+          "error_message": null,
+          "tags": [],
+          "source_code": "        def placeholder_condition(*args, **kwargs) -> bool:\n            return True\n",
+          "signature": "(*args, **kwargs) -> bool"
+        }
+      ],
+      "invariants": [],
+      "docstring": "Deposit money into the account.",
+      "tags": [],
+      "status": "defined",
+      "depends_on": [],
+      "implements": null,
+      "refines": null,
+      "signature": "(self, amount: float) -> float",
+      "return_type": "float",
+      "parameters": {
+        "self": "Any",
+        "amount": "float"
+      },
+      "created_at": "2025-12-02T20:30:05.033697",
+      "modified_at": null
+    },
+    "BankAccount.withdraw": {
+      "name": "BankAccount.withdraw",
+      "module": "examples.bank_account",
+      "file": "/home/gavin/dev/Scidonia/axiomander/examples/bank_account.py",
+      "line": 67,
+      "preconditions": [
+        {
+          "module": "examples.bank_account",
+          "name": "amount_is_positive",
+          "file": "/home/gavin/dev/Scidonia/axiomander/examples/bank_account.py",
+          "line": 65,
+          "description": "Withdrawal amount must be positive",
+          "error_message": null,
+          "tags": [],
+          "source_code": "        def placeholder_condition(*args, **kwargs) -> bool:\n            return True\n",
+          "signature": "(*args, **kwargs) -> bool"
+        },
+        {
+          "module": "examples.bank_account",
+          "name": "amount_not_exceeds_balance",
+          "file": "/home/gavin/dev/Scidonia/axiomander/examples/bank_account.py",
+          "line": 66,
+          "description": "Cannot withdraw more than current balance",
+          "error_message": null,
+          "tags": [],
+          "source_code": "        def placeholder_condition(*args, **kwargs) -> bool:\n            return True\n",
+          "signature": "(*args, **kwargs) -> bool"
+        }
+      ],
+      "postconditions": [],
+      "invariants": [],
+      "docstring": "Withdraw money from the account.",
+      "tags": [],
+      "status": "defined",
+      "depends_on": [],
+      "implements": null,
+      "refines": null,
+      "signature": "(self, amount: float) -> float",
+      "return_type": "float",
+      "parameters": {
+        "self": "Any",
+        "amount": "float"
+      },
+      "created_at": "2025-12-02T20:30:05.033877",
+      "modified_at": null
+    }
+  },
+  "dependencies": {},
+  "implementations": {},
+  "refinements": {},
+  "created_at": "2025-12-02T20:30:05.034113",
+  "updated_at": "2025-12-02T20:30:05.034113"
+}

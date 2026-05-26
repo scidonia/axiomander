@@ -1,0 +1,12 @@
+{
+  "/home/gavin/dev/Scidonia/axiomander/src/axiomander/introspection.py": "1e5c040011e311267c145c7f45fae4ccaca931a1339efb721c5e8e8fec107765",
+  "/home/gavin/dev/Scidonia/axiomander/examples/__init__.py": "29eb12ecadfa0a0bf95b36d185f29bef669c09980b6c2ef1b86699cb4b92d43f",
+  "/home/gavin/dev/Scidonia/axiomander/src/axiomander/contracts.py": "22e8e5336fe1dac2ad30e374ac263b83855b642114ce21a218445c0026033a30",
+  "/home/gavin/dev/Scidonia/axiomander/src/axiomander/exceptions.py": "2cbfc0e413e7f40b71022c683d59a09e1e2089e6e4f8d5a41e1db04912a8d963",
+  "/home/gavin/dev/Scidonia/axiomander/src/axiomander/static_analysis.py": "5d8e0c186db07378ba1c2b4e4b977fb6a15ca83bef3f4fe54ddfb99f0d73828f",
+  "/home/gavin/dev/Scidonia/axiomander/src/axiomander/main.py": "09e5a5fc810b1766da864ca6848bb2136cf5d947f7aa3a34a56e32594c5e2d9f",
+  "/home/gavin/dev/Scidonia/axiomander/src/axiomander/metadata.py": "962cf1f38c6e7d7241874af80b777c1d67bbddf550f0ac99454f59869ee6acdb",
+  "/home/gavin/dev/Scidonia/axiomander/src/axiomander/cli.py": "169564a68b81d52284a281482d9213e44ed931c3ab08de3b99c6288edde6167d",
+  "/home/gavin/dev/Scidonia/axiomander/src/axiomander/__init__.py": "18837dd6a0ab0de63c50bdc75ee994cc66ebc05233229875fa8cee47c7d618b5",
+  "/home/gavin/dev/Scidonia/axiomander/examples/bank_account.py": "478172dc37247b0e89b8b80c5d9a354a7a57621942aa788021c7443e092a6f24"
+}

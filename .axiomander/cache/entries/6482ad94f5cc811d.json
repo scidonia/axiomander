@@ -1,0 +1,25 @@
+{
+  "function_name": "interactive_oracle_query",
+  "cache_key": "6482ad94f5cc811d519346d6192bdc9b0c6e4ea885429f4f8f4987f2b6e302ea",
+  "body_hash": "acf0d5bca824de8c5c8d660ac20dae0cd0cc9ca9e19278eb25f41d08c814d19c",
+  "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "local_assert_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "callee_contract_hashes": {
+    "_extract_tactic": "fe6ec3feef42b0e5e7ec0d26dd6bd088c59fd41318214e17ce6d95fca367ddea",
+    "call_llm": "8579c55daa5201fdfb4f7738c82c0158516593183d8fd374d2e9653f3c0c7750",
+    "credit_budget_exhausted": "37ab693fbfbd6b9cd3f1077011cd97eec21a31d9e867bddc91e505f921147294"
+  },
+  "result": {
+    "level": "level1",
+    "proof_method": "wp_reduce + conditional split",
+    "elapsed_ms": 0.0,
+    "goal_statement": "wp interactive_oracle_query_body ...",
+    "dependencies": [],
+    "counterexample": {},
+    "error_detail": "",
+    "suggested_action": null,
+    "suggestion_text": ""
+  },
+  "tool_version": "0.4.0",
+  "timestamp": 1779795998.5269575
+}

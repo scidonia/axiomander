@@ -1,0 +1,3394 @@
+
+# 2025-12-02 13:48:41.072542
++Yes
+
+# 2025-12-02 13:49:55.439107
++I also need to note that we are going to use exceptions to stand in for unimplemented code (rather than pass) This will make our outputs type correct incrementally. We need exceptions for ImplementThis, DontImplementThis and we need validation exceptions. We need an Exception root class as well for these sorts of exceptions which are logical.
+
+# 2025-12-02 13:50:09.020112
++I also need to note that we are going to use exceptions to stand in for unimplemented code (rather than pass) This will make our outputs type correct incrementally. We need exceptions for ImplementThis, DontImplementThis and we need validation exceptions. We need an Exception root class as well for these sorts of exceptions which are logical. This should go in the design_by_contract_agent_system_plan.md
+
+# 2025-12-02 13:50:10.618555
++Yes
+
+# 2025-12-02 15:37:14.479314
++Ok, what remains to be fleshed out in phase 0?
+
+# 2025-12-02 15:37:58.086414
++Aha, I'm not called scidonia/contracts anymore. I'm called axiomander, the helpful contractual salamander. 
+
+# 2025-12-02 15:58:36.802958
++Also we should mention that we must *always* have a git repo to track changes for the agent. 
+
+# 2025-12-02 15:59:11.171843
++/ask Ok, now  what stage are we at? 
+
+# 2025-12-02 15:59:33.047848
++Yes
+
+# 2025-12-02 16:01:03.245502
++/ask Ok, are we in phase0 now? 
+
+# 2025-12-02 16:01:25.319414
++Let's do this. 
+
+# 2025-12-02 16:02:47.712876
++Yes
+
+# 2025-12-02 18:32:45.830170
++We will need to be loading the contract conditions because they are in python themselves - so they need to refer to a symbol in a file rather than just a str expression.
+
+# 2025-12-02 18:36:42.972156
++/ask How are you going to serialize it?
+
+# 2025-12-02 18:39:19.122512
++Type 3
+
+# 2025-12-02 18:40:11.527817
++/ask What remains of phase0
+
+# 2025-12-02 18:41:08.826568
++The contract DSL is simply a fragment of python that has no observable side effects (local updating, shadowing etc. is fine).
+
+# 2025-12-02 18:41:53.783863
++Yes
+
+# 2025-12-02 20:05:38.464960
++/ask Where are we now in the implementation? 
+
+# 2025-12-02 20:06:04.631010
++Continue with phase0
+
+# 2025-12-02 20:10:45.742545
++Yes
+
+# 2025-12-02 20:11:10.805875
++No
+
+# 2025-12-02 20:12:08.486300
++/ask Where are we now? 
+
+# 2025-12-02 20:12:32.162842
++Ok, let's do phase1 part 1. 
+
+# 2025-12-02 20:13:11.349294
++Write into the plan that we are to use typer for cli programmes with a proper pyproject.toml entry point. 
+
+# 2025-12-02 20:13:13.672638
++Yes
+
+# 2025-12-02 20:15:13.185664
++No
+
+# 2025-12-02 20:15:21.288678
++/ask Where are we now
+
+# 2025-12-02 20:16:58.357852
++Cary out next steps. 
+
+# 2025-12-02 20:19:22.033013
++No
+
+# 2025-12-02 20:19:34.953899
++/read-only CONVENTIONS.md
+
+# 2025-12-02 20:20:04.869313
++gavin@pleiades: ~/dev/Scidonia/axiomander main ⚡
++$ axiomander map                                                       [20:19:08]
++Scanning project: /home/gavin/dev/Scidonia/axiomander
++Unexpected error: 'Typer' object has no attribute '__qualname__'
++(contracts) FAIL: 1
++
+
+# 2025-12-02 20:20:38.249298
++No
+
+# 2025-12-02 20:21:09.257017
++gavin@pleiades: ~/dev/Scidonia/axiomander main ⚡
++$ axiomander map                                                       [20:20:32]
++Scanning project: /home/gavin/dev/Scidonia/axiomander
++Contract Graph for /home/gavin/dev/Scidonia/axiomander
++============================================================
++
++No contracts found in the project.
++(contracts)  
++^ should this not have found the example?
+
+# 2025-12-02 20:21:30.638817
++Yes
+
+# 2025-12-02 20:21:35.196054
++No
+
+# 2025-12-02 20:21:58.318779
++gavin@pleiades: ~/dev/Scidonia/axiomander main ⚡
++$ axiomander map --enhanced --packages examples                        [20:20:45]
++Scanning project: /home/gavin/dev/Scidonia/axiomander
++Using enhanced static analysis...
++Contract Graph for /home/gavin/dev/Scidonia/axiomander
++============================================================
++
++No contracts found in the project.
++(contracts)  
++
+
+# 2025-12-02 20:22:49.530293
++No
+
+# 2025-12-02 20:22:53.512569
++gavin@pleiades: ~/dev/Scidonia/axiomander/examples main ⚡
++$ python bank_account.py                                               [20:22:36]
++Traceback (most recent call last):
++  File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/contracts.py", line 261, in check_invariant
++    if not contract_condition.evaluate(instance):
++           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
++  File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/metadata.py", line 70, in evaluate
++    return self.condition_func(*args, **kwargs)
++           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
++  File "/home/gavin/dev/Scidonia/axiomander/examples/bank_account.py", line 34, in balance_non_negative
++    return self.balance >= 0
++           ^^^^^^^^^^^^
++AttributeError: 'BankAccount' object has no attribute 'balance'
++
++The above exception was the direct cause of the following exception:
++
++Traceback (most recent call last):
++  File "/home/gavin/dev/Scidonia/axiomander/examples/bank_account.py", line 118, in <module>
++    run_example()
++    ~~~~~~~~~~~^^
++  File "/home/gavin/dev/Scidonia/axiomander/examples/bank_account.py", line 86, in run_example
++    account = BankAccount(12345, 100.0)
++  File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/contracts.py", line 272, in new_init
++    original_init(self, *args, **kwargs)
++    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
++  File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/contracts.py", line 272, in new_init
++    original_init(self, *args, **kwargs)
++    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
++  File "/home/gavin/dev/Scidonia/axiomander/examples/bank_account.py", line 54, in __init__
++    self.account_number = account_number
++    ^^^^^^^^^^^^^^^^^^^
++  File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/contracts.py", line 277, in new_setattr
++    check_invariant(self)
++    ~~~~~~~~~~~~~~~^^^^^^
++  File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/contracts.py", line 269, in check_invariant
++    raise InvariantViolation(message) from e
++axiomander.exceptions.InvariantViolation: Invariant evaluation failed: balance_non_negative
++(contracts) FAIL: 1
++
+
+# 2025-12-02 20:23:15.553798
++Yes
+
+# 2025-12-02 20:23:15.558539
++/run cd examples && python bank_account.py
+
+# 2025-12-02 20:23:15.558601
++/run cd examples && python bank_account.py
+
+# 2025-12-02 20:23:20.095058
++Yes
+
+# 2025-12-02 20:23:26.622085
++See the problem? Fix.
+
+# 2025-12-02 20:23:39.709009
++Yes
+
+# 2025-12-02 20:23:39.713275
++/run cd examples && python bank_account.py
+
+# 2025-12-02 20:23:39.713312
++/run cd examples && python bank_account.py
+
+# 2025-12-02 20:23:44.012222
++Yes
+
+# 2025-12-02 20:23:46.847222
++See the problem? Fix.
+
+# 2025-12-02 20:24:03.934648
++Yes
+
+# 2025-12-02 20:24:03.939364
++/run cd examples && python bank_account.py
+
+# 2025-12-02 20:24:03.939414
++/run cd examples && python bank_account.py
+
+# 2025-12-02 20:24:26.500506
++Yes
+
+# 2025-12-02 20:24:29.266359
++/ask How is this? 
+
+# 2025-12-02 20:25:04.391524
++gavin@pleiades: ~/dev/Scidonia/axiomander main ⚡
++$ axiomander map --packages examples                                   [20:24:52]
++Scanning project: /home/gavin/dev/Scidonia/axiomander
++Scanning packages: examples
++Found 0 contracts in 0 modules
++Contract Graph for /home/gavin/dev/Scidonia/axiomander
++============================================================
++
++No contracts found in the project.
++(contracts)  
++
+
+# 2025-12-02 20:26:25.074663
++Yes
+
+# 2025-12-02 20:26:25.078346
++/run axiomander map --packages examples
+
+# 2025-12-02 20:26:25.078392
++/run axiomander map --packages examples
+
+# 2025-12-02 20:26:44.580072
++No
+
+# 2025-12-02 20:26:45.639173
++gavin@pleiades: ~/dev/Scidonia/axiomander main ⚡
++$ axiomander map --packages examples                                   [20:24:59]
++Scanning project: /home/gavin/dev/Scidonia/axiomander
++Scanning packages: examples
++Found 0 contracts in 0 modules
++Contract registry contains 0 contracts:
++Contract Graph for /home/gavin/dev/Scidonia/axiomander
++============================================================
++
++No contracts found in the project.
++(contracts)  
++
+
+# 2025-12-02 20:27:17.421223
++/ask How does the map work? Should we not be constructing an asset which is persistent and then look at that map? 
+
+# 2025-12-02 20:28:09.422521
++Yes
+
+# 2025-12-02 20:30:53.084733
++No
+
+# 2025-12-02 20:31:02.557509
++/ask Where are we now? 
+
+# 2025-12-02 20:32:05.777664
++Don't worry about watch for now. the testing has been done and it works. Let's go to the next phase. 
+
+# 2025-12-02 20:33:12.968177
++Yes
+
+# 2025-12-02 20:34:49.067566
++No
+
+# 2025-12-02 20:34:52.768699
++gavin@pleiades: ~/dev/Scidonia/axiomander main ⚡
++$ axiomander lsp                                                       [20:34:39]
++Starting LSP server for project: /home/gavin/dev/Scidonia/axiomander
++LSP server will communicate via stdin/stdout
++Error starting LSP server: No module named 'pygls.lsp.methods'
++FAIL: 1
++
+
+# 2025-12-02 20:35:55.340773
++No
+
+# 2025-12-02 20:35:58.583263
++$ axiomander lsp                                                       [20:35:46]
++Starting LSP server for project: /home/gavin/dev/Scidonia/axiomander
++LSP server will communicate via stdin/stdout
++Error starting LSP server: cannot import name 'LanguageServer' from 'pygls.server'(/nix/store/c2svzic2zphpnv2xg2j3l5k752b8fbsl-axiomander-editable-env/lib/python3.13/site-packages/pygls/server.py)
++FAIL: 1
++
+
+# 2025-12-02 20:49:23.252155
++NMo
+
+# 2025-12-02 20:49:24.429544
++No
+
+# 2025-12-02 20:49:25.982711
++https://pygls.readthedocs.io/en/latest/
+
+# 2025-12-02 20:49:27.138457
++Yes
+
+# 2025-12-02 20:50:45.727635
++No
+
+# 2025-12-02 20:50:46.763497
++$ axiomander lsp                                                       [20:37:53]
++Starting LSP server for project: /home/gavin/dev/Scidonia/axiomander
++LSP server will communicate via stdin/stdout
++INFO:pygls.feature_manager:Registered builtin feature exit
++INFO:pygls.feature_manager:Registered builtin feature initialize
++INFO:pygls.feature_manager:Registered builtin feature initialized
++INFO:pygls.feature_manager:Registered builtin feature notebookDocument/didChange
++INFO:pygls.feature_manager:Registered builtin feature notebookDocument/didClose
++INFO:pygls.feature_manager:Registered builtin feature notebookDocument/didOpen
++INFO:pygls.feature_manager:Registered builtin feature $/setTrace
++INFO:pygls.feature_manager:Registered builtin feature shutdown
++INFO:pygls.feature_manager:Registered builtin feature textDocument/didChange
++INFO:pygls.feature_manager:Registered builtin feature textDocument/didClose
++INFO:pygls.feature_manager:Registered builtin feature textDocument/didOpen
++INFO:pygls.feature_manager:Registered builtin feature window/workDoneProgress/cancel
++INFO:pygls.feature_manager:Registered builtin feature workspace/didChangeWorkspaceFolders
++INFO:pygls.feature_manager:Registered builtin feature workspace/executeCommand
++INFO:pygls.feature_manager:Registered "initialize" with options "None"
++INFO:pygls.feature_manager:Registered "textDocument/didOpen" with options "None"
++INFO:pygls.feature_manager:Registered "textDocument/didSave" with options "None"
++INFO:pygls.feature_manager:Registered "textDocument/hover" with options "None"
++INFO:pygls.feature_manager:Registered "textDocument/codeAction" with options "None"
++INFO:pygls.feature_manager:Command "axiomander.analyzeProject" is successfully registered.
++INFO:pygls.feature_manager:Command "axiomander.generateContractsForRange" is successfully registered.
++INFO:pygls.feature_manager:Command "axiomander.refreshContractGraph" is successfully registered.
++INFO:axiomander.lsp_server:Starting axiomander LSP server
++INFO:pygls.server:Starting async IO server
++
+
+# 2025-12-02 20:50:53.659801
++$ axiomander lsp                                                       [20:37:53]
++Starting LSP server for project: /home/gavin/dev/Scidonia/axiomander
++LSP server will communicate via stdin/stdout
++INFO:pygls.feature_manager:Registered builtin feature exit
++/ask INFO:pygls.feature_manager:Registered builtin feature initialize
++INFO:pygls.feature_manager:Registered builtin feature initialized
++INFO:pygls.feature_manager:Registered builtin feature notebookDocument/didChange
++INFO:pygls.feature_manager:Registered builtin feature notebookDocument/didClose
++INFO:pygls.feature_manager:Registered builtin feature notebookDocument/didOpen
++INFO:pygls.feature_manager:Registered builtin feature $/setTrace
++INFO:pygls.feature_manager:Registered builtin feature shutdown
++INFO:pygls.feature_manager:Registered builtin feature textDocument/didChange
++INFO:pygls.feature_manager:Registered builtin feature textDocument/didClose
++INFO:pygls.feature_manager:Registered builtin feature textDocument/didOpen
++INFO:pygls.feature_manager:Registered builtin feature window/workDoneProgress/cancel
++INFO:pygls.feature_manager:Registered builtin feature workspace/didChangeWorkspaceFolders
++INFO:pygls.feature_manager:Registered builtin feature workspace/executeCommand
++INFO:pygls.feature_manager:Registered "initialize" with options "None"
++INFO:pygls.feature_manager:Registered "textDocument/didOpen" with options "None"
++INFO:pygls.feature_manager:Registered "textDocument/didSave" with options "None"
++INFO:pygls.feature_manager:Registered "textDocument/hover" with options "None"
++INFO:pygls.feature_manager:Registered "textDocument/codeAction" with options "None"
++INFO:pygls.feature_manager:Command "axiomander.analyzeProject" is successfully registered.
++INFO:pygls.feature_manager:Command "axiomander.generateContractsForRange" is successfully registered.
++INFO:pygls.feature_manager:Command "axiomander.refreshContractGraph" is successfully registered.
++INFO:axiomander.lsp_server:Starting axiomander LSP server
++INFO:pygls.server:Starting async IO server
++
+
+# 2025-12-02 20:51:39.641476
++Yes, please begin phase 3
+
+# 2025-12-02 21:45:52.925023
++Ye
+
+# 2025-12-02 21:46:05.384379
++No
+
+# 2025-12-02 21:50:59.457083
++/ask How can I test the server?
+
+# 2025-12-02 21:53:32.151736
++/ask Do we have a command line client as one of the implementation plan?
+
+# 2025-12-02 21:57:13.446399
++I think we should add client commands, but it should be through a separate entry point. Perhaps we should rename the other as axiomander-server - and keep axiomander for the CLI client. Further, the server should be capable of doing the scan / map / watch from the running backend. 
+
+# 2025-12-02 22:10:48.073390
++Yes
+
+# 2025-12-02 22:12:22.940017
++No
+
+# 2025-12-02 22:12:29.374071
++⠸ Processing (100%)INFO:httpx:HTTP Request: GET http://localhost:8000/task/task_20251202_221150_6661 "HTTP/1.1 200 OK"
++^ don't need that httpx logging. 
+
+# 2025-12-02 22:12:31.388490
++No
+
+# 2025-12-02 22:15:35.627201
++/clear
+
+# 2025-12-02 22:15:37.622204
++/drop
+
+# 2025-12-02 22:15:42.315114
++/add design_by_contract_agent_system_plan.md
+
+# 2025-12-02 22:16:18.743232
++⠋ Processing...INFO:httpx:HTTP Request: GET http://localhost:8000/task/task_20251202_221548_7121 "HTTP/1.1 200 OK"
++⠹ Processing (20%)INFO:httpx:HTTP Request: GET http://localhost:8000/task/task_20251202_221548_7121 "HTTP/1.1 200 OK"
++^ We have too much httpx logging in the axiomander analyze
+
+# 2025-12-02 22:16:24.650606
++No
+
+# 2025-12-02 22:16:37.689989
++Yes
+
+# 2025-12-02 22:17:22.368179
++/ask Ok, where in the plan are we?
+
+# 2025-12-02 22:18:26.442024
++I want to use either openai or anthropic with a --model given on the CLI. Let's start with anthropic. We will want to use langgraph to organize the graph / agent flow. 
+
+# 2025-12-02 22:19:37.376833
++Yes
+
+# 2025-12-02 22:22:03.427588
++No
+
+# 2025-12-02 22:22:24.485323
++Surely we can use langchain to do both calls and don't need a separate anthropic client?
+
+# 2025-12-02 22:23:54.437485
++No
+
+# 2025-12-02 22:24:03.287125
++/ask Ok, now were are we?
+
+# 2025-12-02 22:25:19.065311
++We need to create a plan for the remainder of phase 3 in a separate file. 
+
+# 2025-12-02 22:25:24.049285
++We need to create a plan for the remainder of phase 3 in a separate md file. 
+
+# 2025-12-02 22:26:08.727589
++Yes
+
+# 2025-12-02 22:27:54.226767
++Let's start with the specification node. We want to have the user write a specification of the behaviour. The AI can look at it and suggest or ask questions to increase clarification - then it can ask if we want to switch modes to pre and post condition *descriptions*.  I will need to be able to create a new project, add a new specification - refine the specification, ask the system to move to pre/post condition creation. 
+
+# 2025-12-02 22:32:16.352803
++No
+
+# 2025-12-02 22:32:28.714514
++/ask Where does the spec go if we create it?
+
+# 2025-12-02 22:35:49.106819
++/ask I need it to be commiting to a git repository - similar to the way that aider works. Perhaps the server should return the operation and the client should carry it out. 
+
+# 2025-12-02 22:38:54.904248
++Close, but it will need to be SSE so the client can see everything happen as it happens. We should stream the response including streaming the response from the graph using langchain's streaming approach and then re-emitting as SSE events. Take over the phase3_completion_plan.md and use it to describe how this would be done. Don't implement code yet.
+
+# 2025-12-02 22:40:38.048334
++/ask What is the next step in this plan. 
+
+# 2025-12-02 22:41:46.394622
++Do this, but completely remove the old endpoints
+
+# 2025-12-02 22:45:58.843628
++No
+
+# 2025-12-02 22:48:07.993314
++/ask Ok, what is the next step
+
+# 2025-12-02 22:48:36.563516
++Do the immediate next actions
+
+# 2025-12-02 22:51:34.349624
++/run axiomander create-spec "user_authentication" "A system that validates user credentials and manages login sessions"
+
+# 2025-12-02 22:51:34.349676
++/run axiomander create-spec "user_authentication" "A system that validates user credentials and manages login sessions"
+
+# 2025-12-02 22:51:36.367439
++gavin@pleiades: ~/dev/Scidonia/axiomander main ⚡
+
+# 2025-12-02 22:51:36.397742
++$ axiomander create-spec "user_authentication" "A system that validate scredentials and manages login sessions"
+
+# 2025-12-02 22:51:36.414251
++Creating specification: user_authentication
+
+# 2025-12-02 22:51:36.429701
++Description: A system that validate scredentials and manages login sessions
+
+# 2025-12-02 22:51:36.445533
++⠋ Connecting...
+
+# 2025-12-02 22:52:54.343274
++Streaming error: '_GeneratorContextManager' object does not support the 
+
+# 2025-12-02 22:52:54.363729
++asynchronous context manager protocol
+
+# 2025-12-02 22:52:54.375241
++FAIL: 1
+
+# 2025-12-02 22:52:54.387552
++/run pip install -e .
+
+# 2025-12-02 22:52:54.387667
++/run pip install -e .
+
+# 2025-12-02 22:58:37.555168
++No
+
+# 2025-12-02 22:59:34.635139
++gavin@pleiades: ~/dev/Scidonia/axiomander main ⚡
++$ gavin@pleiades: ~/dev/Scidonia/axiomander main ⚡                    [22:50:47]
++$ axiomander create-spec "user_authentication" "A system that validate scredentials and manages login sessions"
++Creating specification: user_authentication
++Description: A system that validate scredentials and manages login sessions
++
++⠋ Connecting...
++Streaming error: '_GeneratorContextManager' object does not support the
++asynchronous context manager protocol
++FAIL: 1
++
+
+# 2025-12-02 23:00:10.135999
++gavin@pleiades: ~/dev/Scidonia/axiomander main ⚡
++$ axiomander create-spec "user_authentication" "A system that validate scredentials and manages login sessions"
++Creating specification: user_authentication
++Description: A system that validate scredentials and manages login sessions
++
++⠋ Connecting...
++Streaming error: '_AsyncGeneratorContextManager' object does not support the 
++context manager protocol
++FAIL: 1
++
+
+# 2025-12-02 23:00:49.906377
++/ask gavin@pleiades: ~/dev/Scidonia/axiomander main ⚡
++$ axiomander create-spec "user_authentication" "A system that validate scredentials and manages login sessions"
++Creating specification: user_authentication
++Description: A system that validate scredentials and manages login sessions
++
++⠋ Connecting...
++Streaming error: '_GeneratorContextManager' object does not support the 
++asynchronous context manager protocol
++FAIL: 1
++^ That clearly didn't work. Why do you think? 
+
+# 2025-12-02 23:03:26.561023
++You don’t need to drop down to a fully synchronous flow for this — you just picked the wrong helper from httpx_sse.
++
++httpx-sse actually gives you two helpers:
++
++connect_sse → sync context manager, works with httpx.Client, yields .iter_sse()
++
++aconnect_sse → async context manager, works with httpx.AsyncClient, yields .aiter_sse() 
++PyPI
+++1
++
++So the clean fix is:
++
++Swap connect_sse → aconnect_sse
++
++Keep your AsyncClient
++
++Keep using async with and async for
++
++Concrete patch for src/axiomander/client.py
++
++Assuming you currently have something like: import httpx
++from httpx_sse import connect_sse
++
++async def stream_events(url: str, headers: dict):
++    async with httpx.AsyncClient(timeout=None) as client:
++        async with connect_sse(client, "GET", url, headers=headers) as event_source:
++            async for sse in event_source.aiter_sse():
++                yield sse
++change to: import httpx
++from httpx_sse import aconnect_sse  # <- key change
++
++async def stream_events(url: str, headers: dict):
++    async with httpx.AsyncClient(timeout=None) as client:
++        async with aconnect_sse(client, "GET", url, headers=headers) as event_source:
++            async for sse in event_source.aiter_sse():
++                yield sse
++
+
+# 2025-12-02 23:04:47.892352
++ERROR:axiomander.agent_backend:Error in specification creation stream: Anthropic API key not found. Set ANTHROPIC_API_KEY environment variable or provide it in the config.
++INFO:     127.0.0.1:56234 - "GET /stream/create-specification?project_root=/home/gavin/dev/Scidonia/axiomander&specification_name=user_authentication&initial_description=A%20system%20that%20validate%20scredentials%20and%20manages%20login%20sessions&model=claude-3-5-sonnet-20241022&provider=anthropic HTTP/1.1" 200 OK
++^ This should be sent as an error event. 
+
+# 2025-12-02 23:05:44.662645
++No
+
+# 2025-12-02 23:05:58.197140
++Client side API key should be sent as a bearer token and then used on the server side. 
+
+# 2025-12-02 23:06:18.742239
++Client side API key should be sent as a bearer token and then used on the server side. (using the correct one for the --model switch which should be a client choice). 
+
+# 2025-12-02 23:10:17.408713
++we should be using claude-3-5-sonnet-latest at the actual anthropic endpoint. 
+
+# 2025-12-02 23:10:21.507730
++/clear
+
+# 2025-12-02 23:10:43.178741
++We should be using claude-3-5-sonnet-latest at the actual anthropic endpoint. But we get:gavin@pleiades: ~/dev/Scidonia/axiomander main ⚡
++$ axiomander create-spec "user_authentication" "A system that validate scredentials and manages login sessions"
++Creating specification: user_authentication
++Description: A system that validate scredentials and manages login sessions
++
++Error: AI generation failed: Error code: 404 - {'type': 'error', 'error': {'type':'not_found_error', 'message': 'model: claude-3-5-sonnet-20241022'}, 'request_id': 'req_011CVid88BovPFqXEhVmnvHt'}
++Error processing event: AI generation failed: Error code: 404 - {'type': 'error', 'error': {'type': 'not_found_error', 'message': 'model: 
++claude-3-5-sonnet-20241022'}, 'request_id': 'req_011CVid88BovPFqXEhVmnvHt'}
++⠙ Connecting...
++Streaming error: AI generation failed: Error code: 404 - {'type': 'error', 
++'error': {'type': 'not_found_error', 'message': 'model: 
++claude-3-5-sonnet-20241022'}, 'request_id': 'req_011CVid88BovPFqXEhVmnvHt'}
++FAIL: 1
++
+
+# 2025-12-02 23:11:37.822547
++/ask Show me how you are trying to connect to anthropic
+
+# 2025-12-02 23:14:20.558396
++Maybe we should make a quick test because this doesn't seem to work: from langchain_anthropic import ChatAnthropic
++
++chat = ChatAnthropic(
++    model="claude-3-5-sonnet-latest",
++    api_key="YOUR_ANTHROPIC_API_KEY",
++    max_tokens=256,
++    temperature=0.1,
++)
++
++resp = chat.invoke("Say 'hello from Claude 3.5 Sonnet'.")
++print(resp.content)
++
+
+# 2025-12-02 23:14:43.215804
++Yes
+
+# 2025-12-02 23:14:58.031720
++No
+
+# 2025-12-02 23:16:28.481110
++Current production models are things like:
++
++claude-sonnet-4-20250514 (Claude Sonnet 4)
++
++claude-opus-4-20250514 (Claude Opus 4)
++
++claude-3-7-sonnet-20250219 (Claude 3.7 Sonnet)
++
++claude-3-5-haiku-20241022 (Claude 3.5 Haiku)  allow these and aliases for them to be specified as the model param
+
+# 2025-12-02 23:17:41.062903
++No
+
+# 2025-12-02 23:18:57.441853
++/ask $ axiomander create-spec "user_authentication" "A system that validate scredentials and manages login sessions"
++Creating specification: user_authentication
++Description: A system that validate scredentials and manages login sessions
++
++d behavior:
++
++ validation:**
++, etc.)
++
++
++ session management:**
++
++
++ existing users.
++
++
++Created directory: .axiomander/specs/spec_20251202_231752_9210
++Created file: .axiomander/specs/spec_20251202_231752_9210/spec.md
++Created file: .axiomander/specs/spec_20251202_231752_9210/conversation.json
++Created file: .axiomander/specs/spec_20251202_231752_9210/metadata.json
++Updated index: .axiomander/specs/index.json
++Committed: feat: create specification 'user_authentication'
++⠋ ✓ Completed successfully
++
++✓ Specification created successfully!
++Specification ID: spec_20251202_231752_9210
++╭──────────────────────────────── 📋 Next Steps ─────────────────────────────────╮│ 1. Review the AI's questions and suggestions                                   ││ 2. Use 'axiomander refine-spec spec_20251202_231752_9210 "your response"' to   ││ continue                                                                       ││ 3. Add more details about edge cases and requirements                          │╰────────────────────────────────────────────────────────────────────────────────╯
++Use 'axiomander refine-spec spec_20251202_231752_9210 "your response"' to continue  How do I know what it did? 
+
+# 2025-12-02 23:19:00.605313
++No
+
+# 2025-12-02 23:20:35.220450
++I need an interactive mode now from the client which allows me to see the current mode, and gives commands for connection to the server with the current context in mind. 
+
+# 2025-12-02 23:24:35.808467
++No
+
+# 2025-12-02 23:25:00.399159
++/ask We should have completion on spec codes for commands in interactive that take them. 
+
+# 2025-12-02 23:26:42.270792
++How do I see the description of the spec, the pre and post conditions of the spec verbal and the logical conditions of the spec? 
+
+# 2025-12-02 23:29:26.370000
++No
+
+# 2025-12-02 23:30:19.977497
++/ask The specs are not tab completable in the interactive mode. 
+
+# 2025-12-02 23:31:28.455830
++/ask The tab just emits a tab. So it's not to do with finding the spec ids. 
+
+# 2025-12-02 23:31:59.080278
++Try that. 
+
+# 2025-12-02 23:34:17.425516
++No
+
+# 2025-12-02 23:34:23.559578
++Current mode needs to be visible at all times. 
+
+# 2025-12-02 23:37:14.724798
++Commands should be started with /command or we should interpret the typing as a conversation with an AI - the AI in conversation should be given a specific prompt for the mode and be capable of applying the operations of that mode (such as altering the specification when in specification mode). 
+
+# 2025-12-02 23:39:23.531212
++When I'm in the specification conversation, does the AI always see my conversation history as well as what I've just said? 
+
+# 2025-12-02 23:40:05.464483
++And what about the current state of the specification?
+
+# 2025-12-02 23:40:52.995714
++And if I ask it to modify the specification, can it? 
+
+# 2025-12-02 23:42:43.371068
++I said: "What functions in my project need contracts?" and it said: contracts?
++🤖 AI is thinking...
++HTTP Error 422: {"detail":[{"type":"enum","loc":["body","mode"],"msg":"Input 
++should be 'specification', 'specification_refinement', 'contract_description', 
++'contract_implementation', 'refinement', 'implementation', 'verification' or 
++'refactor'","input":"exploration","ctx":{"expected":"'specification', 
++'specification_refinement', 'contract_description', 'contract_implementation', 
++'refinement', 'implementation', 'verification' or 'refactor'"}}]}
++Error in conversation: 1
++
+
+# 2025-12-02 23:45:22.191652
++When I exceed the line length it wraps around on the same line instead of going on to another line. 
+
+# 2025-12-02 23:46:13.255340
++We also have no command history and now the tab completion no longer works since we introduced the / commands. 
+
+# 2025-12-02 23:46:32.914302
++We have no command history (I want to use up to get the last) and now the tab completion no longer works since we introduced the / commands. 
+
+# 2025-12-02 23:48:58.661248
++The output coming from the AI is very garbled: 🤖 AI is thinking...
++ ready for contract generation.
++
++ the Specification:
++
++
++'t been addressed
++ handling
++ authentication
++
++
++
++:**
++
++ination)
++
++
++
++d:**
++.)
++
++
++
++
++ Steps:
++
++ the AI analysis:
++
++.)
++.)
++
++ user registration?**
++
++
++Updated file: .axiomander/specs/spec_20251202_231752_9210/spec.md
++Updated file: .axiomander/specs/spec_20251202_231752_9210/conversation.json
++Updated file: .axiomander/specs/spec_20251202_231752_9210/metadata.json
++Committed: refine: update specification 'user_authentication'
++⠼ ✓ Completed successfully
++
+
+# 2025-12-02 23:49:02.109845
++/clear
+
+# 2025-12-02 23:49:17.312852
++The output coming from the AI when we are in specification mode is very garbled: 🤖 AI is thinking...
++ ready for contract generation.
++
++ the Specification:
++
++
++'t been addressed
++ handling
++ authentication
++
++
++
++:**
++
++ination)
++
++
++
++d:**
++.)
++
++
++
++
++ Steps:
++
++ the AI analysis:
++
++.)
++.)
++
++ user registration?**
++
++
++Updated file: .axiomander/specs/spec_20251202_231752_9210/spec.md
++Updated file: .axiomander/specs/spec_20251202_231752_9210/conversation.json
++Updated file: .axiomander/specs/spec_20251202_231752_9210/metadata.json
++Committed: refine: update specification 'user_authentication'
++⠼ ✓ Completed successfully
++
+
+# 2025-12-02 23:49:36.119862
++No
+
+# 2025-12-02 23:50:05.271527
++$ axiomander create-spec "user_authentication" "A system that validate scredentials and manages login sessions"
++Creating specification: user_authentication
++Description: A system that validate scredentials and manages login sessions
++
++I can
++ help you create a comprehensive
++ specification
++ for user authentication!
++ Your
++ initial
++ description gives
++ me a good starting
++ point, but let
++ me ask some
++ clarifying questions to better
++ understand the
++ intende
++d behavior:
++
++**
++About
++ credential
++ validation:**
++1
++. What types
++ of credentials will
++ the
++ system accept
++? (username
++/password, email
++/
++passwor
++d, multi
++-factor authentication, etc.)
++2
++. How
++ shoul
++d the
++ system handle invalid credentials -
++ should there
++ be any
++ rate
++ limiting,
++ account
++ lockout policies
++, or specific
++ error messages?
++
++
++**About
++ session management:**
++3
++. What
++ should trigger
++ a session
++ to
++ en
++d? (explicit
++ logout, timeout, concurrent
++ login
++ limits
++, etc.)
++4. How
++ long
++ should sessions
++ remain
++ active
++,
++ and shoul
++d users
++ be able to extend them?
++
++**
++Security
++ considerations:**
++5. Are
++ there any specific requirements
++ for password complexity, or
++ integration
++ with external
++ authentication
++ providers?
++
++
++These
++ details will help us
++ define
++ clear
++ prec
++onditions,
++ postconditions, and invariants for
++ your authentication system.
++ What
++'s
++ your primary use case -
++ is
++ this for a web application, mobile app
++, or something else?
++
++
+
+# 2025-12-02 23:53:23.617659
++No
+
+# 2025-12-02 23:53:40.609404
++[exploration] axiomander> /create-spec banking-app "An app that allows a number of operations, including withdrawal, deposits, and transfers - establishing identity of the user using a password"
++Creating specification: banking-app
++Great
++! A banking app is
++ a perfect candidate
++ for rig
++orous behavioral
++ specification since
++ security
++ and correct
++ness are critical
++. Let me ask
++ some
++ clarifying questions to help
++ us buil
++d a complete
++ specification
++.
++
++
++**Authentication
++ & Security:**
++
++1. What shoul
++d happen
++ when a user enters
++ an incorrect password? Should there
++ be lock
++out mechanisms
++ after
++ multiple failed attempts?
++2. How
++ long
++ should a
++ user session
++ remain
++ active
++?
++ Should there
++ be automatic
++ logout after in
++activity?
++
++
++**Account Operations
++:**
++3. For
++ withdraw
++als -
++ what
++ are the constraints
++?
++ Should the
++ system
++ prevent
++ overdrafts entirely
++, or allow them
++ with
++ fees
++?
++ What
++ about daily
++ withdrawal
++ limits?
++
++
++**Basic
++ Architecture
++:**
++4. Are
++ we dealing
++ with single
++ accounts
++ per user, or can
++ users
++ have multiple accounts (
++checking
++, savings, etc.)
++ that
++ they
++ can transfer
++ between?
++
++
++These
++ answers
++ will help us
++ think
++ through the core
++ behaviors and edge cases.
++ What's
++ your vision
++ for how
++ these
++ aspects
++ should work
++?
++^ See this - it should be filling into a box, and doing so in a way that doesn't cause it to be on a new line each time. 
+
+# 2025-12-02 23:57:27.174035
++We get a nice box at the end, but we are streaming to the console the intermediate as well. As follows: 🤖 AI is thinking...
++Excellent! You've provide
++d crucial details
++ about the authentication
++ system. Let me update
++ the specification with this information
++ and ask some follow
++-up questions.
++
++
++## Updated Specification Analysis
++
++
++**Authentication System
++ - Now Clarified:**
++-
++ Password verification
++ against hashed passwords
++ in identity file
++
++- Session key generation using hash
++ of (user identity
++ + salt)
++- Session
++-based authentication for
++ subsequent operations
++
++
++**Still Need Clarification:**
++
++
++**Session Management:**
++1. How
++ long should these
++ session keys remain
++ valid? Should they expire
++ after a time period or
++ remain active until
++ explicit logout?
++2. What
++ happens if a user tries
++ to create multiple
++ sessions (login
++ from different devices/
++locations)?
++
++**Security
++ Policies:**
++3. Should there be faile
++d login attempt
++ limits before account
++ lockout?
++
++4. Any requirements
++ for password complexity or
++ minimum length?
++
++**Account Operations (
++still open):**
++5. For
++ withdrawals - should the
++ system prevent overdrafts entirely, or
++ allow them with fees?
++
++6. Are we dealing with single accounts per user, or
++ multiple account
++ types per user?
++
++7. For transfers
++ - are these only
++ between a user
++'s own accounts, or can users
++ transfer to other users' accounts?
++
++**Data
++ Storage:**
++8. Should we
++ assume the hash
++ file of identities is persistent
++ storage that surv
++ives app restarts?
++
++
++The authentication
++ architecture you
++'ve described is solid -
++ now we need to nail
++ down the business
++ rules around account
++ operations and session policies
++. What are your thoughts on these
++ aspects?
++
++
+
+# 2025-12-02 23:59:20.910829
++Now we no longer present a pretty bo, but just the weirdly formated version with strange newlines. 
+
+# 2025-12-02 23:59:25.580212
++No
+
+# 2025-12-02 23:59:27.056973
++Now we no longer present a pretty bo, but just the weirdly formated version with strange newlines. 
+
+# 2025-12-02 23:59:54.198841
++No
+
+# 2025-12-03 00:00:33.417168
++1 Keep the real-time streaming - users still see the AI "typing" in real-time    2 Add a formatted panel at the end - after streaming completes, show the full      response in a nice Rich panel                                                  3 Provide both experiences - immediate feedback during generation AND a clean      final result                                                                  ^ This is wrong, we want the real-time streaming *into* the box. It should be immediately adding it to the pannel. And wy do we have funny newlines all over the place in the streaming version? 
+
+# 2025-12-03 08:18:38.120476
++/ask Do we have a way to break a spec into smaller pieces - where each part of the spec becomes its own spec - which we will later assemble? 
+
+# 2025-12-03 08:19:32.409430
++/ask In general the point will not be to merge the specs together but to break the spec up and then while updating the sub-spec we will need to update the parent spec as well. 
+
+# 2025-12-03 08:20:12.568016
++Yes, but you'll need to write this plan down somewhere as an md file. 
+
+# 2025-12-03 08:32:52.559637
++Yes
+
+# 2025-12-03 08:33:12.258165
++Ok, we need to do the specification_decomposition_plan.md
+
+# 2025-12-03 08:47:28.748808
++No
+
+# 2025-12-03 08:47:41.739049
++Please update the README.md to bring it up to speed. 
+
+# 2025-12-03 08:47:42.989593
++Yes
+
+# 2025-12-03 08:47:47.416260
++/clear
+
+# 2025-12-03 08:47:48.880715
++Please update the README.md to bring it up to speed. 
+
+# 2025-12-03 08:48:58.537720
++Yes
+
+# 2025-12-03 08:51:20.483086
++/commit
+
+# 2025-12-03 08:53:47.498166
++/ask How does the decompose operation work - I would like to decompose interactively where each segment is given a suggested name and scope and I approve and then it is constructed. 
+
+# 2025-12-03 08:55:53.387462
++Yes please implement this. 
+
+# 2025-12-03 09:10:02.756356
++Yes
+
+# 2025-12-03 09:23:43.461142
++No
+
+# 2025-12-03 09:26:14.904214
++I noticed you have the following type: Optional[Dict[str, Any]] but this could be almost any dict. We should prefer a pydantic model which specifies precisely what is being used. 
+
+# 2025-12-03 09:27:59.225926
++Yes
+
+# 2025-12-03 09:28:14.385691
++/drop README.md
+
+# 2025-12-03 09:28:24.580250
++/drop design_by_contract_agent_system_plan.md 
+
+# 2025-12-03 09:28:27.422565
++/drop phase3_completion_plan.md
+
+# 2025-12-03 09:29:03.700499
++Get rid of the Union[Dict[str, Any], '...'] and just use the correct pydantic model and do not allow dict passing here. 
+
+# 2025-12-03 09:30:00.788781
++/ask Now were are we in the decomposition plan implementation? 
+
+# 2025-12-03 09:30:46.294726
++Yes
+
+# 2025-12-03 09:30:52.079157
++/drop
+
+# 2025-12-03 09:30:53.262500
++/clear
+
+# 2025-12-03 09:31:13.885359
++/add specification_decomposition_plan.md
+
+# 2025-12-03 09:31:34.136430
++/ask Can I delete components? 
+
+# 2025-12-03 09:31:59.161865
++Add deletion logic for both specs and components
+
+# 2025-12-03 09:33:03.526803
++Deleting a component should have *no* impact on the parent contracts. 
+
+# 2025-12-03 09:33:26.569240
++Ok, proceed with implementation
+
+# 2025-12-03 09:37:53.927524
++yes
+
+# 2025-12-03 09:37:55.697983
++Yes
+
+# 2025-12-03 10:06:34.031452
++No
+
+# 2025-12-03 10:38:21.659010
++/ask write a salamander icon
+
+# 2025-12-03 11:38:03.054599
++In the interactive session I have two specs I need to delete but cannot. How can I?
+
+# 2025-12-03 11:38:32.794615
++No
+
+# 2025-12-03 11:40:53.457543
++But this is not the interactive session is it?
+
+# 2025-12-03 11:41:32.286471
++Yes
+
+# 2025-12-03 11:41:39.050268
++/drop
+
+# 2025-12-03 11:41:40.100107
++/clear
+
+# 2025-12-03 11:42:03.271208
++/ask The client is now too big. we need to create a client subdirectory and have it broken up into files there -- perhaps by operation?
+
+# 2025-12-03 11:42:24.026640
++Yes
+
+# 2025-12-03 11:43:06.729002
++Do this. 
+
+# 2025-12-03 13:57:56.361327
++Yes
+
+# 2025-12-03 14:24:19.547546
++Y
+
+# 2025-12-03 14:27:05.122443
++Yes
+
+# 2025-12-03 14:27:05.124525
++/run mkdir -p src/axiomander/client/interactive
+
+# 2025-12-03 14:27:05.124544
++/run mkdir -p src/axiomander/client/interactive
+
+# 2025-12-03 14:27:06.500941
++/run mkdir -p src/axiomander/client/commands
+
+# 2025-12-03 14:27:06.500981
++/run mkdir -p src/axiomander/client/commands
+
+# 2025-12-03 14:27:48.690211
++No
+
+# 2025-12-03 14:27:58.821889
++/drop
+
+# 2025-12-03 14:27:59.871711
++/clear
+
+# 2025-12-03 14:28:52.572618
++gavin@pleiades: ~/dev/Scidonia/axiomander main ⚡
++$ axiomander interactive                                                                   [14:28:44]
++Traceback (most recent call last):
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/bin/axiomander", line 4, in <module>
++    from axiomander.client import app
++  File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/client/__init__.py", line 19, in <module>
++    from .interactive.session import interactive
++  File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/client/interactive/__init__.py", line 5, in <module>
++    from .session import interactive
++  File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/client/interactive/session.py", line 16, in <module>
++    from .completion import InteractiveCompletion
++ModuleNotFoundError: No module named 'axiomander.client.interactive.completion'
++FAIL: 1
++
+
+# 2025-12-03 14:28:59.063577
++Yes
+
+# 2025-12-03 15:00:31.979028
++No
+
+# 2025-12-03 15:00:41.620061
++[specification] axiomander> /show-spec
++📋 Showing specification spec_20251202_235313_4377... (not yet implemented)
++^ What happened to our show spec implementation? 
+
+# 2025-12-03 15:01:47.582913
++No
+
+# 2025-12-03 15:02:02.874382
++The show spec doesn't show the conversation about the spec or the current spec. 
+
+# 2025-12-03 15:03:10.831742
++No
+
+# 2025-12-03 15:04:55.292809
++/ask I want to check out the original client.py file so you can see what it looked like, can you show me the command I need to pull it from git? 
+
+# 2025-12-03 15:04:58.266573
++Yes
+
+# 2025-12-03 15:08:37.423969
++No
+
+# 2025-12-03 15:09:02.638027
++/ask I can't add client.py because it's in git two commits ago (but now deleted). Give me the git command to get it out!
+
+# 2025-12-03 15:10:35.297403
++/read-only old_client.py
+
+# 2025-12-03 15:10:43.725806
++I've added the old client as guidance. 
+
+# 2025-12-03 15:51:03.397850
++No
+
+# 2025-12-03 15:54:10.487679
++[specification] axiomander> /show-spec
++╭─────────────────────────── 📋 Specification: spec_20251202_235313_4377 ────────────────────────────╮│ Name: banking-app                                                                                  ││ Type: Unknown                                                                                      ││ Ready for Contracts: ✓                                                                             ││ Created: 2025-12-02T23:53:13.144962                                                                ││ Last Modified: Unknown                                                                             │╰────────────────────────────────────────────────────────────────────────────────────────────────────╯                    🧩 Components                    
++┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━┓
++┃ ID                        ┃ Name        ┃ Status  ┃
++┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━┩
++│ comp_20251203_085058_8210 │ banking-app │ Unknown │
++└───────────────────────────┴─────────────┴─────────┘
++^ I'm not able to see any more information about this, I don't see the verbal specificaiton our our conversation
+
+# 2025-12-03 15:56:01.804386
++No
+
+# 2025-12-03 15:56:02.674101
++                                      🎯 Available Commands                                       
++┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
++┃ Command                        ┃ Description                                                   ┃
++┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
++│ status                         │ Show current session status                                   │
++│ project <path>                 │ Change project directory (TAB completes paths)                │
++│ model <model>                  │ Change LLM model (TAB completes model names)                  │
++│ provider <provider>            │ Change LLM provider (TAB completes providers)                 │
++│ mode <mode>                    │ Change mode (TAB completes mode names)                        │
++│ help                           │ Show available commands                                       │
++│ completion-help                │ Show tab completion help                                      │
++│ debug-completion               │ Show completion debug info                                    │
++│ quit                           │ Exit interactive session                                      │
++│ show-spec                      │ Show current specification details                            │
++│ show-hierarchy                 │ Show specification hierarchy and components                   │
++│ refine <response>              │ Refine current specification with your input                  │
++│ edit-spec <instructions>       │ Direct specification editing with AI assistance               │
++│ generate-contracts             │ Generate contracts from current specification                 │
++│ analyze-decomposition          │ Analyze decomposition opportunities                           │
++│ decompose <component_names>    │ Decompose into components (comma-separated names)             │
++│ decompose-interactive          │ Interactive decomposition with component preview and approval │
++│ create-component <name>        │ Create new component                                          │
++│ <description>                  │                                                               │
++│ refine-component               │ Refine component with parent sync                             │
++│ <component_id> <response>      │                                                               │
++│ sync-status                    │ Check synchronization status                                  │
++└────────────────────────────────┴───────────────────────────────────────────────────────────────┘
++
++💡 Use TAB to complete specification IDs: spec_20251202_231752_9210, spec_20251202_234951_8318, 
++spec_20251202_235313_4377
++💡 Use TAB to complete commands, models, providers, and paths
++
++[specification] axiomander> /edit-spec
++Unknown command: edit-spec
++Type '/help' for available commands
++
+
+# 2025-12-03 15:57:24.491579
++No
+
+# 2025-12-03 15:58:11.079954
++Conversations for the spec should be a json list of jsons which contain the actor and an md with the content of the conversation. 
+
+# 2025-12-03 21:24:35.801733
++No
+
+# 2025-12-03 21:25:20.183405
++Does the client handle this message format properly now? 
+
+# 2025-12-03 21:26:41.047838
++Don't truncate the spec, and show the conversation in show. I'm getting this now: [specification] axiomander> /show-spec
++╭────────────────────────── 📋 Specification: spec_20251202_235313_4377 ──────────────────────────╮│ Name: banking-app                                                                               ││ Type: Unknown                                                                                   ││ Ready for Contracts: ✓                                                                          ││ Created: 2025-12-02T23:53:13.144962                                                             ││ Last Modified: Unknown                                                                          │╰─────────────────────────────────────────────────────────────────────────────────────────────────╯                    🧩 Components                    
++┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━┓
++┃ ID                        ┃ Name        ┃ Status  ┃
++┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━┩
++│ comp_20251203_085058_8210 │ banking-app │ Unknown │
++└───────────────────────────┴─────────────┴─────────┘
++
++📁 Files in .axiomander/specs/spec_20251202_235313_4377:
++  • conversation.json (22879 bytes)
++  • metadata.json (514 bytes)
++  • spec.md (6997 bytes)
++╭────────────────────────────────── 📋 Specification (spec.md) ───────────────────────────────────╮│ # banking-app                                                                                   ││                                                                                                 ││ ## Initial Description                                                                          ││ "An app that allows a number of operations, including withdrawal, deposits, and transfers -     ││ establishing identity of the user using a password"                                             ││                                                                                                 ││ ## System Architecture Overview                                                                 ││                                                                                                 ││ ### Core Architecture                                                                           ││ - **Single process server** with request queue processing                                       ││ - **JSON-based persistence** in `.db` directory structure                                       ││ - **Pydantic data models** for validation and serialization                                     ││ - **In-memory locking** for concurrency control                                                 ││                                                                                                 ││ ### System Hierarchy                                                                            ││ ```                                                                                             ││ Banking App                                                                                     ││ ├── Authentication System                                                                       ││ ├── Data Models & Persistence                                                                   ││ ├── Banking Operations                                                                          ││ └── Concurrency & Security                                                                      ││ ```                                                                                             ││                                                                                                 ││ ## Authentication System                                                                        ││                                                                                                 ││ ### Password Management                                                                         ││ - User passwords are stored as hashes in an identity file                                       ││ - Password verification occurs by comparing against stored hashes                               ││ - Identity file serves as persistent storage for user credentials                               ││ - **No password complexity requirements** - users may choose any password they prefer           ││                                                                                                 ││ ### Session Management                                                                          ││ - Upon successful password verification, a session key is generated                             ││ - Session key is created as hash(user identity + salt)                                          ││ - The system maintains a hash of the session key for verification                               ││ - **Session keys remain valid for 5 minutes**                                                   ││ - Session configuration managed through Pydantic class objects that are serialized              ││ - Global session parameters stored as Pydantic configuration objects                            ││                                                                                                 ││ ### Security Policies                                                                           ││                                                                                                 ││ #### Failed Login Attempts                                                                      ││ - Maximum of 3 failed login attempts allowed per user account                                   ││ - After 3 failed attempts, the user account is locked                                           ││ - Locked users must call the bank to unlock their account                                       ││ - Bank contact number: 1-800-BANK-HELP (placeholder - to be updated with actual contact         ││ information)                                                                                    ││                                                                                                 ││ ## Data Models & Persistence                                                                    ││                                                                                                 ││ ### Storage Architecture                                                                        ││ - All persistent data is stored as JSON files in a `.db` directory                              ││ - JSON format provides structured, human-readable persistence                                   ││ - Consistent storage approach across all application data                                       ││ - Pydantic models handle data validation and serialization before persistence                   ││                                                                                                 ││ ##                                                                                              ││                                                                                                 ││ ... (truncated - use editor to see full content)                                                │╰─────────────────────────────────────────────────────────────────────────────────────────────────╯
+
+# 2025-12-03 21:28:29.983459
++No
+
+# 2025-12-03 21:28:41.233654
++I don't see the deletion of spects at the top level command list in exploration
+
+# 2025-12-03 21:30:29.836756
++[exploration] axiomander> /delete-spec spec spec_20251202_231752_9210
++Error executing command: 'InteractiveHandlers' object has no attribute 'completion'
++
+
+# 2025-12-03 21:31:08.271974
++No
+
+# 2025-12-03 21:31:31.718130
++[exploration] axiomander> /delete-spec spec_20251202_231752_9210
++About to delete specification:
++ID: spec_20251202_231752_9210
++Name: user_authentication
++Are you sure you want to delete this specification? [y/n]: y
++Error: Unsupported HTTP method: DELETE
++Error deleting specification: 1
++
+
+# 2025-12-03 21:33:19.248683
++Yes
+
+# 2025-12-03 21:39:13.690172
++No
+
+# 2025-12-03 21:39:36.182404
++[exploration] axiomander> /delete-spec spec_20251202_231752_9210
++About to delete specification:
++ID: spec_20251202_231752_9210
++Name: user_authentication
++Are you sure you want to delete this specification? [y/n]: y
++Error: Client.delete() got an unexpected keyword argument 'json'
++Error deleting specification: 1
++
+
+# 2025-12-03 21:41:48.938966
++[exploration] axiomander> /delete-spec spec_20251202_231752_9210
++About to delete specification:
++ID: spec_20251202_231752_9210
++Name: user_authentication
++Are you sure you want to delete this specification? [y/n]: y
++INFO:httpx:HTTP Request: DELETE http://localhost:8000/specification/spec_20251202_231752_9210?force=false&backup=true "HTTP/1.1 200 OK"
++Deletion failed: Unknown error
++
+
+# 2025-12-03 21:41:51.411646
++no
+
+# 2025-12-03 21:42:58.596354
++[exploration] axiomander> /delete-spec spec_20251202_234951_8318
++About to delete specification:
++ID: spec_20251202_234951_8318
++Name: user_authentication
++Are you sure you want to delete this specification? [y/n]: y
++INFO:httpx:HTTP Request: DELETE http://localhost:8000/specification/spec_20251202_234951_8318?force=false&backup=true "HTTP/1.1 200 OK"
++Debug: Server response: {'status': 'deleted', 'specification_id': 'spec_20251202_234951_8318', 
++'backup_path': 
++'/home/gavin/dev/Scidonia/axiomander/.axiomander/backups/specifications/spec_20251202_234951_8318_20251203_204249', 'impact': {'type': 'specification', 'target': 'spec_20251202_234951_8318', 
++'components_affected': 0, 'components': [], 'contracts_lost': 0, 'external_dependencies': [], 
++'cascade_deletion': True}}
++✓ Specification deleted successfully
++Backup created at: 
++/home/gavin/dev/Scidonia/axiomander/.axiomander/backups/specifications/spec_20251202_234951_8318_20251203_204249
++
+
+# 2025-12-03 21:43:02.382759
++No
+
+# 2025-12-03 21:54:21.417071
++The tab completion of commands no longer works.
+
+# 2025-12-03 21:57:45.864733
++I'm getting INFO:httpx: logging lines. These should be removed. 
+
+# 2025-12-03 21:59:03.202303
++INFO:     127.0.0.1:50886 - "GET /stream/decompose-interactive?specification_id=spec_20251203_215247_0095&model=sonnet&provider=anthropic HTTP/1.1" 200 OK
++INFO:httpx:HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
++ERROR:    Exception in ASGI application
++  + Exception Group Traceback (most recent call last):
++  |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_utils.py", line 79, in collapse_excgroups
++  |     yield
++  |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/responses.py", line 270, in __call__
++  |     async with anyio.create_task_group() as task_group:
++  |                ~~~~~~~~~~~~~~~~~~~~~~~^^
++  |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/anyio/_backends/_asyncio.py", line 783, in __aexit__
++  |     raise BaseExceptionGroup(
++  |         "unhandled errors in a TaskGroup", self._exceptions
++  |     ) from None
++  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
++  +-+---------------- 1 ----------------
++    | Traceback (most recent call last):
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/uvicorn/protocols/http/h11_impl.py", line 403, in run_asgi
++    |     result = await app(  # type: ignore[func-returns-value]
++    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++    |         self.scope, self.receive, self.send
++    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++    |     )
++    |     ^
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
++    |     return await self.app(scope, receive, send)
++    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/fastapi/applications.py", line 1139, in __call__
++    |     await super().__call__(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/applications.py", line 107, in __call__    |     await self.middleware_stack(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/middleware/errors.py", line 186, in __call__
++    |     raise exc
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/middleware/errors.py", line 164, in __call__
++    |     await self.app(scope, receive, _send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/middleware/cors.py", line 85, in __call__
++    |     await self.app(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
++    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
++    |     raise exc
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
++    |     await app(scope, receive, sender)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
++    |     await self.app(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/routing.py", line 716, in __call__
++    |     await self.middleware_stack(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/routing.py", line 736, in app
++    |     await route.handle(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/routing.py", line 290, in handle
++    |     await self.app(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/fastapi/routing.py", line 125, in app
++    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
++    |     raise exc
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
++    |     await app(scope, receive, sender)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/fastapi/routing.py", line 112, in app
++    |     await response(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/responses.py", line 269, in __call__
++    |     with collapse_excgroups():
++    |          ~~~~~~~~~~~~~~~~~~^^
++    |   File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/contextlib.py", line 162, in __exit__
++    |     self.gen.throw(value)
++    |     ~~~~~~~~~~~~~~^^^^^^^
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_utils.py", line 85, in collapse_excgroups
++    |     raise exc
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/responses.py", line 273, in wrap
++    |     await func()
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/responses.py", line 253, in stream_response
++    |     async for chunk in self.body_iterator:
++    |     ...<2 lines>...
++    |         await send({"type": "http.response.body", "body": chunk, "more_body": True})
++    |   File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/agent_backend.py", line 351, in sse_generator
++    |     yield f"data: {json.dumps(event)}\n\n"
++    |                    ~~~~~~~~~~^^^^^^^
++    |   File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/json/__init__.py", line 231, in dumps
++    |     return _default_encoder.encode(obj)
++    |            ~~~~~~~~~~~~~~~~~~~~~~~^^^^^
++    |   File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/json/encoder.py", line 200, in encode
++    |     chunks = self.iterencode(o, _one_shot=True)
++    |   File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/json/encoder.py", line 261, in iterencode
++    |     return _iterencode(o, 0)
++    |   File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/json/encoder.py", line 180, in default
++    |     raise TypeError(f'Object of type {o.__class__.__name__} '
++    |                     f'is not JSON serializable')
++    | TypeError: Object of type ComponentSuggestion is not JSON serializable
++    +------------------------------------
++
++During handling of the above exception, another exception occurred:
++
++Traceback (most recent call last):
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/uvicorn/protocols/http/h11_impl.py", line 403, in run_asgi
++    result = await app(  # type: ignore[func-returns-value]
++             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++        self.scope, self.receive, self.send
++        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++    )
++    ^
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
++    return await self.app(scope, receive, send)
++           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/fastapi/applications.py", line 1139, in __call__
++    await super().__call__(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/applications.py", line 107, in __call__
++    await self.middleware_stack(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/middleware/errors.py", line 186, in __call__
++    raise exc
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/middleware/errors.py", line 164, in __call__
++    await self.app(scope, receive, _send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/middleware/cors.py", line 85, in __call__
++    await self.app(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
++    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
++    raise exc
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
++    await app(scope, receive, sender)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
++    await self.app(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/routing.py", line 716, in __call__
++    await self.middleware_stack(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/routing.py", line 736, in app
++    await route.handle(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/routing.py", line 290, in handle
++    await self.app(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/fastapi/routing.py", line 125, in app
++    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
++    raise exc
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
++    await app(scope, receive, sender)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/fastapi/routing.py", line 112, in app
++    await response(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/responses.py", line 269, in __call__
++    with collapse_excgroups():
++         ~~~~~~~~~~~~~~~~~~^^
++  File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/contextlib.py", line 162, in __exit__
++    self.gen.throw(value)
++    ~~~~~~~~~~~~~~^^^^^^^
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_utils.py", line 85, in collapse_excgroups
++    raise exc
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/responses.py", line 273, in wrap
++    await func()
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/responses.py", line 253, in stream_response
++    async for chunk in self.body_iterator:
++    ...<2 lines>...
++        await send({"type": "http.response.body", "body": chunk, "more_body": True})
++  File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/agent_backend.py", line 351, in sse_generator
++    yield f"data: {json.dumps(event)}\n\n"
++                   ~~~~~~~~~~^^^^^^^
++  File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/json/__init__.py", line 231, in dumps
++    return _default_encoder.encode(obj)
++           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^
++  File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/json/encoder.py", line 200, in encode
++    chunks = self.iterencode(o, _one_shot=True)
++  File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/json/encoder.py", line 261, in iterencode
++    return _iterencode(o, 0)
++  File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/json/encoder.py", line 180, in default
++    raise TypeError(f'Object of type {o.__class__.__name__} '
++                    f'is not JSON serializable')
++TypeError: Object of type ComponentSuggestion is not JSON serializable
++
+
+# 2025-12-03 21:59:05.206120
++No
+
+# 2025-12-03 21:59:29.093330
++Yes
+
+# 2025-12-03 21:59:34.046904
++/drop
+
+# 2025-12-03 21:59:39.342796
++INFO:     127.0.0.1:50886 - "GET /stream/decompose-interactive?specification_id=spec_20251203_215247_0095&model=sonnet&provider=anthropic HTTP/1.1" 200 OK
++INFO:httpx:HTTP Request: POST https://api.anthropic.com/v1/messages "HTTP/1.1 200 OK"
++ERROR:    Exception in ASGI application
++  + Exception Group Traceback (most recent call last):
++  |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_utils.py", line 79, in collapse_excgroups
++  |     yield
++  |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/responses.py", line 270, in __call__
++  |     async with anyio.create_task_group() as task_group:
++  |                ~~~~~~~~~~~~~~~~~~~~~~~^^
++  |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/anyio/_backends/_asyncio.py", line 783, in __aexit__
++  |     raise BaseExceptionGroup(
++  |         "unhandled errors in a TaskGroup", self._exceptions
++  |     ) from None
++  | ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
++  +-+---------------- 1 ----------------
++    | Traceback (most recent call last):
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/uvicorn/protocols/http/h11_impl.py", line 403, in run_asgi
++    |     result = await app(  # type: ignore[func-returns-value]
++    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++    |         self.scope, self.receive, self.send
++    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++    |     )
++    |     ^
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
++    |     return await self.app(scope, receive, send)
++    |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/fastapi/applications.py", line 1139, in __call__
++    |     await super().__call__(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/applications.py", line 107, in __call__    |     await self.middleware_stack(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/middleware/errors.py", line 186, in __call__
++    |     raise exc
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/middleware/errors.py", line 164, in __call__
++    |     await self.app(scope, receive, _send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/middleware/cors.py", line 85, in __call__
++    |     await self.app(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
++    |     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
++    |     raise exc
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
++    |     await app(scope, receive, sender)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
++    |     await self.app(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/routing.py", line 716, in __call__
++    |     await self.middleware_stack(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/routing.py", line 736, in app
++    |     await route.handle(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/routing.py", line 290, in handle
++    |     await self.app(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/fastapi/routing.py", line 125, in app
++    |     await wrap_app_handling_exceptions(app, request)(scope, receive, send)    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
++    |     raise exc
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
++    |     await app(scope, receive, sender)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/fastapi/routing.py", line 112, in app
++    |     await response(scope, receive, send)
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/responses.py", line 269, in __call__
++    |     with collapse_excgroups():
++    |          ~~~~~~~~~~~~~~~~~~^^
++    |   File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/contextlib.py", line 162, in __exit__
++    |     self.gen.throw(value)
++    |     ~~~~~~~~~~~~~~^^^^^^^
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_utils.py", line 85, in collapse_excgroups
++    |     raise exc
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/responses.py", line 273, in wrap
++    |     await func()
++    |   File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/responses.py", line 253, in stream_response
++    |     async for chunk in self.body_iterator:
++    |     ...<2 lines>...
++    |         await send({"type": "http.response.body", "body": chunk, "more_body": True})
++    |   File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/agent_backend.py", line 351, in sse_generator
++    |     yield f"data: {json.dumps(event)}\n\n"
++    |                    ~~~~~~~~~~^^^^^^^
++    |   File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/json/__init__.py", line 231, in dumps
++    |     return _default_encoder.encode(obj)
++    |            ~~~~~~~~~~~~~~~~~~~~~~~^^^^^
++    |   File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/json/encoder.py", line 200, in encode
++    |     chunks = self.iterencode(o, _one_shot=True)
++    |   File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/json/encoder.py", line 261, in iterencode
++    |     return _iterencode(o, 0)
++    |   File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/json/encoder.py", line 180, in default
++    |     raise TypeError(f'Object of type {o.__class__.__name__} '
++    |                     f'is not JSON serializable')
++    | TypeError: Object of type ComponentSuggestion is not JSON serializable
++    +------------------------------------
++
++During handling of the above exception, another exception occurred:
++
++Traceback (most recent call last):
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/uvicorn/protocols/http/h11_impl.py", line 403, in run_asgi
++    result = await app(  # type: ignore[func-returns-value]
++             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++        self.scope, self.receive, self.send
++        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++    )
++    ^
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/uvicorn/middleware/proxy_headers.py", line 60, in __call__
++    return await self.app(scope, receive, send)
++           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/fastapi/applications.py", line 1139, in __call__
++    await super().__call__(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/applications.py", line 107, in __call__
++    await self.middleware_stack(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/middleware/errors.py", line 186, in __call__
++    raise exc
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/middleware/errors.py", line 164, in __call__
++    await self.app(scope, receive, _send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/middleware/cors.py", line 85, in __call__
++    await self.app(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
++    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
++    raise exc
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
++    await app(scope, receive, sender)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
++    await self.app(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/routing.py", line 716, in __call__
++    await self.middleware_stack(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/routing.py", line 736, in app
++    await route.handle(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/routing.py", line 290, in handle
++    await self.app(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/fastapi/routing.py", line 125, in app
++    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
++    raise exc
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
++    await app(scope, receive, sender)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/fastapi/routing.py", line 112, in app
++    await response(scope, receive, send)
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/responses.py", line 269, in __call__
++    with collapse_excgroups():
++         ~~~~~~~~~~~~~~~~~~^^
++  File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/contextlib.py", line 162, in __exit__
++    self.gen.throw(value)
++    ~~~~~~~~~~~~~~^^^^^^^
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/_utils.py", line 85, in collapse_excgroups
++    raise exc
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/responses.py", line 273, in wrap
++    await func()
++  File "/nix/store/jg7alpal1f4wfbzpsq18wf9z3226cz3s-axiomander-editable-env/lib/python3.13/site-packages/starlette/responses.py", line 253, in stream_response
++    async for chunk in self.body_iterator:
++    ...<2 lines>...
++        await send({"type": "http.response.body", "body": chunk, "more_body": True})
++  File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/agent_backend.py", line 351, in sse_generator
++    yield f"data: {json.dumps(event)}\n\n"
++                   ~~~~~~~~~~^^^^^^^
++  File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/json/__init__.py", line 231, in dumps
++    return _default_encoder.encode(obj)
++           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^
++  File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/json/encoder.py", line 200, in encode
++    chunks = self.iterencode(o, _one_shot=True)
++  File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/json/encoder.py", line 261, in iterencode
++    return _iterencode(o, 0)
++  File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/json/encoder.py", line 180, in default
++    raise TypeError(f'Object of type {o.__class__.__name__} '
++                    f'is not JSON serializable')
++TypeError: Object of type ComponentSuggestion is not JSON serializable
++
+
+# 2025-12-03 21:59:47.733267
++yes
+
+# 2025-12-03 22:06:57.533052
++I'm in decompose interactive by my mode is still "specification"
+
+# 2025-12-03 22:07:13.533917
++Yes
+
+# 2025-12-03 22:18:48.803547
++/ask When I'm in the interactive decomposition mode, will the AI have a tool that allows it to actually do the decomposition?
+
+# 2025-12-03 22:19:32.207711
++I need this. Prompt it not to use the tool unless the user says so
+
+# 2025-12-04 09:08:01.903453
++No
+
+# 2025-12-04 09:08:03.567560
++Yes
+
+# 2025-12-04 12:25:35.101450
++/ask Ok, each component in our system should be part of a graph - the graph demonstrates all components that we are dependent on. Is this currently the way it is structured? 
+
+# 2025-12-04 12:26:32.341202
++Yes
+
+# 2025-12-04 13:34:29.760314
++/ask I want a bank account class which does tracking of invariants and has the operations, deposit, withdraw, transfer
+
+# 2025-12-04 16:24:14.770692
++/drop
+
+# 2025-12-04 16:24:15.713642
++/clear
+
+# 2025-12-04 22:23:58.302131
++/commit
+
+# 2025-12-04 22:30:02.404489
++/add design_by_contract_agent_system_plan.md 
+
+# 2025-12-04 22:40:25.058441
++Ok, we need to cut out a first plan from this which is only considering the storage and management of contracts. This will be an .md file. We will not do any implementation, only honing the specification. Components are individual objects which consist of: an object, represented as a pydantic object, which can be serialised to a specific component storage directory '.axiomander/components/'. The component itself has its own UID directory - but it is not content addressable since its internal state may change. The directory will contain a component.json which contains the object information, name, language, language suffix, along with whether it has implemented pre, post conditions, the pre-contract and post-contract and contract will be in this as well (these are strings which represent the meaning of the implementation). There will also be associated files - logical and implementation - both with a file suffix which means they can be treated as viable python code.  In the design fully specify this pydantic model. This component can have a number of component dependencies which give the UID and the name used in the current component (either class or function will be importable from this UID as the name given here so it can be refered to in the code. We will further have a global graph in .axiomander which gives the node / edge map of UIDs based on their relationships. Please write this description. 
+
+# 2025-12-04 22:41:15.855034
++Yes
+
+# 2025-12-04 22:46:17.050665
++Two things missing - we need the name of the precondition and postcondition and invariant which will exist in the logical implementation file. 
+
+# 2025-12-04 22:49:59.666647
++- Component testing and validation frameworks
++^ We say we want this eventually but we actually also want a test file which implements testing by utilising pre-post and invariants to establish tests on the implementation. 
+
+# 2025-12-04 22:53:21.737781
++You misunderstand * pre_contracts, post_contracts and invariant_contracts are human readable specifications. We don't ant to have a (pre/post)_contract_name we want it to just be called precondition, postcondition, invariant. 
+
+# 2025-12-04 22:54:45.213675
++Implement the copmonent storage specification. Do not write any code not described here. 
+
+# 2025-12-04 22:55:59.990141
++Yes
+
+# 2025-12-04 22:58:15.812225
++/run uv add pydantic typer rich
+
+# 2025-12-04 22:58:15.812279
++/run uv add pydantic typer rich
+
+# 2025-12-04 22:58:20.917316
++No
+
+# 2025-12-04 22:58:57.528363
++/add pyproject.toml
+
+# 2025-12-04 22:59:38.347650
++I want axiomander to be a programme which might have multiple subcommands but which does all the important operations so as ot to proliferate commands. 
+
+# 2025-12-04 23:02:33.276373
++No
+
+# 2025-12-04 23:06:50.919187
++Ok, now - we need to write a compiler. This compiler takes a component set, a module name and creates a src/{module_name}/__init.py and src/module/main.py which has the component entry point in main and imports a file in /src/{module_name}/{uniqified(component_name)}.py each dependency it has will also have to be in the directory and those symbols imported, and so forth transitively. write the .md specification file for this copmiler. Do not write code. 
+
+# 2025-12-04 23:18:44.462910
++Yes
+
+# 2025-12-04 23:24:52.753977
++We will need edits to these files to link back to the original component so the UID should be stored in a comment at the beginning of the file. Add this to the specification. Also, we will need to add an additional feature to the components. Components can have a "path" designation which introduces a new directory of which they sit inside. The path designation will help hierarchical components from cluttering the main module. Each sub folder will need however a new __init__.py added.  This compiler will of course only work for python. In order to group the logical files, they should be called {unique_component_name_1}_logical.py and imported automatically at the beginning of the implementation. When we resync from edits they shold move from the file back to the source component - same with the logical implementation. 
+
+# 2025-12-04 23:30:17.999765
++Compilation should compile tests into the /tests/ directory with a {path} component and uniquified name from the component. Add this to the spec. 
+
+# 2025-12-04 23:36:06.510942
++Implement an example component. A very simple function with a simple contract description, simple pre and post contract, and pre and post conditions using completely logical operators in a fragment of python with no observable side effects. 
+
+# 2025-12-04 23:37:22.932099
++don't make this part of the code, just put it in the .axiomander directory directly as if you had created it through the software. 
+
+# 2025-12-04 23:37:56.367866
++Yes
+
+# 2025-12-04 23:38:10.055074
++No
+
+# 2025-12-04 23:38:26.259293
++/drop
+
+# 2025-12-04 23:38:27.217673
++/clear
+
+# 2025-12-04 23:38:39.568273
++/add component_compiler_specification.md
+
+# 2025-12-04 23:38:50.675274
++Ok, now implement the compiler
+
+# 2025-12-04 23:41:20.569709
++Yes
+
+# 2025-12-04 23:42:04.069394
++no
+
+# 2025-12-04 23:42:36.229409
++gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ axiomander compile --help                                                                             [23:42:16]
++Traceback (most recent call last):
++  File "/nix/store/zbgabwq6wz9h3a0x3a0zicnk6scn7spa-axiomander-editable-env/bin/axiomander", line 4, in <module>
++    from axiomander.main import main
++  File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/__init__.py", line 7, in <module>
++    from . import compiler
++ImportError: cannot import name 'compiler' from partially initialized module 'axiomander' (most likely due to a circular import) (/home/gavin/dev/Scidonia/axiomander/src/axiomander/__init__.py)
++FAIL: 1
++
+
+# 2025-12-04 23:44:44.738033
++No
+
+# 2025-12-04 23:44:56.726317
++gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ axiomander compile --help                                                                             [23:42:24]
++Usage: axiomander [OPTIONS] COMMAND [ARGS]...
++Try 'axiomander --help' for help.
++╭─ Error ─────────────────────────────────────────────────────────────────────────────────────────────────────────╮│ No such command 'compile'.                                                                                      │╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯FAIL: 2
++
+
+# 2025-12-04 23:47:04.234920
++No
+
+# 2025-12-04 23:47:41.269198
++In `axiomander list` we need to not truncate the UID - it has to be completely shown. Also, when specifying an entry point, I would like to be able to use the name if there is no conflict. 
+
+# 2025-12-04 23:48:45.235698
++No
+
+# 2025-12-04 23:49:11.331884
++                                                                                                                    Usage: axiomander compile [OPTIONS] COMPONENT_UIDS...                                                                                                                                                                                 Compile components into a Python module.                                                                                                                                                                                             ╭─ Arguments ─────────────────────────────────────────────────────────────────────────────────────────────────────╮│ *    component_uids      COMPONENT_UIDS...  Component UIDs to compile [required]                                │╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯╭─ Options ───────────────────────────────────────────────────────────────────────────────────────────────────────╮│ *  --module-name   -m      TEXT  Name of the target module [required]                                           ││    --entry-point   -e      TEXT  Entry point component UID                                                      │^ Here is says I need the component uids, but I do not, the entry point should be sufficient to calculate a transitive closure through the graph. 
+
+# 2025-12-04 23:49:59.846987
++No
+
+# 2025-12-04 23:50:33.197086
++gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ axiomander compile --module-name example --entry-point absolute_value                                 [23:48:21]
++Compiler module not available. Please ensure compiler files are created.
++FAIL: 1
++Surely this should construct example/__init__.py
+
+# 2025-12-04 23:52:46.666566
++Yes
+
+# 2025-12-04 23:53:12.258368
++No
+
+# 2025-12-04 23:53:13.788141
++gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ axiomander compile --module-name example --entry-point absolute_value                                 [23:50:02]
++✗ Compilation failed
++  • Failed to load component graph: Extra data: line 5 column 2 (char 78)
++Error during compilation: 1
++FAIL: 1
++
+
+# 2025-12-04 23:53:36.777160
++Yes
+
+# 2025-12-04 23:54:04.655892
++No
+
+# 2025-12-04 23:54:05.600284
++gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ axiomander compile --module-name example --entry-point absolute_value                                 [23:53:03]
++✗ Compilation failed
++  • Compilation failed: 'str' object has no attribute 'uid'
++Error during compilation: 1
++FAIL: 1
++
++
+
+# 2025-12-04 23:54:24.727249
++No
+
+# 2025-12-04 23:55:26.134858
++        # Handle both dict-style nodes (current format) and object-style nodes                             if hasattr(graph.nodes, 'items'):                                                                      # Dict format: {"uid": "name"}                                                                     for uid, name in graph.nodes.items():                                                                  component = self.storage_manager.load_component(uid)                                               if component:                                                                                          adjacency[uid] = list(component.dependencies)                                                  else:                                                                                                  result.warnings.append(f"Component {uid} in graph but not found in storage")                       adjacency[uid] = []                                                                    else:                                                                                                  # Object format: [ComponentGraphNode, ...]                                                         for node in graph.nodes:                                                                               component = self.storage_manager.load_component(node.uid)                                          if component:                                                                                          adjacency[node.uid] = list(component.dependencies)                                             else:                                                                                                  result.warnings.append(f"Component {node.uid} in graph but not found in        storage")                                                                                                              adjacency[node.uid] = []                                                       ^ This is wrong, we should only have the object style, and the graph should be rewritten to reflect this and we should load it with the object model. 
+
+# 2025-12-04 23:55:49.577667
++No
+
+# 2025-12-04 23:56:05.020762
++gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ axiomander compile --module-name example --entry-point absolute_value                                 [23:53:57]
++✗ Compilation failed
++  • Failed to load component graph: 1 validation error for ComponentGraph
++nodes
++  Input should be a valid dictionary [type=dict_type, input_value=[{'uid': 'example-abs-001...ame': 
++'absolute_value'}], input_type=list]
++    For further information visit https://errors.pydantic.dev/2.12/v/dict_type
++Error during compilation: 1
++FAIL: 1
++^ did you look up the model? 
+
+# 2025-12-04 23:56:06.466250
++No
+
+# 2025-12-04 23:57:27.471341
++Do not write defensively in the resolver where you use hasattr. There is only one right answer here and it is the pydantic model. What is the pydantic model for the graph? Why are we not shaped to match it? See this: gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ axiomander compile --module-name example --entry-point absolute_value                                 [23:55:51]
++✗ Compilation failed
++  • Failed to load component graph: 1 validation error for ComponentGraph
++nodes.example-abs-001
++  Input should be a valid string 
++    For further information visit https://errors.pydantic.dev/2.12/v/string_type
++Error during compilation: 1
++FAIL: 1
++
+
+# 2025-12-04 23:57:30.351410
++No
+
+# 2025-12-04 23:57:53.701347
++/ask Show me the model for the graph. 
+
+# 2025-12-04 23:58:01.727103
++Yes
+
+# 2025-12-04 23:58:32.461667
++/ask gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ axiomander compile --module-name example --entry-point absolute_value                                 [23:56:27]
++✓ Successfully compiled 1 components
++Module: example
++Generated files: 5
++ 
+
+# 2025-12-05 00:01:31.565456
++/ask The tests are not completely correct for the .axiomander component. We need to use the pre and post conditions to check the correctness. This should be on every invocation. The easiest way to achieve this is to have decorators on the function implementation itself and use these and a flag of some sort which can be switched off for production to dynamically check the rules. 
+
+# 2025-12-05 00:04:30.858647
++This looks good, but you should add the decorator syntax for each of the pre and post conditions and their pre and post contracts, - the contract itself can probably be a doc string added also with a decorator (if that's possible). @precondition("pre-contract", precondition) or the like. 
+
+# 2025-12-05 00:05:13.293513
++Sorry go ahead and continue. 
+
+# 2025-12-05 00:07:57.429990
++No
+
+# 2025-12-05 00:09:02.213871
++We need to have a root error for axiomander logical violations - then it should be derived for pre post and invariants. We will also need two additional exceptions, one for ImplementThis, one for DontImplementThis and one for Unimplemented - which can serve as placeholders. 
+
+# 2025-12-05 00:09:50.118333
++Yes
+
+# 2025-12-05 00:12:52.844478
++No
+
+# 2025-12-05 00:14:33.188937
++$ python3 src/example/main.py                                                                            [0:10:02]
++Traceback (most recent call last):
++  File "/home/gavin/dev/Scidonia/axiomander/src/example/main.py", line 3, in <module>
++    from .absolute_value_logical import *
++ImportError: attempted relative import with no known parent package
++FAIL: 1
++^ This didn't end up in the __init__.py
+
+# 2025-12-05 00:15:30.154812
++No
+
+# 2025-12-05 00:15:33.379876
++gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ python3 src/example/main.py                                                                            [0:15:11]
++Traceback (most recent call last):
++  File "/home/gavin/dev/Scidonia/axiomander/src/example/main.py", line 3, in <module>
++    from absolute_value import *
++  File "/home/gavin/dev/Scidonia/axiomander/src/example/absolute_value.py", line 87, in <module>
++    from .absolute_value_logical import *
++ImportError: attempted relative import with no known parent package
++FAIL: 1
++
+
+# 2025-12-05 00:16:24.549437
++No
+
+# 2025-12-05 00:17:48.170970
++gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ python3 src/example/main.py                                                                            [0:16:06]
++Traceback (most recent call last):
++  File "/home/gavin/dev/Scidonia/axiomander/src/example/main.py", line 3, in <module>
++    from absolute_value import *
++  File "/home/gavin/dev/Scidonia/axiomander/src/example/absolute_value.py", line 92, in <module>
++    from .logical import is_real_number, is_absolute_value, Number
++ImportError: attempted relative import with no known parent package
++FAIL: 1
++We are importing axiomander exceptoins which is fine, but really we should *just* be importint the precondition / postcondition / invariant decorators from axiomander where they should live. 
+
+# 2025-12-05 00:17:53.271504
++Yes
+
+# 2025-12-05 00:17:53.277891
++/run python3 src/example/main.py
+
+# 2025-12-05 00:17:53.277995
++/run python3 src/example/main.py
+
+# 2025-12-05 00:18:06.859480
++Yes
+
+# 2025-12-05 00:18:26.588683
++We are importing axiomander exceptoins which is fine, but really we should *just* be importint th> e precondition / postcondition / invariant decorators from axiomander where they should live.  
+
+# 2025-12-05 00:19:00.009554
++Yes
+
+# 2025-12-05 00:19:21.103173
++No
+
+# 2025-12-05 00:19:25.242495
++gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ python3 src/example/main.py                                                                            [0:19:08]
++Traceback (most recent call last):
++  File "/home/gavin/dev/Scidonia/axiomander/src/example/main.py", line 3, in <module>
++    from absolute_value import *
++  File "/home/gavin/dev/Scidonia/axiomander/src/example/absolute_value.py", line 26, in <module>
++    from .logical import is_real_number, is_absolute_value, Number
++ImportError: attempted relative import with no known parent package
++FAIL: 1
++
+
+# 2025-12-05 00:19:57.615721
++yes
+
+# 2025-12-05 00:21:15.399441
++No
+
+# 2025-12-05 00:21:45.016978
++We were generating this line: `from .logical import is_real_number, is_absolute_value, Number` this is both wrong and unnecessary
+
+# 2025-12-05 00:22:43.894402
++No
+
+# 2025-12-05 00:22:45.117740
++$ axiomander compile --module-name example --entry-point absolute_value                                  [0:21:07]
++✓ Successfully compiled 1 components
++Module: example
++Generated files: 5
++ 
++gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ python3 src/example/main.py                                                                            [0:22:36]
++Result: 5
++ 
+
+# 2025-12-05 00:22:52.601155
++/ask $ axiomander compile --module-name example --entry-point absolute_value                                  [0:21:07]
++✓ Successfully compiled 1 components
++Module: example
++Generated files: 5
++ 
++gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ python3 src/example/main.py                                                                            [0:22:36]
++Result: 5
++ 
+
+# 2025-12-05 00:23:22.987716
++/ask how do I test? 
+
+# 2025-12-05 00:24:19.518941
++/ask ===================================================== ERRORS ======================================================__________________________________ ERROR collecting tests/test_absolute_value.py __________________________________ImportError while importing test module '/home/gavin/dev/Scidonia/axiomander/tests/test_absolute_value.py'.
++Hint: make sure your test modules/packages have valid Python names.
++Traceback:
++/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/importlib/__init__.py:88: in import_module
++    return _bootstrap._gcd_import(name[level:], package, level)
++           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++tests/test_absolute_value.py:5: in <module>
++    from src.example.absolute_value import *
++E   ModuleNotFoundError: No module named 'src'
++============================================= short test summary info =============================================ERROR tests/test_absolute_value.py
++!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!================================================ 1 error in 0.08s =================================================FAIL: 2
++^ Why is this happening? 
+
+# 2025-12-05 08:51:39.489774
++Yes
+
+# 2025-12-05 08:52:14.797984
++Sorry, please do this. 
+
+# 2025-12-05 08:53:13.430524
++No
+
+# 2025-12-05 08:53:48.686503
++/ask What is going here: $ pytest tests/                                                                                          [8:53:26]
++=============================================== test session starts ===============================================platform linux -- Python 3.13.9, pytest-9.0.1, pluggy-1.6.0
++rootdir: /home/gavin/dev/Scidonia/axiomander
++configfile: pyproject.toml
++collected 0 items / 1 error                                                                                       
++
++===================================================== ERRORS ======================================================__________________________________ ERROR collecting tests/test_absolute_value.py __________________________________ImportError while importing test module '/home/gavin/dev/Scidonia/axiomander/tests/test_absolute_value.py'.
++Hint: make sure your test modules/packages have valid Python names.
++Traceback:
++/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/importlib/__init__.py:88: in import_module
++    return _bootstrap._gcd_import(name[level:], package, level)
++           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++tests/test_absolute_value.py:13: in <module>
++    from example.absolute_value import *
++src/example/__init__.py:8: in <module>
++    from .absolute_value import *
++src/example/absolute_value.py:21: in <module>
++    from absolute_value_logical import *
++E   ModuleNotFoundError: No module named 'absolute_value_logical'
++============================================= short test summary info =============================================ERROR tests/test_absolute_value.py
++!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!================================================ 1 error in 0.10s =================================================FAIL: 2
++
+
+# 2025-12-05 08:54:37.096853
++Can you import it as example.absolute_value_logical instead? 
+
+# 2025-12-05 08:55:13.717261
++No
+
+# 2025-12-05 08:55:19.507767
++/ask gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ pytest tests/                                                                                          [8:55:04]
++=============================================== test session starts ===============================================platform linux -- Python 3.13.9, pytest-9.0.1, pluggy-1.6.0
++rootdir: /home/gavin/dev/Scidonia/axiomander
++configfile: pyproject.toml
++collected 0 items / 1 error                                                                                       
++
++===================================================== ERRORS ======================================================__________________________________ ERROR collecting tests/test_absolute_value.py __________________________________ImportError while importing test module '/home/gavin/dev/Scidonia/axiomander/tests/test_absolute_value.py'.
++Hint: make sure your test modules/packages have valid Python names.
++Traceback:
++/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/importlib/__init__.py:88: in import_module
++    return _bootstrap._gcd_import(name[level:], package, level)
++           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++tests/test_absolute_value.py:18: in <module>
++    from hypothesis import given, strategies as st
++E   ModuleNotFoundError: No module named 'hypothesis'
++============================================= short test summary info =============================================ERROR tests/test_absolute_value.py
++!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!================================================ 1 error in 0.10s =================================================FAIL: 2
++What is happening here? 
+
+# 2025-12-05 08:55:39.373788
++/ask What is hypothesis? 
+
+# 2025-12-05 08:56:42.348580
++/ask Why is this happening: ===================================================== ERRORS ======================================================__________________________________ ERROR collecting tests/test_absolute_value.py __________________________________ImportError while importing test module '/home/gavin/dev/Scidonia/axiomander/tests/test_absolute_value.py'.
++Hint: make sure your test modules/packages have valid Python names.
++Traceback:
++/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/importlib/__init__.py:88: in import_module
++    return _bootstrap._gcd_import(name[level:], package, level)
++           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++tests/test_absolute_value.py:23: in <module>
++    from .implementation import absolute_value
++E   ImportError: attempted relative import with no known parent package
++============================================= short test summary info =============================================ERROR tests/test_absolute_value.py
++!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!================================================ 1 error in 0.44s =================================================FAIL: 2
++
+
+# 2025-12-05 08:57:29.870455
++Yes
+
+# 2025-12-05 09:00:12.095825
++/ask But how does it know its an {example} module at this point. I only know that because I compiled it to that module. We have two additional problems now, we need to have uniquified the output file, but we have to remember what that unique target was (we can do that by looking at the component header, and looking at all files that have the same prefix) and we have to know where to place the module in the output. We should make the module a {module} clause that can be put in at compile time and it should be part of a preamble. Soon, these are going to be generated by LLM so we have to be careful to affix the preamble after generation. What are you going to do to rectify this? 
+
+# 2025-12-05 09:00:42.175018
++Do this. 
+
+# 2025-12-05 09:02:22.532858
++No
+
+# 2025-12-05 09:02:46.257743
++/ask Explain this: $ pytest tests/                                                                                          [9:02:27]
++=============================================== test session starts ===============================================platform linux -- Python 3.13.9, pytest-9.0.1, pluggy-1.6.0
++rootdir: /home/gavin/dev/Scidonia/axiomander
++configfile: pyproject.toml
++plugins: hypothesis-6.148.7
++collected 7 items                                                                                                 
++
++tests/test_absolute_value.py .F..FFF                                                                        [100%]
++
++==================================================== FAILURES =====================================================_____________________________________ TestAbsoluteValue.test_negative_numbers _____________________________________
++self = <test_absolute_value.TestAbsoluteValue object at 0x709c3a0f2fd0>
++
++    def test_negative_numbers(self):
++        """Test absolute value of negative numbers."""
++>       assert absolute_value(-5) == 5
++               ^^^^^^^^^^^^^^^^^^
++
++tests/test_absolute_value.py:48: 
++_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _src/axiomander/contracts.py:27: in wrapper
++    return func(*args, **kwargs)
++           ^^^^^^^^^^^^^^^^^^^^^
++_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
++args = (-5,), kwargs = {}, result = 5
++
++    @functools.wraps(func)
++    def wrapper(*args, **kwargs):
++        result = func(*args, **kwargs)
++        if not check_func(result, *args, **kwargs):
++>           raise PostconditionViolationError(func.__name__, contract_text, result, args, kwargs)
++E           axiomander.exceptions.PostconditionViolationError: Postcondition violated in absolute_value: Result is non-negative and has same magnitude as input (returned 5)
++
++src/axiomander/contracts.py:45: PostconditionViolationError
++__________________________________ TestAbsoluteValue.test_contract_postcondition __________________________________
++self = <test_absolute_value.TestAbsoluteValue object at 0x709c39f8a0f0>
++
++    def test_contract_postcondition(self):
++        """Test that postcondition is satisfied."""
++        test_cases = [5, -3, 0, 2.5, -1.7]
++    
++        for x in test_cases:
++>           result = absolute_value(x)
++                     ^^^^^^^^^^^^^^^^^
++
++tests/test_absolute_value.py:75: 
++_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _src/axiomander/contracts.py:27: in wrapper
++    return func(*args, **kwargs)
++           ^^^^^^^^^^^^^^^^^^^^^
++_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
++args = (-3,), kwargs = {}, result = 3
++
++    @functools.wraps(func)
++    def wrapper(*args, **kwargs):
++        result = func(*args, **kwargs)
++        if not check_func(result, *args, **kwargs):
++>           raise PostconditionViolationError(func.__name__, contract_text, result, args, kwargs)
++E           axiomander.exceptions.PostconditionViolationError: Postcondition violated in absolute_value: Result is non-negative and has same magnitude as input (returned 3)
++
++src/axiomander/contracts.py:45: PostconditionViolationError
++___________________________________ TestAbsoluteValue.test_invalid_input_types ____________________________________
++self = <test_absolute_value.TestAbsoluteValue object at 0x709c3ade1040>
++
++    def test_invalid_input_types(self):
++        """Test that invalid input types raise TypeError."""
++        invalid_inputs = ["5", None, True, [1, 2, 3], {"x": 5}]
++    
++        for invalid_input in invalid_inputs:
++            with pytest.raises(TypeError):
++>               absolute_value(invalid_input)
++
++tests/test_absolute_value.py:84: 
++_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
++args = ('5',), kwargs = {}
++
++    @functools.wraps(func)
++    def wrapper(*args, **kwargs):
++        if not check_func(*args, **kwargs):
++>           raise PreconditionViolationError(func.__name__, contract_text, args, kwargs)
++E           axiomander.exceptions.PreconditionViolationError: Precondition violated in absolute_value: Input must be a real number (called with args=('5',), kwargs={})
++
++src/axiomander/contracts.py:26: PreconditionViolationError
++_________________________________ TestAbsoluteValue.test_mathematical_properties __________________________________
++self = <test_absolute_value.TestAbsoluteValue object at 0x709c3a1b6140>
++
++    def test_mathematical_properties(self):
++        """Test mathematical properties of absolute value."""
++        # |x| >= 0 for all x
++        test_values = [5, -3, 0, 2.5, -1.7]
++        for x in test_values:
++>           result = absolute_value(x)
++                     ^^^^^^^^^^^^^^^^^
++
++tests/test_absolute_value.py:91: 
++_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _src/axiomander/contracts.py:27: in wrapper
++    return func(*args, **kwargs)
++           ^^^^^^^^^^^^^^^^^^^^^
++_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
++args = (-3,), kwargs = {}, result = 3
++
++    @functools.wraps(func)
++    def wrapper(*args, **kwargs):
++        result = func(*args, **kwargs)
++        if not check_func(result, *args, **kwargs):
++>           raise PostconditionViolationError(func.__name__, contract_text, result, args, kwargs)
++E           axiomander.exceptions.PostconditionViolationError: Postcondition violated in absolute_value: Result is non-negative and has same magnitude as input (returned 3)
++
++src/axiomander/contracts.py:45: PostconditionViolationError
++============================================= short test summary info =============================================FAILED tests/test_absolute_value.py::TestAbsoluteValue::test_negative_numbers - axiomander.exceptions.PostconditionViolationError: Postcondition violated in absolute_value: Result is non-neg...
++FAILED tests/test_absolute_value.py::TestAbsoluteValue::test_contract_postcondition - axiomander.exceptions.PostconditionViolationError: Postcondition violated in absolute_value: Result is non-neg...
++FAILED tests/test_absolute_value.py::TestAbsoluteValue::test_invalid_input_types - axiomander.exceptions.PreconditionViolationError: Precondition violated in absolute_value: Input must be a rea...
++FAILED tests/test_absolute_value.py::TestAbsoluteValue::test_mathematical_properties - axiomander.exceptions.PostconditionViolationError: Postcondition violated in absolute_value: Result is non-neg...
++=========================================== 4 failed, 3 passed in 0.42s ===========================================FAIL: 1
++
+
+# 2025-12-05 09:04:15.530804
++/add .axiomander/components/example-abs-001/logical.py
+
+# 2025-12-05 09:04:22.191317
++/ask Would you be able fix this?
+
+# 2025-12-05 09:05:06.222783
++Yes
+
+# 2025-12-05 09:07:04.891111
++/ask What is this? This looks correct but is failing: _____________________________________ TestAbsoluteValue.test_negative_numbers _____________________________________
++self = <test_absolute_value.TestAbsoluteValue object at 0x74ea5ba9efd0>
++
++    def test_negative_numbers(self):
++        """Test absolute value of negative numbers."""
++>       assert absolute_value(-5) == 5
++               ^^^^^^^^^^^^^^^^^^
++
++tests/test_absolute_value.py:48: 
++_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _src/axiomander/contracts.py:27: in wrapper
++    return func(*args, **kwargs)
++           ^^^^^^^^^^^^^^^^^^^^^
++_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
++args = (-5,), kwargs = {}, result = 5
++
++    @functools.wraps(func)
++    def wrapper(*args, **kwargs):
++        result = func(*args, **kwargs)
++        if not check_func(result, *args, **kwargs):
++>           raise PostconditionViolationError(func.__name__, contract_text, result, args, kwargs)
++E           axiomander.exceptions.PostconditionViolationError: Postcondition violated in absolute_value: Result is non-negative and has same magnitude as input (returned 5)
++
++src/axiomander/contracts.py:45: PostconditionViolationError
++
+
+# 2025-12-05 09:08:05.630410
++/ask What is `is_absolute_value` for? Should we not get this automatically from the pre and post conditions? 
+
+# 2025-12-05 09:08:59.323970
++/ask In our conditions library, don't we already have correct decorators for this? 
+
+# 2025-12-05 09:09:43.544968
++Yes, do this. postconditions have access to both the input args and the result. 
+
+# 2025-12-05 09:12:27.256925
++/run axiomander compile --module-name example --entry-point absolute_value
+
+# 2025-12-05 09:12:27.256976
++/run axiomander compile --module-name example --entry-point absolute_value
+
+# 2025-12-05 09:12:28.828686
++/run pytest tests/ -v
+
+# 2025-12-05 09:12:28.828800
++/run pytest tests/ -v
+
+# 2025-12-05 09:12:32.320447
++No
+
+# 2025-12-05 09:14:36.159614
++This is not correct. When we have a component object we have the names of its pre and post conditions - these are saved in the json. We must validate this is true when saving. We will do an edit loop with the LLM (3 times) to make sure it is true when we are ready to do this. We will *always* adorn the function with @contract @precondition and @postcondition if they exist using the existing decorators. We will not write special decorators per implementation. Fix the implementation to use the standard decorators only and use the names of the logical operators for these in the logical file. 
+
+# 2025-12-05 09:16:02.557731
++No
+
+# 2025-12-05 09:17:17.000759
++$ pytest tests/                                                                                                                [9:16:52]
++========================================================== test session starts ==========================================================platform linux -- Python 3.13.9, pytest-9.0.1, pluggy-1.6.0
++rootdir: /home/gavin/dev/Scidonia/axiomander
++configfile: pyproject.toml
++plugins: hypothesis-6.148.7
++collected 7 items                                                                                                                       
++
++tests/test_absolute_value.py ....F..                                                                                              [100%]
++
++=============================================================== FAILURES ================================================================_____________________________________________ TestAbsoluteValue.test_contract_postcondition _____________________________________________
++self = <test_absolute_value.TestAbsoluteValue object at 0x7be778c36210>
++
++    def test_contract_postcondition(self):
++        """Test that postcondition is satisfied."""
++        test_cases = [5, -3, 0, 2.5, -1.7]
++    
++        for x in test_cases:
++            result = absolute_value(x)
++>           assert is_absolute_value(x, result), f"Postcondition failed for input {x}"
++                   ^^^^^^^^^^^^^^^^^
++E           NameError: name 'is_absolute_value' is not defined
++
++tests/test_absolute_value.py:76: NameError
++======================================================== short test summary info ========================================================FAILED tests/test_absolute_value.py::TestAbsoluteValue::test_contract_postcondition - NameError: name 'is_absolute_value' is not defined
++====================================================== 1 failed, 6 passed in 0.43s ======================================================FAIL: 1
++^ this test can be removed. 
+
+# 2025-12-05 09:17:26.508190
++No
+
+# 2025-12-05 09:18:18.853370
++/drop 
+
+# 2025-12-05 09:18:19.935226
++/clear
+
+# 2025-12-05 09:22:37.213783
++/commit
+
+# 2025-12-05 09:22:48.336693
++/add design_by_contract_agent_system_plan.md
+
+# 2025-12-05 09:23:09.242908
++/add component_storage_specification.md
+
+# 2025-12-05 09:23:15.373937
++/add component_compiler_specification.md
+
+# 2025-12-05 09:24:16.610437
++Can you please review the design_by_contract_agent_system_plan and make notes where there are contradictions with the component compiler and component storage files? The component files now take precedence and are correct and implemented. We need to fix the design to reflect this. Do not implement anything. 
+
+# 2025-12-05 09:25:19.919038
++Yes
+
+# 2025-12-05 09:26:14.687489
++/add src/axiomander/contracts.py 
+
+# 2025-12-05 09:27:06.966718
++You began to write code, yet you were instructed not to. The relative imports are replaced automatically in the system by correct imports. We need to be able to make new contract predicates in the logical.py file. 
+
+# 2025-12-05 09:28:59.102502
++Your task was to highlight and update the design plan, and not to implement anything. If you are changing anything but the design_by_contract you are doing it wrong. The code so far should be considered authoritative as it works, make the plan conform to the code. Also do not assume anything is completed despite what the plan says - remove those unimplemented features. 
+
+# 2025-12-05 09:30:41.003714
++No
+
+# 2025-12-05 09:57:55.527575
++Do one replacement at a time. Ask me after each replacement for the next. 
+
+# 2025-12-05 09:58:14.741223
++Yes, next section. 
+
+# 2025-12-05 09:59:09.557649
++Skip this one, do the next
+
+# 2025-12-05 10:00:24.081450
++/drop .axiomander/components/example-abs-001/component.json
+
+# 2025-12-05 10:00:27.664484
++/drop .axiomander/components/example-abs-001/implementation.py
+
+# 2025-12-05 10:00:34.159944
++/drop .axiomander/components/example-abs-001/logical.py
+
+# 2025-12-05 10:00:39.083990
++/drop .axiomander/components/example-abs-001/test.py
+
+# 2025-12-05 10:36:34.846690
++Yes, next section. 
+
+# 2025-12-05 10:36:53.290112
++No
+
+# 2025-12-05 12:28:21.263888
++/add component_development_guide.md
+
+# 2025-12-05 12:28:43.877002
++Ok, can you update the design by contract plan according to the component development guide? 
+
+# 2025-12-05 12:30:41.836784
++yes
+
+# 2025-12-05 12:30:47.795212
++Ok, can you update the design by contract plan according to the component development guide? 
+
+# 2025-12-05 12:30:53.082133
++Yes
+
+# 2025-12-05 12:31:05.448719
++/add component_development_guide.md
+
+# 2025-12-05 12:31:13.854261
++Now you have both you have some home of updating. 
+
+# 2025-12-05 12:33:15.058644
++Yes
+
+# 2025-12-05 12:34:09.060151
++No
+
+# 2025-12-05 12:34:45.452100
++The hypothesis library is added, but are we using it for testing? 
+
+# 2025-12-05 12:35:12.861377
++No
+
+# 2025-12-05 12:36:26.499235
++/ask Do we have a mode for interactive decomposition? If not added it to the design. 
+
+# 2025-12-05 12:37:41.400372
++/ask Ok, what needs to be implemented next?
+
+# 2025-12-05 12:40:27.883656
++Proceed with the lsp server. Write down the entire plan you have for it in lsp_server_plan.md then let me review. Don't write any code. 
+
+# 2025-12-05 12:41:17.355665
++Yes
+
+# 2025-12-05 12:42:12.735018
++You must remember that we should be using SSE for all interaction so that progress can be sent back as well as incremental updates (like llm output in real time) to the client side. Please do not implement anything but make this part of the plan. Do not implement code!
+
+# 2025-12-05 12:43:21.935915
++You are replacing an lsp_server_plan, but it does not exist yet, you are creating it! No need to replace blocks. 
+
+# 2025-12-05 12:44:39.685303
++Yes
+
+# 2025-12-05 12:50:53.262386
++/ask Ok, let's implement the lsp_server_plan.md one phase at a time. What is the first phase?
+
+# 2025-12-05 12:52:09.234208
++Lets do it. 
+
+# 2025-12-05 12:53:32.993432
++Yes
+
+# 2025-12-05 12:54:34.213091
++No
+
+# 2025-12-05 12:54:44.286261
++Yes
+
+# 2025-12-05 12:54:44.291735
++/run axiomander lsp --help
+
+# 2025-12-05 12:54:44.291870
++/run axiomander lsp --help
+
+# 2025-12-05 12:54:49.277087
++Yes
+
+# 2025-12-05 12:54:52.822591
++N
+
+# 2025-12-05 12:55:00.131006
++/ask Ok what is the next phase? 
+
+# 2025-12-05 13:28:10.668630
++/ask Ok, where are we at with implementation? 
+
+# 2025-12-05 13:28:37.424442
++/ask Can you read the plan files in the root dir to see what needs to be done? 
+
+# 2025-12-05 13:28:43.670360
++Yes
+
+# 2025-12-05 13:29:16.909807
++/ask Let's continue with the LSP server implementation. What remains to be done? 
+
+# 2025-12-05 13:30:14.323038
++Yes
+
+# 2025-12-05 13:31:08.112834
++/ask Where do we talk about SSE, because really we should be using LSP type JSON-RPC 
+
+# 2025-12-05 13:31:26.296055
++Yes, please do this. 
+
+# 2025-12-05 13:32:57.416576
++Yes
+
+# 2025-12-05 13:33:21.450200
++No
+
+# 2025-12-05 13:35:23.851254
++gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ axiomander lsp                                                                           [13:35:11]
++╭──────────────────────────────── Traceback (most recent call last) ─────────────────────────────────╮│ /home/gavin/dev/Scidonia/axiomander/src/axiomander/main.py:365 in start_lsp_server                 ││                                                                                                    ││   362 @app.command("lsp")                                                                          ││   363 def start_lsp_server() -> None:                                                              ││   364 │   """Start the Axiomander Language Server Protocol server."""                              ││ ❱ 365 │   from axiomander.lsp import start_server                                                  ││   366 │                                                                                            ││   367 │   console.print("[blue]Starting Axiomander LSP server...[/blue]")                          ││   368 │   console.print("[dim]Connect your editor to stdio for LSP communication[/dim]")           │╰────────────────────────────────────────────────────────────────────────────────────────────────────╯ModuleNotFoundError: No module named 'axiomander.lsp'
++FAIL: 1
++
+
+# 2025-12-05 13:38:44.714330
++Yes
+
+# 2025-12-05 13:39:14.503331
++No
+
+# 2025-12-05 13:39:15.155884
++gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ axiomander lsp                                                                           [13:35:14]
++╭──────────────────────────────── Traceback (most recent call last) ─────────────────────────────────╮│ /home/gavin/dev/Scidonia/axiomander/src/axiomander/main.py:365 in start_lsp_server                 ││                                                                                                    ││   362 @app.command("lsp")                                                                          ││   363 def start_lsp_server() -> None:                                                              ││   364 │   """Start the Axiomander Language Server Protocol server."""                              ││ ❱ 365 │   from axiomander.lsp import start_server                                                  ││   366 │                                                                                            ││   367 │   console.print("[blue]Starting Axiomander LSP server...[/blue]")                          ││   368 │   console.print("[dim]Connect your editor to stdio for LSP communication[/dim]")           ││                                                                                                    ││ /home/gavin/dev/Scidonia/axiomander/src/axiomander/lsp/__init__.py:3 in <module>                   ││                                                                                                    ││   1 """Axiomander Language Server Protocol implementation."""                                      ││   2                                                                                                ││ ❱ 3 from .server import start_server                                                               ││   4                                                                                                ││   5 __all__ = ["start_server"]                                                                     ││   6                                                                                                ││                                                                                                    ││ /home/gavin/dev/Scidonia/axiomander/src/axiomander/lsp/server.py:8 in <module>                     ││                                                                                                    ││     5 from pathlib import Path                                                                     ││     6 from typing import List, Optional, Any, Dict                                                 ││     7                                                                                              ││ ❱   8 from lsprotocol.types import (                                                               ││     9 │   TEXT_DOCUMENT_SYNC_KIND,                                                                 ││    10 │   CompletionOptions,                                                                       ││    11 │   Hover,                                                                                   ││                                                                                                    ││ ╭──────────────────────────────────────────── locals ────────────────────────────────────────────╮ ││ │     Dict = typing.Dict                                                                         │ ││ │     List = typing.List                                                                         │ ││ │  logging = <module 'logging' from                                                              │ ││ │            '/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/logging… │ ││ │ Optional = typing.Optional                                                                     │ ││ │      sys = <module 'sys' (built-in)>                                                           │ ││ ╰────────────────────────────────────────────────────────────────────────────────────────────────╯ │╰────────────────────────────────────────────────────────────────────────────────────────────────────╯ImportError: cannot import name 'TEXT_DOCUMENT_SYNC_KIND' from 'lsprotocol.types' 
++(/nix/store/mg77ihjhbbrnvf5f0fnx2rkf2yx9h90x-axiomander-editable-env/lib/python3.13/site-packages/lsprotocol/types.py)
++FAIL: 1
++
+
+# 2025-12-05 13:39:52.433442
++No
+
+# 2025-12-05 13:40:04.589056
++https://github.com/openlawlibrary/pygls  gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ axiomander lsp                                                                           [13:39:06]
++╭──────────────────────────────── Traceback (most recent call last) ─────────────────────────────────╮│ /home/gavin/dev/Scidonia/axiomander/src/axiomander/main.py:365 in start_lsp_server                 ││                                                                                                    ││   362 @app.command("lsp")                                                                          ││   363 def start_lsp_server() -> None:                                                              ││   364 │   """Start the Axiomander Language Server Protocol server."""                              ││ ❱ 365 │   from axiomander.lsp import start_server                                                  ││   366 │                                                                                            ││   367 │   console.print("[blue]Starting Axiomander LSP server...[/blue]")                          ││   368 │   console.print("[dim]Connect your editor to stdio for LSP communication[/dim]")           ││                                                                                                    ││ /home/gavin/dev/Scidonia/axiomander/src/axiomander/lsp/__init__.py:3 in <module>                   ││                                                                                                    ││   1 """Axiomander Language Server Protocol implementation."""                                      ││   2                                                                                                ││ ❱ 3 from .server import start_server                                                               ││   4                                                                                                ││   5 __all__ = ["start_server"]                                                                     ││   6                                                                                                ││                                                                                                    ││ /home/gavin/dev/Scidonia/axiomander/src/axiomander/lsp/server.py:35 in <module>                    ││                                                                                                    ││    32 │   Position,                                                                                ││    33 │   ExecuteCommandOptions                                                                    ││    34 )                                                                                            ││ ❱  35 from pygls.server import LanguageServer                                                      ││    36 from pygls.workspace import Document                                                         ││    37                                                                                              ││    38 from .index import ComponentIndex                                                            ││                                                                                                    ││ ╭──────────────────────────────────────────── locals ────────────────────────────────────────────╮ ││ │     Dict = typing.Dict                                                                         │ ││ │     List = typing.List                                                                         │ ││ │  logging = <module 'logging' from                                                              │ ││ │            '/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/logging… │ ││ │ Optional = typing.Optional                                                                     │ ││ │      sys = <module 'sys' (built-in)>                                                           │ ││ ╰────────────────────────────────────────────────────────────────────────────────────────────────╯ │╰────────────────────────────────────────────────────────────────────────────────────────────────────╯ImportError: cannot import name 'LanguageServer' from 'pygls.server' 
++(/nix/store/mg77ihjhbbrnvf5f0fnx2rkf2yx9h90x-axiomander-editable-env/lib/python3.13/site-packages/pygls/server.py)
++FAIL: 1
++
++
+
+# 2025-12-05 13:40:06.092232
++yes
+
+# 2025-12-05 13:40:37.308341
++No
+
+# 2025-12-05 13:40:51.064898
++gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ axiomander lsp                                                                           [13:39:32]
++╭──────────────────────────────── Traceback (most recent call last) ─────────────────────────────────╮│ /home/gavin/dev/Scidonia/axiomander/src/axiomander/main.py:365 in start_lsp_server                 ││                                                                                                    ││   362 @app.command("lsp")                                                                          ││   363 def start_lsp_server() -> None:                                                              ││   364 │   """Start the Axiomander Language Server Protocol server."""                              ││ ❱ 365 │   from axiomander.lsp import start_server                                                  ││   366 │                                                                                            ││   367 │   console.print("[blue]Starting Axiomander LSP server...[/blue]")                          ││   368 │   console.print("[dim]Connect your editor to stdio for LSP communication[/dim]")           ││                                                                                                    ││ /home/gavin/dev/Scidonia/axiomander/src/axiomander/lsp/__init__.py:3 in <module>                   ││                                                                                                    ││   1 """Axiomander Language Server Protocol implementation."""                                      ││   2                                                                                                ││ ❱ 3 from .server import start_server                                                               ││   4                                                                                                ││   5 __all__ = ["start_server"]                                                                     ││   6                                                                                                ││                                                                                                    ││ /home/gavin/dev/Scidonia/axiomander/src/axiomander/lsp/server.py:36 in <module>                    ││                                                                                                    ││    33 │   ExecuteCommandOptions                                                                    ││    34 )                                                                                            ││    35 from pygls.lsp.server import LanguageServer                                                  ││ ❱  36 from pygls.lsp.workspace import Document                                                     ││    37                                                                                              ││    38 from .index import ComponentIndex                                                            ││    39 from .utils import uri_to_path, path_to_uri, format_component_hover_text, get_component_     ││                                                                                                    ││ ╭──────────────────────────────────────────── locals ────────────────────────────────────────────╮ ││ │     Dict = typing.Dict                                                                         │ ││ │     List = typing.List                                                                         │ ││ │  logging = <module 'logging' from                                                              │ ││ │            '/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/logging… │ ││ │ Optional = typing.Optional                                                                     │ ││ │      sys = <module 'sys' (built-in)>                                                           │ ││ ╰────────────────────────────────────────────────────────────────────────────────────────────────╯ │╰────────────────────────────────────────────────────────────────────────────────────────────────────╯ModuleNotFoundError: No module named 'pygls.lsp.workspace'
++FAIL: 1
++https://pygls.readthedocs.io/en/latest/
+
+# 2025-12-05 13:40:53.135399
++Yes
+
+# 2025-12-05 13:42:56.195775
++/run axiomander lsp
+
+# 2025-12-05 13:42:56.195857
++/run axiomander lsp
+
+# 2025-12-05 13:43:00.159718
++Yes
+
+# 2025-12-05 13:43:04.206296
++/ask What do you think is wrong
+
+# 2025-12-05 13:43:31.044800
++Ok, get rid of it so. 
+
+# 2025-12-05 13:43:46.679869
++No
+
+# 2025-12-05 13:43:47.738611
++gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ axiomander lsp                                                                           [13:43:24]
++Starting Axiomander LSP server...
++Connect your editor to stdio for LSP communication
++2025-12-05 13:43:40,183 - axiomander.lsp.server - INFO - Starting Axiomander LSP server...
++2025-12-05 13:43:40,183 - pygls.server - INFO - Starting async IO server
++
+
+# 2025-12-05 13:43:54.201527
++/ask gavin@pleiades: ~/dev/Scidonia/axiomander simple ⚡
++$ axiomander lsp                                                                           [13:43:24]
++Starting Axiomander LSP server...
++Connect your editor to stdio for LSP communication
++2025-12-05 13:43:40,183 - axiomander.lsp.server - INFO - Starting Axiomander LSP server...
++2025-12-05 13:43:40,183 - pygls.server - INFO - Starting async IO server
++
+
+# 2025-12-05 14:29:51.220238
++/ask Select action: i
++Error running timer: (void-function which-key-add-major-mode-key-based-replacements)
++LSP :: axiomander-lsp:65770 initialized successfully in folders: (/home/gavin/dev/Scidonia/axiomander)
++LSP :: Error in server: AttributeError: 'AxiomanderLanguageServer' object has no attribute 'publish_diagnostics'
++LSP :: Error in server: 'dict' object has no attribute 'title' [3 times]
++Mark activated
++Mark set
++What is happening here? 
+
+# 2025-12-05 14:31:39.297271
++/ask how can I see the logs from the lsp server if I started it in emacs? 
+
+# 2025-12-05 14:36:27.194719
++LSP :: axiomander-lsp:71431 initialized successfully in folders: (/home/gavin/dev/Scidonia/axiomander)
++LSP :: Error in server: AttributeError: 'AxiomanderLanguageServer' object has no attribute 'publish_diagnostics'
++LSP :: Error in server: 'dict' object has no attribute 'title' [2 times]
++
+
+# 2025-12-05 14:36:46.325979
++Yes
+
+# 2025-12-05 14:39:53.731636
++/ask Ok, I have an lsp server, but I need some modes where I can ask it for things - I want a list of the current components as a table in an emacs buffer. I'd like to get there with a key sequence from my buffer. Perhaps Ctl-x (something). How would you achieve this? 
+
+# 2025-12-05 14:41:03.499915
++I already have an axiomander.el - can we repurpose this ? 
+
+# 2025-12-05 14:41:05.331280
++Yes
+
+# 2025-12-05 14:45:00.697850
++No
+
+# 2025-12-05 14:45:38.084324
++But I don't see any of this emacs code in axiomander.el
+
+# 2025-12-05 15:42:02.444252
++⛔ Error (use-package): lsp-mode/:config: Symbol’s function definition is void: which-key-add-key-based-replacements
++⛔ Error (use-package): lsp-mode/:config: Symbol’s function definition is void: which-key-add-key-based-replacements
++
+
+# 2025-12-05 15:44:07.001032
++Error getting components: #s(hash-table size 2 test equal rehash-size 1.5 rehash-threshold 0.8125 data (code -32602 message Invalid Params: Command name 'axiomander.listComponents' is not defined))
++
+
+# 2025-12-05 15:44:48.752312
++No
+
+# 2025-12-05 15:44:56.317854
++Error getting components: #s(hash-table size 2 test equal rehash-size 1.5 rehash-threshold 0.8125 data (code -32602 message Invalid Params: Command name 'axiomander.listComponents' is not defined))
++I restarted and got this
+
+# 2025-12-05 15:45:37.212469
++No
+
+# 2025-12-05 15:45:38.985399
++LSP :: Error in server: AttributeError: 'AxiomanderLanguageServer' object has no attribute 'lsp'
++You can run the command ‘lsp-workspace-restart’ with C-c C-c w r
++LSP :: Error in server: AttributeError: 'AxiomanderLanguageServer' object has no attribute 'lsp'
++
+
+# 2025-12-05 15:46:33.716130
++/ask Back to this: Error getting components: #s(hash-table size 2 test equal rehash-size 1.5 rehash-threshold 0.8125 data (code -32602 message Invalid Params: Command name 'axiomander.listComponents' is not defined))  What is the cause? 
++
+
+# 2025-12-05 15:48:27.763675
++/ask Error running timer: (void-function which-key-add-major-mode-key-based-replacements)
++LSP :: axiomander-lsp:98885 initialized successfully in folders: (/home/gavin/dev/Scidonia/axiomander)
++LSP :: Error in server: AttributeError: 'AxiomanderLanguageServer' object has no attribute 'publish_diagnostics'
++And what is this about? 
+
+# 2025-12-05 16:07:51.052144
++/ask Error getting components: #s(hash-table size 2 test equal rehash-size 1.5 rehash-threshold 0.8125 data (code -32602 message Invalid Params: Command name 'axiomander.listComponents' is not defined))
++^ This again!
+
+# 2025-12-05 16:09:48.905545
++Do this
+
+# 2025-12-05 16:12:48.512639
++No
+
+# 2025-12-05 16:12:49.620035
++2025-12-05 16:12:35,670 - pygls.protocol.json_rpc - ERROR - Exception occurred for message "88"
++Traceback (most recent call last):
++  File "/nix/store/mg77ihjhbbrnvf5f0fnx2rkf2yx9h90x-axiomander-editable-env/lib/python3.13/site-packages/pygls/protocol/json_rpc.py", line 300, in _send_handler_result
++    self._send_response(msg_id, result=future.result())
++                                       ~~~~~~~~~~~~~^^
++  File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/concurrent/futures/_base.py", line 449, in result
++    return self.__get_result()
++           ~~~~~~~~~~~~~~~~~^^
++  File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
++    raise self._exception
++  File "/nix/store/mg77ihjhbbrnvf5f0fnx2rkf2yx9h90x-axiomander-editable-env/lib/python3.13/site-packages/pygls/protocol/json_rpc.py", line 274, in _run_generator
++    handler, args, kwargs = gen.send(value)
++                            ~~~~~~~~^^^^^^^
++  File "/nix/store/mg77ihjhbbrnvf5f0fnx2rkf2yx9h90x-axiomander-editable-env/lib/python3.13/site-packages/pygls/protocol/language_server.py", line 323, in lsp_workspace__execute_command
++    raise JsonRpcInvalidParams.of(
++        ValueError(f"Command name {params.command!r} is not defined")
++    )
++pygls.exceptions.JsonRpcInvalidParams: Invalid Params: Command name 'axiomander.listComponents' is not defined
++2025-12-05 16:12:35,672 - pygls.protocol.json_rpc - INFO - Sending data: {"error": {"code": -32602, "message": "Invalid Params: Command name 'axiomander.listComponents' is not defined"}, "jsonrpc": "2.0", "id": 88}
++2025-12-05 16:12:36,274 - pygls.protocol.json_rpc - INFO - Sending data: {"id": 89, "jsonrpc": "2.0", "result": [{"title": "Compile component 'absolute_value'", "kind": "source", "command": {"title": "Compile component 'absolute_value'", "command": "axiomander.compile", "arguments": ["example-abs-001"]}}, {"title": "Validate component 'absolute_value'", "kind": "source", "command": {"title": "Validate component 'absolute_value'", "command": "axiomander.validate", "arguments": ["example-abs-001"]}}, {"title": "Create new component", "kind": "source", "command": {"title": "Create new component", "command": "axiomander.createComponent", "arguments": []}}]}
++
+
+# 2025-12-05 16:14:48.246914
++No
+
+# 2025-12-05 16:14:49.034343
++2025-12-05 16:14:34,245 - pygls.protocol.json_rpc - ERROR - Exception occurred for message "102"
++Traceback (most recent call last):
++  File "/nix/store/mg77ihjhbbrnvf5f0fnx2rkf2yx9h90x-axiomander-editable-env/lib/python3.13/site-packages/pygls/protocol/language_server.py", line 328, in lsp_workspace__execute_command
++    args, kwargs = _prepare_command_arguments(handler, params, self._converter)
++                   ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++  File "/nix/store/mg77ihjhbbrnvf5f0fnx2rkf2yx9h90x-axiomander-editable-env/lib/python3.13/site-packages/pygls/protocol/language_server.py", line 385, in _prepare_command_arguments
++    if (ptype is not None) and issubclass(ptype, LanguageServer):
++                               ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
++TypeError: issubclass() arg 1 must be a class
++
++During handling of the above exception, another exception occurred:
++
++Traceback (most recent call last):
++  File "/nix/store/mg77ihjhbbrnvf5f0fnx2rkf2yx9h90x-axiomander-editable-env/lib/python3.13/site-packages/pygls/protocol/json_rpc.py", line 300, in _send_handler_result
++    self._send_response(msg_id, result=future.result())
++                                       ~~~~~~~~~~~~~^^
++  File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/concurrent/futures/_base.py", line 449, in result
++    return self.__get_result()
++           ~~~~~~~~~~~~~~~~~^^
++  File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
++    raise self._exception
++  File "/nix/store/mg77ihjhbbrnvf5f0fnx2rkf2yx9h90x-axiomander-editable-env/lib/python3.13/site-packages/pygls/protocol/json_rpc.py", line 274, in _run_generator
++    handler, args, kwargs = gen.send(value)
++                            ~~~~~~~~^^^^^^^
++  File "/nix/store/mg77ihjhbbrnvf5f0fnx2rkf2yx9h90x-axiomander-editable-env/lib/python3.13/site-packages/pygls/protocol/language_server.py", line 330, in lsp_workspace__execute_command
++    raise JsonRpcInvalidParams.of(exc)
++
+
+# 2025-12-05 16:15:59.957562
++No
+
+# 2025-12-05 16:16:00.921353
++2025-12-05 16:15:48,467 - pygls.protocol.json_rpc - ERROR - Exception occurred for message "119"
++Traceback (most recent call last):
++  File "/nix/store/mg77ihjhbbrnvf5f0fnx2rkf2yx9h90x-axiomander-editable-env/lib/python3.13/site-packages/pygls/protocol/language_server.py", line 395, in _prepare_command_arguments
++    value = converter.structure(next(param_vals), ptype)
++                                ~~~~^^^^^^^^^^^^
++StopIteration
++
++The above exception was the direct cause of the following exception:
++
++Traceback (most recent call last):
++  File "/nix/store/mg77ihjhbbrnvf5f0fnx2rkf2yx9h90x-axiomander-editable-env/lib/python3.13/site-packages/pygls/protocol/language_server.py", line 328, in lsp_workspace__execute_command
++    args, kwargs = _prepare_command_arguments(handler, params, self._converter)
++                   ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++  File "/nix/store/mg77ihjhbbrnvf5f0fnx2rkf2yx9h90x-axiomander-editable-env/lib/python3.13/site-packages/pygls/protocol/language_server.py", line 397, in _prepare_command_arguments
++    raise TypeError(
++    ...<2 lines>...
++    ) from exc
++TypeError: Expected 1 arguments, got 0
++
++During handling of the above exception, another exception occurred:
++
++Traceback (most recent call last):
++  File "/nix/store/mg77ihjhbbrnvf5f0fnx2rkf2yx9h90x-axiomander-editable-env/lib/python3.13/site-packages/pygls/protocol/json_rpc.py", line 300, in _send_handler_result
++    self._send_response(msg_id, result=future.result())
++                                       ~~~~~~~~~~~~~^^
++  File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/concurrent/futures/_base.py", line 449, in result
++    return self.__get_result()
++           ~~~~~~~~~~~~~~~~~^^
++  File "/nix/store/3lll9y925zz9393sa59h653xik66srjb-python3-3.13.9/lib/python3.13/concurrent/futures/_base.py", line 401, in __get_result
++    raise self._exception
++  File "/nix/store/mg77ihjhbbrnvf5f0fnx2rkf2yx9h90x-axiomander-editable-env/lib/python3.13/site-packages/pygls/protocol/json_rpc.py", line 274, in _run_generator
++    handler, args, kwargs = gen.send(value)
++                            ~~~~~~~~^^^^^^^
++  File "/nix/store/mg77ihjhbbrnvf5f0fnx2rkf2yx9h90x-axiomander-editable-env/lib/python3.13/site-packages/pygls/protocol/language_server.py", line 330, in lsp_workspace__execute_command
++    raise JsonRpcInvalidParams.of(exc)
++pygls.exceptions.JsonRpcInvalidParams: Invalid Params: Expected 1 arguments, got 0
++
+
+# 2025-12-05 16:16:20.469797
++No
+
+# 2025-12-05 16:18:57.312135
++Error processing message (wrong-type-argument listp #s(hash-table size 3 test equal rehash-size 1.5 rehash-threshold 0.8125 data ("success" t "components" [#s(hash-table size 8 test equal rehash-size 1.5 rehash-threshold 0.8125 data ("uid" "example-abs-001" "name" "absolute_value" "type" "function" "last_modified" "2025-12-05T09:15:10.308300" "has_issues" nil "dependencies_count" 0 "dependents_count" 0 "has_contracts" t))] "total_count" 1))). [2 times]
++
+
+# 2025-12-05 16:20:28.820135
++No
+
+# 2025-12-05 16:22:08.571095
++Ok, I get a component list now. But I would like to be able to select elements in the list. If I hover over a component and press enter I'd like it to take me to a buffer with the specification
+
+# 2025-12-05 16:23:11.348175
++Yes
+
+# 2025-12-05 16:23:49.799163
++Buffer is read-only: #<buffer *Axiomander Components*> [2 times]
+
+# 2025-12-05 16:25:49.454658
++/ask I'm still getting this: Wrote /home/gavin/dev/Scidonia/axiomander/.axiomander/components/example-abs-001/implementation.py
++Buffer is read-only: #<buffer *Axiomander Components*> [2 times]
++
+
+# 2025-12-05 16:26:41.994717
++Try doing this modification
+
+# 2025-12-05 16:27:21.613156
++/ask Buffer is read-only: #<buffer *Axiomander Components*> [2 times]  No change
+
+# 2025-12-05 16:32:06.936656
++It should look rather like this: (require 'tabulated-list)
++
++(defvar axiomander-component-list-mode-map
++  (let ((map (make-sparse-keymap)))
++    (set-keymap-parent map tabulated-list-mode-map)
++    (define-key map (kbd "RET") #'axiomander-open-component)
++    (define-key map (kbd "r")   #'axiomander-refresh-components)
++    (define-key map (kbd "q")   #'quit-window)
++    map)
++  "Keymap for Axiomander component list mode.")
++
++(define-derived-mode axiomander-component-list-mode tabulated-list-mode
++  "Axiomander Components"
++  "Major mode for displaying Axiomander components."
++  (setq tabulated-list-format
++        [("Name" 20 t)
++         ("Type" 12 t)
++         ("UID" 25 t)
++         ("Issues" 8 t)
++         ("Deps" 6 t)
++         ("Contracts" 10 t)
++         ("Modified" 20 t)])
++  (setq tabulated-list-padding 2)
++  (setq tabulated-list-sort-key (cons "Name" nil))
++  (tabulated-list-init-header))
++(defun axiomander-open-component ()
++  "Open the component specification at point."
++  (interactive)
++  (let* ((uid (tabulated-list-get-id))
++         (root (or (lsp-workspace-root) default-directory))
++         (component-dir (concat root "/.axiomander/components/" uid))
++         (logical-file (concat component-dir "/logical.py")))
++    (if (file-exists-p logical-file)
++        (find-file logical-file)
++      (if (file-exists-p component-dir)
++          (message "Logical specification file not found: %s" logical-file)
++        (message "Component directory not found: %s" component-dir)))))
++
+
+# 2025-12-06 23:37:10.509171
++yes
+
+# 2025-12-06 23:37:36.888129
++/add src/axiomander/contracts.py
+
+# 2025-12-06 23:51:30.932595
++/ask Ok, we want to create a langgraph agent which has several modes. One is planning mode in which we interactively chat about a specification. The specification we try to hone so that it can be turned into pre-contract and post-contract (verbal descriptions of pre and post conditions as well as invariant-contract which gives invariants. After we have completed this we go to precondition and postcondition writing mode. This will actually implement the pre and post conditions as boolean functions in a fragment of python which *cannot* use observable side effects (we will use a linter later to test). Next we have sketch mode. Here it will write out each taks or use conditionals to make branches but will just write out the major work as comments witha pass statement. If something looks like it might be substantial code it should write down a COMPONENT CANDIDATE note. Once we have completed the specification we will change to implementation mode. Here the LLM is instructed to produce a patch that will implement the specification - it can add which-ever helper functions it needs in this phase but it should not alter the contracts at all. We will do post filtering of patches to make sure this works.
+
+# 2025-12-06 23:56:56.836190
++Please write a contract and stub for the agent. We are going to pretend that you are this agent while we are writing it. You will be in either 1, 2, 3 or 4. Currently we are in 1. Our agent should be an interactive CLI that allows me to edit my python code interactively. It should have access to files in the current git repo we invoke it from. It should commit after it has successfully run. 
+
+# 2025-12-06 23:57:26.389914
++Yes
+
+# 2025-12-06 23:58:20.075887
++Let's begin the specification for the interactive session. We are still in phase 1. 
+
+# 2025-12-06 23:59:19.989363
++Yes, write this as a contract for this function. Don't yet write the pre / post conditions. 
+
+# 2025-12-07 00:00:01.784923
++Ok, now try to write the contracts. We have moved to mode 2. 
+
+# 2025-12-07 00:02:47.513011
++ok, now try to sketch the implementation of run_interactive_session. 
+
+# 2025-12-07 00:04:26.820586
++Let's treat the auto_save_session as a component. We should write a contract for it. 
+
+# 2025-12-07 00:06:24.993673
++Great, now implement _auto_save_ession
+
+# 2025-12-07 00:08:01.858576
++Ok, now we are back in contract mode. Write a contract for get_user_input
+
+# 2025-12-07 00:08:24.581356
++Yes
+
+# 2025-12-07 00:10:44.217398
++We already have pre and post conditions, so we can go to sketch mode. 
+
+# 2025-12-07 00:12:37.160316
++Write a contract for display. (we are in mode 1 again)
+
+# 2025-12-07 00:13:17.016011
++Good, add the spec to _display_response. 
+
+# 2025-12-07 00:13:44.011766
++Implement display response. 
+
+# 2025-12-07 00:16:59.218219
++No
+
+# 2025-12-07 00:21:47.473951
++Ok, now we need to try this with an example called bank. This will manage desposits, withdrawals, and transfers between accounts. We will have a simple system which allows us to access bank accounts simply using a string name. There is no real authentication, authorization is through the naming of the appropriate user. Bank accounts should be stored in json files in a defined location. We are in contract mode, so write a contract. 
+
+# 2025-12-07 00:22:35.212356
++Yes
+
+# 2025-12-07 00:22:52.835270
++Ok, now write the sketch in sketch mode. 
+
+# 2025-12-07 00:24:43.133013
++/ask Were there any component candidates?
+
+# 2025-12-07 00:25:18.699095
++Ok, let's spec ond of the candidates. Which should we start with?
+
+# 2025-12-07 00:25:45.819039
++Write those verbal contracts into the code. 
+
+# 2025-12-07 00:26:35.642410
++Yes
+
+# 2025-12-07 00:26:45.778453
++Implement account caching. 
+
+# 2025-12-07 00:28:10.315784
++No
+
+# 2025-12-07 00:28:21.201023
++Ok, now implement the bank app. 
+
+# 2025-12-07 00:49:21.469868
++Yes
+
+# 2025-12-07 00:51:18.796580
++No
+
+# 2025-12-07 00:51:41.135760
++You don't seem to have added the 'bank' command to pyproject.toml
+
+# 2025-12-07 00:53:16.561006
++No
+
+# 2025-12-07 00:53:18.879148
++gavin@pleiades: ~/dev/Scidonia/axiomander code_based ⚡
++$ bank                                                                 [0:52:58]
++Traceback (most recent call last):
++  File "/nix/store/jbaqih7km5kv778xh8vbx2gfwlk1a0jz-axiomander-editable-env/bin/bank", line 4, in <module>
++    from axiomander.bank_cli import app
++ModuleNotFoundError: No module named 'axiomander.bank_cli'
++FAIL: 1
++
+
+# 2025-12-07 00:54:52.975851
++Yes
+
+# 2025-12-07 00:55:10.853668
++no
+
+# 2025-12-07 00:55:12.176125
++No
+
+# 2025-12-07 00:55:13.541836
++gavin@pleiades: ~/dev/Scidonia/axiomander code_based ⚡
++$ bank demo                                                            [0:55:01]
++Traceback (most recent call last):
++  File "/nix/store/jbaqih7km5kv778xh8vbx2gfwlk1a0jz-axiomander-editable-env/bin/bank", line 4, in <module>
++    from axiomander.bank_cli import app
++  File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/bank_cli.py", line 16, in <module>
++    from .bank import BankManager
++  File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/bank.py", line 19, in <module>
++    from .account_cache import AccountCache, EvictionPolicy
++  File "/home/gavin/dev/Scidonia/axiomander/src/axiomander/account_cache.py", line 20, in <module>
++    from .bank import BankAccount
++ImportError: cannot import name 'BankAccount' from partially initialized module 'axiomander.bank' (most likely due to a circular import) (/home/gavin/dev/Scidonia/axiomander/src/axiomander/bank.py)
++FAIL: 1
++
+
+# 2025-12-07 00:55:42.727760
++Yes
+
+# 2025-12-07 00:56:00.032265
++No
+
+# 2025-12-07 00:56:01.479333
++gavin@pleiades: ~/dev/Scidonia/axiomander code_based ⚡
++$ bank demo                                                            [0:55:03]
++🏦 Bank Account Management System Demo
++
++❌ Demo failed: Precondition evaluation failed: storage_path_exists
++
+
+# 2025-12-07 00:56:15.278832
++/ask gavin@pleiades: ~/dev/Scidonia/axiomander code_based ⚡
++$ bank demo                                                            [0:55:03]
++🏦 Bank Account Management System Demo
++
++❌ Demo failed: Precondition evaluation failed: storage_path_exists
++^ Why might this have happened? 
+
+# 2025-12-07 00:56:39.219035
++Do this. 
+
+# 2025-12-07 00:56:57.985463
++No
+
+# 2025-12-07 00:57:07.363500
++gavin@pleiades: ~/dev/Scidonia/axiomander code_based ⚡
++$ bank demo                                                            [0:56:52]
++🏦 Bank Account Management System Demo
++
++❌ Demo failed: Precondition evaluation failed: storage_path_exists
++
+
+# 2025-12-07 00:57:43.073634
++No
+
+# 2025-12-07 00:57:59.849984
++/ask $ bank demo                                                            [0:57:01]
++🏦 Bank Account Management System Demo
++
++❌ Demo failed: Precondition evaluation failed: storage_path_exists
++^ This is still happening - why? 
+
+# 2025-12-07 00:59:15.712910
++The issue is that the precondition storage_path_exists is being evaluated before  the BankManager's __init__ method runs, but the directory creation happens in the CLI code before calling BankManager.                                              ^ If that's the case we need to relax the condition do we? 
+
+# 2025-12-07 00:59:45.645918
++No
+
+# 2025-12-07 00:59:57.008514
++That didn't work at all. ❌ Demo failed: Precondition evaluation failed: storage_path_parent_exists
+
+# 2025-12-07 01:00:14.777652
++/run bank demo
+
+# 2025-12-07 01:00:14.777725
++/run bank demo
+
+# 2025-12-07 01:00:25.528962
++No
+
+# 2025-12-07 01:00:40.837520
++remove the storage path precondition. 
+
+# 2025-12-07 01:01:01.445531
++No
+
+# 2025-12-07 01:01:07.298533
++Get rid of the other precondition as well. 
+
+# 2025-12-07 01:01:25.491435
++No
+
+# 2025-12-07 01:01:30.660015
++gavin@pleiades: ~/dev/Scidonia/axiomander code_based ⚡
++$ bank demo                                                            [1:00:29]
++🏦 Bank Account Management System Demo
++
++❌ Demo failed: Precondition evaluation failed: max_size_is_positive
++^ Why could that be? 
+
+# 2025-12-07 01:01:55.559676
++No
+
+# 2025-12-07 01:02:38.958530
++/run bank demo
+
+# 2025-12-07 01:02:44.265847
++Yes
+
+# 2025-12-07 01:02:49.891346
++Do you see the problem?
+
+# 2025-12-07 01:03:04.649145
++Yes
+
+# 2025-12-07 01:04:10.446258
++No
+
+# 2025-12-07 01:04:17.915053
++gavin@pleiades: ~/dev/Scidonia/axiomander code_based ⚡
++$ bank demo                                                            [1:03:59]
++🏦 Bank Account Management System Demo
++
++BankManager Error: Failed to warm cache: Precondition evaluation failed: cache_is_initialized
++Creating demo accounts...
++❌ Demo failed: Precondition evaluation failed: account_name_is_valid
++^ What is happening here? 
+
+# 2025-12-07 01:04:54.903229
++No
+
+# 2025-12-07 01:04:56.663929
++gavin@pleiades: ~/dev/Scidonia/axiomander code_based ⚡
++$ bank demo                                                            [1:04:02]
++🏦 Bank Account Management System Demo
++
++BankManager Error: Failed to warm cache: Precondition evaluation failed: cache_is_initialized
++Creating demo accounts...
++❌ Demo failed: Precondition evaluation failed: amount_is_valid_decimal
++ 
+
+# 2025-12-07 01:05:12.805495
++No
+
+# 2025-12-07 01:06:00.579150
++/ask Can you find places where we use things we know from post conditions as something sent to a function that has preconditions?
+
+# 2025-12-07 01:07:47.486614
++/ask I'm thinking of trying to extract these contracts to give them to z3 to verify. Are there any preconditions that overlap with postconditions of another contract which we could target? 
+
+# 2025-12-07 01:08:54.821802
++Yes, create a plausible z3 file based on our actual contracts. 
+
+# 2025-12-07 01:09:20.588834
++No, I don't mean we should write a programme that does it. I mean you should create a z3 file. 
+
+# 2025-12-07 01:09:53.230635
++Yes
+
+# 2025-12-07 01:10:26.655837
++No
+
+# 2025-12-07 01:10:34.635335
++(error "line 8 column 25: logic does not support integers")
++(error "line 9 column 22: logic does not support integers")
++(error "line 10 column 26: logic does not support integers")
++(error "line 13 column 40: logic does not support uninterpreted functions")
++(error "line 14 column 44: logic does not support uninterpreted functions")
++(error "line 15 column 45: logic does not support uninterpreted functions")
++(error "line 16 column 46: logic does not support uninterpreted functions")
++(error "line 17 column 51: logic does not support uninterpreted functions")
++(error "line 18 column 49: logic does not support uninterpreted functions")
++(error "line 21 column 47: logic does not support uninterpreted functions")
++(error "line 22 column 51: logic does not support uninterpreted functions")
++(error "line 25 column 52: logic does not support uninterpreted functions")
++(error "line 26 column 44: logic does not support uninterpreted functions")
++(error "line 27 column 45: logic does not support uninterpreted functions")
++(error "line 28 column 49: logic does not support uninterpreted functions")
++(error "line 44 column 37: unknown constant alice")
++^ Why don't we know about functions and integers?
+
+# 2025-12-07 21:58:09.126243
++No
+
+# 2025-12-10 12:30:51.650614
++/commit

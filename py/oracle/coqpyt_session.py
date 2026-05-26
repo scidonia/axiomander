@@ -230,14 +230,21 @@ class CoqpytSession:
         self._tmp_path.write_text(source)
         self._uri = f"file://{self._tmp_path}"
 
-    def close(self):
-        """Clean up resources."""
+    def close(self, timeout: float = 3.0):
+        """Clean up resources. Times out shutdown after `timeout` seconds."""
         if self._client:
-            try:
-                self._client.shutdown()
-                self._client.exit()
-            except Exception:
-                pass
+            import threading
+
+            def _do_close():
+                try:
+                    self._client.shutdown()
+                    self._client.exit()
+                except Exception:
+                    pass
+
+            t = threading.Thread(target=_do_close, daemon=True)
+            t.start()
+            t.join(timeout)
             self._client = None
         if self._tmp_path and self._tmp_path.exists():
             try:

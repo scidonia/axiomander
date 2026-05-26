@@ -180,10 +180,12 @@ def run_langgraph_oracle(
     if ChatOpenAI is None:
         return False, "", "langgraph not installed (pip install langgraph langchain-openai)"
 
-    # Check credit budget
+    # Check credit budget — consume upfront for estimated LLM calls
     from oracle.client import _consume_credit, credit_budget_exhausted
-    if credit_budget_exhausted():
-        return False, "", "Credit budget exhausted"
+    est_calls = min(max_steps, 10)  # estimate: each step ~1 LLM call
+    for _ in range(est_calls):
+        if not _consume_credit():
+            return False, "", "Credit budget exhausted"
 
     # Open coq-lsp session
     session = CoqpytSession(BUILD_DIR, timeout=60)
@@ -232,7 +234,9 @@ def run_langgraph_oracle(
         return False, proof_script, final.get("error", "") or "Proof incomplete"
 
     except Exception as e:
-        return False, "", str(e)[:500]
+        import traceback
+        tb = traceback.format_exc()[-500:]
+        return False, "", f"{e}\n{tb}"
 
     finally:
         try:

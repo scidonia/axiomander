@@ -1,0 +1,44 @@
+{
+	"name": "parse-help",
+	"version": "2.0.0",
+	"description": "Parse CLI help output",
+	"license": "MIT",
+	"repository": "sindresorhus/parse-help",
+	"funding": "https://github.com/sponsors/sindresorhus",
+	"author": {
+		"name": "Sindre Sorhus",
+		"email": "sindresorhus@gmail.com",
+		"url": "https://sindresorhus.com"
+	},
+	"type": "module",
+	"exports": "./index.js",
+	"engines": {
+		"node": ">=12"
+	},
+	"scripts": {
+		"test": "xo && ava"
+	},
+	"files": [
+		"index.js"
+	],
+	"keywords": [
+		"parse",
+		"help",
+		"cli",
+		"argv",
+		"command-line",
+		"man",
+		"flags",
+		"arguments",
+		"alias",
+		"aliases",
+		"short"
+	],
+	"dependencies": {
+		"execall": "^3.0.0"
+	},
+	"devDependencies": {
+		"ava": "^3.15.0",
+		"xo": "^0.38.2"
+	}
+}

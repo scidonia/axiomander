@@ -441,8 +441,8 @@ destruct, eexists, rewrite, eapply, match goal, Z.leb_le, Z.leb_gt."""
 
             tactics_used: list[str] = []
             step_history: list[str] = []
-            transcript_entries: list[dict] = []  # full replay log
-            user_prompt = "Prove the goal step by step. Start with 'wp_prove.'"
+            transcript_entries: list[dict] = []
+            context_summary = f"Available: {coq_preamble[:3000]}"  # defs + lemmas
 
             def _save_transcript(success: bool, reason: str = ""):
                 """Save the LLM conversation transcript to disk."""
@@ -508,11 +508,21 @@ destruct, eexists, rewrite, eapply, match goal, Z.leb_le, Z.leb_gt."""
                         tactics_used.pop()
                     continue
 
-                goal_text = "\n".join(goals_state.goals[:3]) if goals_state.goals else "no goals"
+                goal_text = "\n".join(goals_state.goals[:3]) if goals_state.goals else "(no goals — try Qed.)"
+                hyps_text = "\n".join(goals_state.hypotheses[-20:]) if goals_state.hypotheses else "(no hypotheses)"
+                proof_so_far = "\n".join(tactics_used) if tactics_used else "(proof just started)"
+                n_goals = len(goals_state.goals) if goals_state.goals else 0
+                ctx_prefix = ""
+                if step <= 1:
+                    ctx_prefix = f"## Definitions\n```coq\n{context_summary}\n```\n\n"
                 step_prompt = (
-                    f"## Current Goals\n```coq\n{goal_text}\n```\n\n"
-                    f"## Previous Steps\n" + "\n".join(step_history[-6:]) + "\n\n"
-                    f"Propose exactly ONE tactic for the current goal."
+                    ctx_prefix +
+                    f"## Proof Script\n```coq\nProof.\n{proof_so_far}\n```\n"
+                    f"## Subgoals: {n_goals}\n"
+                    f"## Hypotheses\n```coq\n{hyps_text}\n```\n"
+                    f"## Current Goal\n```coq\n{goal_text}\n```\n\n"
+                    f"Available: wp_prove, wp_reduce, intros, split, lia, reflexivity, auto, unfold, rewrite, apply, destruct, eexists.\n"
+                    f"Propose exactly ONE tactic."
                 )
 
                 step_entry = {"step": step, "goals": goal_text, "retries": []}
