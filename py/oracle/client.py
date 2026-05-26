@@ -55,12 +55,53 @@ def load_config() -> LLMConfig:
     )
 
 
+# ── Credit budget ──────────────────────────────────────────────────
+
+_credit_budget: int = 0
+_credits_used: int = 0
+
+
+def reset_credit_budget(budget: int | None = None) -> None:
+    """Reset the LLM credit budget for a new session.
+
+    If budget is None, reads ORACLE_CREDIT_BUDGET from env (default 20).
+    Set to 0 for unlimited.
+    """
+    global _credit_budget, _credits_used
+    if budget is None:
+        budget = int(os.environ.get("ORACLE_CREDIT_BUDGET", "20"))
+    _credit_budget = budget
+    _credits_used = 0
+
+
+def credit_budget_exhausted() -> bool:
+    """Check if the LLM credit budget is exhausted."""
+    return _credit_budget > 0 and _credits_used >= _credit_budget
+
+
+def credits_used() -> int:
+    return _credits_used
+
+
+def _consume_credit() -> bool:
+    """Consume one credit. Returns True if allowed, False if budget exhausted."""
+    global _credits_used
+    if _credit_budget > 0 and _credits_used >= _credit_budget:
+        return False
+    _credits_used += 1
+    return True
+
+
 def call_llm(config: LLMConfig, system_prompt: str, user_prompt: str) -> str:
     """Call the LLM API and return the response text.
 
     Uses OpenAI-compatible chat completions format.
-    Returns empty string on failure.
+    Returns empty string on failure or if credit budget exhausted.
     """
+    if not _consume_credit():
+        import sys
+        print(f"  [oracle] credit budget exhausted ({_credit_budget} max)", file=sys.stderr)
+        return ""
     body = json.dumps({
         "model": config.model,
         "temperature": config.temperature,

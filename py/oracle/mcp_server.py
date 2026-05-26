@@ -449,6 +449,10 @@ def tool_check_function(args: dict) -> str:
     if not source:
         return "Error: 'source' parameter is required."
 
+    # Reset LLM credit budget per top-level call (session granularity)
+    from oracle.client import reset_credit_budget
+    reset_credit_budget()
+
     # Step 1: Structural analysis
     analysis = analyze_function(source, func_name)
 
@@ -498,8 +502,11 @@ def tool_check_function(args: dict) -> str:
         elapsed = (time.time() - t0) * 1000
     # Step 3c: If still not proved, try LLM oracle
     if goal and not goal.is_proved():
+        from oracle.client import credits_used as _credits_used, credit_budget_exhausted as _budget_exhausted
         goal = _try_llm_oracle(source, func_name, goal, args.get("hint"))
         elapsed = (time.time() - t0) * 1000
+        if _budget_exhausted():
+            goal.error_detail += f" (LLM credit budget exhausted: {_credits_used()} calls)"
 
     # Step 3c: Store result in cache (only if proved)
     if hashes and goal and goal.is_proved():
@@ -570,6 +577,10 @@ def tool_verify_changed(args: dict) -> str:
     source = args.get("source", "")
     if not source:
         return "Error: 'source' parameter is required."
+
+    # Reset LLM credit budget once per invocation (shared across all functions)
+    from oracle.client import reset_credit_budget, credits_used
+    reset_credit_budget()
 
     try:
         tree = ast.parse(source)
