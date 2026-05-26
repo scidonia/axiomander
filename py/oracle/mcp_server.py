@@ -492,7 +492,11 @@ def tool_check_function(args: dict) -> str:
     goal = _verify_function(source, func_name, args.get("hint"))
     elapsed = (time.time() - t0) * 1000
 
-    # Step 3b: If Level 1 couldn't close the goal, try LLM oracle
+    # Step 3b: If Level 1 couldn't close the goal, try coq-lsp oracle
+    if goal and not goal.is_proved():
+        goal = _try_coqlsp_oracle(source, func_name, goal)
+        elapsed = (time.time() - t0) * 1000
+    # Step 3c: If still not proved, try LLM oracle
     if goal and not goal.is_proved():
         goal = _try_llm_oracle(source, func_name, goal, args.get("hint"))
         elapsed = (time.time() - t0) * 1000
@@ -1548,6 +1552,200 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
         goal.proof_method = "LLM oracle"
     else:
         goal.error_detail += f" (LLM: {result.error_message[:80]})"
+    return goal
+
+
+def _try_coqlsp_oracle(source: str, func_name: str, goal: GoalStatus) -> GoalStatus:
+    """Try to prove remaining goals using coq-lsp interactive session.
+
+    Uses CoqpytSession to open the generated Coq file and apply tactics
+    iteratively. Tries a tactic ladder on each open goal. On success,
+    returns the proof as LEVEL3_LLM.
+    """
+    if not goal or goal.is_proved():
+        return goal
+
+    from oracle.coqpyt_session import CoqpytSession
+    import sys as _sys
+
+    # Re-generate Coq source
+    import ast
+    tree = ast.parse(source)
+    func_node = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == func_name:
+            func_node = node
+            break
+    if func_node is None:
+        return goal
+
+    params = [name for name, _ in _func_params(func_node)]
+    expanded, class_fields, _, init_state, record_section = _expand_params(tree, params, func_node)
+    ghost_vars = _detect_ghost_vars(func_node)
+    var_types = _infer_var_types(func_node)
+    predicates = _collect_predicates(tree)
+    linter_pre = ContractLinter(expanded, "precondition", predicates=predicates,
+                                unbound=frozenset(ghost_vars.keys()))
+    linter_post = ContractLinter(expanded, "postcondition", predicates=predicates,
+                                 unbound=frozenset(ghost_vars.keys()))
+    linter_pre.var_types = var_types
+    linter_post.var_types = var_types
+    lint_results: list = []
+    for stmt in ast.walk(func_node):
+        if isinstance(stmt, ast.Assert):
+            cls = _classify_assert(func_node, stmt)
+            linter = linter_pre if cls == "precondition" else linter_post
+            lr = linter.lint_expression(stmt.test)
+            lint_results.append(AssertInfo(
+                node=stmt, lineno=stmt.lineno, col_offset=stmt.col_offset,
+                classification=cls, lint_result=lr,
+            ))
+
+    imp_body, imp_ir = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
+    coq_source = _generate_coq(func_node, lint_results, imp_body, tree, None,
+                                ghost_vars=ghost_vars, imp_ir=imp_ir)
+
+    # Prepare Coq source without the Proof...Qed block
+    prelude = coq_source
+    proof_start = prelude.rfind("Proof.")
+    if proof_start == -1:
+        goal.error_detail += " (coq-lsp: no Proof. found)"
+        return goal
+    # Find the last Qed./Admitted. and strip it
+    last_qed = prelude.rfind("Qed.")
+    if last_qed == -1:
+        last_qed = prelude.rfind("Admitted.")
+    if last_qed > proof_start:
+        # Strip the proof body, keep everything else
+        prelude = prelude[:proof_start + len("Proof.")]
+        # Append fresh Admitted so the file is valid before we replace it
+        pass
+    elif "Admitted." not in prelude[proof_start:]:
+        # Fresh source: use up to Proof. (strip wp_prove)
+        prelude = prelude[:proof_start + len("Proof.")]
+
+    # Ensure the prelude ends with Proof. followed by newline
+    if not prelude.strip().endswith("Proof."):
+        prelude = prelude.rstrip() + "\nProof."
+    else:
+        prelude = prelude.strip()
+
+    print(f"  [oracle] Attempting coq-lsp proof for {func_name}...", file=_sys.stderr)
+
+    try:
+        session = CoqpytSession(BUILD_DIR, timeout=30)
+    except Exception as e:
+        goal.error_detail += f" (coq-lsp: {e})"
+        return goal
+
+    try:
+        in_proof = session.load(prelude)
+        if not in_proof:
+            try:
+                session.load(prelude + "\nAdmitted.")
+                in_proof = True
+            except Exception:
+                pass
+        if not in_proof:
+            goal.error_detail += " (coq-lsp: file did not enter proof mode)"
+            return goal
+    except Exception as e:
+        goal.error_detail += f" (coq-lsp: load failed: {e})"
+        session.close()
+        return goal
+
+    TACTIC_LADDER = [
+        "intros",
+        "wp_prove",
+        "wp_reduce",
+        "unfold lget, upd, updZ; cbn",
+        "split",
+        "auto",
+        "lia",
+        "reflexivity",
+        "assumption",
+    ]
+
+    tac_count = 0
+    max_tacs = 20
+
+    # First, try wp_prove + Qed in one shot (handles >80% of functions)
+    session.try_tactic("wp_prove")
+    tac_count += 1
+    state = session.get_goals()
+    if not state.error:
+        if session.finish_proof("Qed."):
+            goal.level = ProofLevel.LEVEL3_LLM
+            goal.error_detail = ""
+            goal.suggested_action = Action.OK
+            goal.proof_method = "AI oracle (coq-lsp)"
+            goal.suggestion_text = "coq-lsp proof (wp_prove)"
+            print(f"  [oracle] coq-lsp wp_prove succeeded", file=_sys.stderr)
+            return goal
+        # Qed failed, pop wp_prove and try individual tactics
+        session.pop_tactic()
+        tac_count -= 1
+
+    while tac_count < max_tacs:
+        state = session.get_goals()
+        if state.is_proved():
+            if session.finish_proof("Qed."):
+                goal.level = ProofLevel.LEVEL3_LLM
+                goal.error_detail = ""
+                goal.suggested_action = Action.OK
+                goal.suggestion_text = f"coq-lsp proof ({tac_count} tactics)"
+                goal.proof_method = "AI oracle (coq-lsp)"
+                print(f"  [oracle] coq-lsp succeeded ({tac_count} tactics)", file=_sys.stderr)
+                return goal
+            else:
+                goal.error_detail += " (coq-lsp: Qed failed)"
+                break
+
+        if state.error:
+            session.pop_tactic()
+            tac_count -= 1
+            continue
+
+        if not state.goals:
+            break
+
+        if state.error:
+            # Last tactic caused an error, undo it
+            session.pop_tactic()
+            tac_count -= 1
+            continue
+
+        if not state.goals:
+            break
+
+        # Try each tactic in the ladder on the first open goal
+        tactic_succeeded = False
+        for tactic in TACTIC_LADDER:
+            if tac_count >= max_tacs:
+                break
+            session.try_tactic(tactic)
+            tac_count += 1
+            new_state = session.get_goals()
+            if not new_state.error:
+                tactic_succeeded = True
+                break
+            else:
+                session.pop_tactic()
+                tac_count -= 1
+
+        if not tactic_succeeded:
+            # No tactic succeeded on this goal
+            remaining = [g[:80] for g in state.goals[:3]]
+            goal.error_detail += (
+                f" (coq-lsp: stuck after {tac_count} tactics, "
+                + f"{len(state.goals)} goals: {'; '.join(remaining)})"
+            )
+            break
+
+    try:
+        session.close()
+    except Exception:
+        pass
     return goal
 
 

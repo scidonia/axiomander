@@ -1,0 +1,3 @@
+[submodule "vendor/mcp-coq-lsp"]
+	path = vendor/mcp-coq-lsp
+	url = git@github.com:scidonia/mcp-coq-lsp.git

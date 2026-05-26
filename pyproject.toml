@@ -10,6 +10,7 @@ dependencies = [
     "cattrs",
     "pydantic>=2.0",
     "z3-solver>=4.16.0.0",
+    "coqpyt",
 ]
 
 [project.scripts]
@@ -22,6 +23,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["py", "py.*"]
+
+[tool.uv.sources]
+coqpyt = { git = "https://github.com/sr-lab/coqpyt.git" }
 
 [dependency-groups]
 dev = [
