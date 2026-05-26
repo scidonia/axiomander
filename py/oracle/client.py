@@ -441,10 +441,37 @@ destruct, eexists, rewrite, eapply, match goal, Z.leb_le, Z.leb_gt."""
 
             tactics_used: list[str] = []
             step_history: list[str] = []
+            transcript_entries: list[dict] = []  # full replay log
             user_prompt = "Prove the goal step by step. Start with 'wp_prove.'"
+
+            def _save_transcript(success: bool, reason: str = ""):
+                """Save the LLM conversation transcript to disk."""
+                import json, time as _time_module
+                from pathlib import Path as _Path_module
+                ts = int(_time_module.time())
+                transcripts_dir = _Path_module(__import__('os').environ.get(
+                    "AXIOMANDER_ROOT",
+                    str(_Path_module(__file__).resolve().parent.parent.parent)
+                )) / ".axiomander" / "transcripts"
+                transcripts_dir.mkdir(parents=True, exist_ok=True)
+                entry = {
+                    "timestamp": ts,
+                    "goal": goal.strip()[:200],
+                    "success": success,
+                    "reason": reason,
+                    "steps": len(tactics_used),
+                    "credits_used": _credits_used,
+                    "tactics_used": tactics_used,
+                    "transcript": transcript_entries,
+                }
+                path = transcripts_dir / f"transcript_{ts}.json"
+                path.write_text(json.dumps(entry, indent=2))
+                return str(path)
 
             for step in range(1, max_steps + 1):
                 if credit_budget_exhausted():
+                    path = _save_transcript(False, "credit budget exhausted")
+                    print(f"  [transcript] saved to {path}", file=__import__('sys').stderr)
                     return OracleResult(
                         success=False, proof_script="\n".join(tactics_used),
                         error_message=f"Credit budget exhausted after {step-1} steps.",
@@ -456,10 +483,30 @@ destruct, eexists, rewrite, eapply, match goal, Z.leb_le, Z.leb_gt."""
                     session.finish_proof("Qed.")
                     proof_script = "Proof.\n" + "\n".join(tactics_used) + "\nQed."
                     print(f"  [oracle] interactive: proved in {step} steps", file=__import__('sys').stderr)
+                    path = _save_transcript(True, f"proved in {step} steps")
+                    print(f"  [transcript] saved to {path}", file=__import__('sys').stderr)
                     return OracleResult(
                         success=True, proof_script=proof_script,
                         attempts=1,
                     )
+
+                if not goals_state.goals:
+                    # coq-lsp may report 0 goals after compound tactics when
+                    # the proof isn't actually done. Try Qed as a canary.
+                    if session.finish_proof("Qed."):
+                        path = _save_transcript(True, f"proved in {step} steps")
+                        print(f"  [transcript] saved to {path}", file=__import__('sys').stderr)
+                        return OracleResult(
+                            success=True,
+                            proof_script="\n".join(tactics_used) + "\nQed.",
+                            attempts=1,
+                        )
+                    # Qed failed — last tactic may have been LLM commentary.
+                    # Undo it and continue.
+                    if tactics_used:
+                        session.pop_tactic()
+                        tactics_used.pop()
+                    continue
 
                 goal_text = "\n".join(goals_state.goals[:3]) if goals_state.goals else "no goals"
                 step_prompt = (
@@ -468,27 +515,40 @@ destruct, eexists, rewrite, eapply, match goal, Z.leb_le, Z.leb_gt."""
                     f"Propose exactly ONE tactic for the current goal."
                 )
 
+                step_entry = {"step": step, "goals": goal_text, "retries": []}
+                transcript_entries.append(step_entry)
+
                 for retry in range(max_retries_per_step + 1):
                     if retry > 0:
                         step_prompt += f"\n\n[Previous tactic failed]\nTry a different approach."
 
                     response = call_llm(config, system_prompt, step_prompt)
                     if not response:
+                        step_entry["retries"].append({"retry": retry, "response": "(no response — budget exhausted?)", "error": "empty response", "success": False, "tactic": ""})
                         continue
 
                     tactic = _extract_tactic(response)
                     if not tactic:
-                        # Fallback: take first non-empty line ending with .
+                        # Fallback: take first non-empty, non-comment line
                         for line in response.strip().split("\n"):
                             line = line.strip()
-                            if line.endswith(".") and not line.startswith("(*"):
-                                tactic = line.rstrip(".")
+                            if line and not line.startswith("(*"):
+                                tactic = line.rstrip(". \t")
                                 break
                     if not tactic:
+                        step_entry["retries"].append({"retry": retry, "response": response[:200], "error": "no tactic extracted", "success": False, "tactic": ""})
                         continue
 
                     print(f"  [oracle] step {step}: {tactic}", file=__import__('sys').stderr)
                     result = session.try_tactic(tactic)
+                    step_entry["retries"].append({
+                        "retry": retry,
+                        "prompt": step_prompt[-500:],
+                        "response": response[:500],
+                        "tactic": tactic,
+                        "error": result.error[:200] if result.error else "",
+                        "success": not bool(result.error),
+                    })
                     if not result.error:
                         tactics_used.append(tactic + ".")
                         step_history.append(f"Step {step}: {tactic}. ✓")
@@ -496,6 +556,8 @@ destruct, eexists, rewrite, eapply, match goal, Z.leb_le, Z.leb_gt."""
                     else:
                         step_prompt += f"\n\n[Tactic '{tactic}' failed: {result.error[:200]}]"
                         if retry == max_retries_per_step:
+                            path = _save_transcript(False, f"step {step}: tactic '{tactic}' failed after {max_retries_per_step} retries")
+                            print(f"  [transcript] saved to {path}", file=__import__('sys').stderr)
                             return OracleResult(
                                 success=False,
                                 proof_script="\n".join(tactics_used),
@@ -503,6 +565,8 @@ destruct, eexists, rewrite, eapply, match goal, Z.leb_le, Z.leb_gt."""
                                 attempts=step,
                             )
 
+            path = _save_transcript(False, f"max steps ({max_steps}) reached")
+            print(f"  [transcript] saved to {path}", file=__import__('sys').stderr)
             return OracleResult(
                 success=False,
                 proof_script="\n".join(tactics_used),
