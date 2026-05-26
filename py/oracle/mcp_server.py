@@ -1496,7 +1496,7 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
 
     params = [name for name, _ in _func_params(func_node)]
     expanded, _, params_coq, _, _ = _expand_params(tree, params, func_node)
-    imp_body, _ = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
+    imp_body, imp_ir = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
 
     # Generate full Coq source
     var_types2 = _infer_var_types(func_node)
@@ -1514,7 +1514,9 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
                 node=stmt, lineno=stmt.lineno, col_offset=stmt.col_offset,
                 classification=cls, lint_result=lr,
             ))
-    coq_source = _generate_coq(func_node, lint_results, imp_body, tree, None)
+    ghost_vars_llm = _detect_ghost_vars(func_node)
+    coq_source = _generate_coq(func_node, lint_results, imp_body, tree, None,
+                                ghost_vars=ghost_vars_llm, imp_ir=imp_ir)
 
     # Extract the goal: the Theorem line plus the goal up to Proof
     import re
@@ -1523,47 +1525,59 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
         return goal
     goal_text = goal_match.group(1).strip()
 
-    # Build context with definitions the LLM needs (valid Coq only)
-    pres = [r for r in lint_results if r.classification == "precondition"]
-    posts = [r for r in lint_results if r.classification == "postcondition"]
-    coq_context = f"Definition {func_name}_body : com := {imp_body}.\n"
-    llm_hint = (
-        f"Use wp_prove as the FIRST tactic. Then: lia, reflexivity, split, intro, apply.\n"
-        f"Keep it short. Most proofs are 1-2 lines after wp_prove.\n"
+    # Build MINIMAL context — only body + segment defs (s1, s2, Q_k).
+    # No lemmas. Keeps coq-lsp stable, gives LLM the decomposition tools.
+    staged_defs_match = re.search(
+        r'(Definition s\d+ : com.*?|Definition Q_\w+.*?)(?=(?:Lemma|Theorem)\s+)',
+        coq_source, re.DOTALL
     )
-    # Pass hint through to oracle for thinking-time control
-    if hint and hint != "hammer":
-        llm_hint += f"\n\nTake your time thinking. {hint}\n"
+    staged_seg_text = staged_defs_match.group(1).strip() if staged_defs_match else ""
+    coq_context = f"Definition {func_name}_body : com := {imp_body}.\n"
+    if staged_seg_text:
+        coq_context += "\n" + staged_seg_text
 
-    print(f"  [oracle] Attempting LLM proof for {func_name}...", file=_sys.stderr)
-    # Always use interactive mode — LLM sees goals + hypotheses at each step
-    # Same discipline as mcp-coq-lsp + DeepSeek chat loop
-    if True:  # interactive always
-        result = interactive_oracle_query(
-            goal=goal_text,
-            context=coq_context,
-            build_dir=BUILD_DIR,
-            hint=llm_hint,
-        )
-    else:
-        result = oracle_query(
-            goal=goal_text,
-            context=coq_context,
-            dependencies=[],
-            coq_paths=[str(BUILD_DIR)],
-            max_retries=2,
-            hint=llm_hint,
-            build_dir=BUILD_DIR,
-        )
+    # The generated goal may already use staged body (if imp_ir was passed).
+    # Keep it as-is — wp_prove will handle the decomposed segments instantly.
 
-    if result.success:
+    # Extract the failing proof and error for the LLM to learn from
+    failing_proof_text = ""
+    if goal.error_detail:
+        failing_proof_text = goal.error_detail[:1200]
+    # Also extract the broken lemma and its error
+    coq_error_match = re.search(r'line (\d+)', goal.error_detail if goal.error_detail else "")
+    broken_lemma = ""
+    if coq_error_match:
+        err_line = int(coq_error_match.group(1))
+        lines = coq_source.split("\n")
+        # Find the lemma that contains the error line
+        for i in range(max(0, err_line - 20), min(len(lines), err_line)):
+            if "Lemma" in lines[i] or "Theorem" in lines[i]:
+                lemma_end = min(len(lines), err_line + 10)
+                broken_lemma = "\n".join(lines[i:lemma_end])
+                break
+
+    print(f"  [oracle] Attempting LangGraph LLM proof for {func_name}...", file=_sys.stderr)
+    # Use LangGraph with tool-calling: the LLM calls get_goals/try_tactic/finish_proof itself
+    from oracle.langgraph_oracle import run_langgraph_oracle
+
+    # Build preamble from context + goal
+    preamble = coq_context + "\n" + goal_text + "\nProof."
+    ok, proof_script, err = run_langgraph_oracle(preamble)
+
+    if ok:
         goal.level = ProofLevel.LEVEL3_LLM
         goal.error_detail = ""
         goal.suggested_action = Action.OK
-        goal.suggestion_text = f"LLM proof ({result.attempts} attempts):\n{result.proof_script[:500]}"
-        goal.proof_method = "LLM oracle"
+        goal.suggestion_text = f"LangGraph proof:\n{proof_script[:300]}"
+        goal.proof_method = "AI oracle (langgraph)"
+        print(f"  [oracle] LangGraph succeeded", file=_sys.stderr)
+        # Save transcript
+        proofs_dir = PROJECT_ROOT / ".axiomander" / "proofs"
+        proofs_dir.mkdir(parents=True, exist_ok=True)
+        transcript = coq_source.replace("Proof.\n  wp_prove.", f"Proof.\n{proof_script}")
+        (proofs_dir / f"{func_name}.v").write_text(transcript)
     else:
-        goal.error_detail += f" (LLM: {result.error_message[:80]})"
+        goal.error_detail += f" (LangGraph: {err[:120]})"
     return goal
 
 
