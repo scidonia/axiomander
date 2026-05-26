@@ -55,6 +55,7 @@ PROJECT_ROOT = Path(os.environ.get(
     str(Path(__file__).resolve().parent.parent.parent)
 ))
 BUILD_DIR = PROJECT_ROOT / "_build" / "default" / "coq"
+AI_PROVE_PATH = Path("/tmp/axiomander_ai_prove.v")
 
 _cache = VerificationCache()
 
@@ -1102,6 +1103,56 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
     coq_source = _generate_coq(func_node, lint_results, imp_body, tree, hint,
                                 ghost_vars=ghost_vars, imp_ir=imp_ir)
 
+    # --- Coq-lsp oracle check ---
+    # Companion hash file tracks what was last written by _verify_function.
+    # If AI_PROVE_PATH hash differs from companion hash, coq-lsp edited it.
+    AI_PROVE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    import hashlib
+    HASH_PATH = AI_PROVE_PATH.with_suffix(".hash")
+    generated_hash = hashlib.sha256(coq_source.encode()).hexdigest()
+    if AI_PROVE_PATH.exists():
+        saved_hash = HASH_PATH.read_text().strip() if HASH_PATH.exists() else ""
+        current_hash = hashlib.sha256(AI_PROVE_PATH.read_bytes()).hexdigest()
+        # Trigger coq-lsp check when:
+        # 1. Hash file exists, matches generated (same function), but file differs (coq-lsp edited it)
+        # 2. Hash file is missing (external edit like cp), and file differs from generated
+        try_coqlsp = (
+            (saved_hash and current_hash != saved_hash and saved_hash == generated_hash) or
+            (not saved_hash and current_hash != generated_hash and AI_PROVE_PATH.stat().st_size > 0)
+        )
+        if try_coqlsp:
+            ai_result = subprocess.run(
+                ["coqc", "-R", str(BUILD_DIR), "Imp", str(AI_PROVE_PATH)],
+                capture_output=True, text=True, timeout=120,
+                env={**os.environ},
+            )
+            current_text = AI_PROVE_PATH.read_text()
+            if ai_result.returncode == 0 and "Admitted." not in current_text:
+                # Save successful transcript to proofs/
+                proofs_dir = PROJECT_ROOT / ".axiomander" / "proofs"
+                proofs_dir.mkdir(parents=True, exist_ok=True)
+                import shutil, time
+                ts = int(time.time())
+                shutil.copy(AI_PROVE_PATH, proofs_dir / f"{func_name}_{ts}.v")
+                shutil.copy(AI_PROVE_PATH, proofs_dir / f"{func_name}.v")  # latest
+                has_cond_ai = "CIf" in imp_body
+                has_while_ai = "CWhile" in imp_body
+                method_ai = "AI oracle (coq-lsp)"
+                if has_cond_ai:
+                    method_ai += " + conditional split"
+                if has_while_ai:
+                    method_ai += " + VCG"
+                purity_note_ai = _compute_purity_note(tree, func_node, imp_body)
+                return GoalStatus(name=func_name,
+                                goal_statement=f"wp {func_name}_body ...",
+                                level=ProofLevel.LEVEL3_LLM,
+                                proof_method=method_ai,
+                                purity_note=purity_note_ai)
+
+    # Write fresh coq_source for coq-lsp to fix, and save its hash
+    AI_PROVE_PATH.write_text(coq_source)
+    HASH_PATH.write_text(generated_hash)
+
     # Try SMT on the remaining goals after wp_reduce
     goals = _capture_wp_reduce_goal(coq_source)
     smt_axiom = None
@@ -1140,9 +1191,11 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
                     return GoalStatus(name=func_name,
                                     goal_statement=f"wp {func_name}_body ...",
                                     level=ProofLevel.UNPROVED,
-                                    error_detail="Proof incomplete — remaining goals need SMT (Level 2) or LLM (Level 3).",
+                                    error_detail="Proof incomplete — remaining goals need SMT (Level 2) or coq-lsp.\n"
+                                                 f"AI prove file: {AI_PROVE_PATH}",
                                     suggested_action=Action.RETRY_LLM,
-                                    suggestion_text="The VCG proof obligations are Admitted.")
+                                    suggestion_text="The VCG proof obligations are Admitted. Use coq-lsp to prove them.\n"
+                                                    f"Prove with: coq-lsp_coq_focus {AI_PROVE_PATH} {func_name}_correct")
             has_cond = "CIf" in imp_body
             has_while = "CWhile" in imp_body
             method = "wp_reduce"
@@ -1257,9 +1310,11 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
                         goal_statement=f"wp {func_name}_body ...",
                         level=ProofLevel.COUNTEREXAMPLE if ce_dict else ProofLevel.UNPROVED,
                         counterexample=ce_dict,
-                        error_detail=error[-800:] + ce_hint,
+                        error_detail=error[-800:] + ce_hint
+                            + f"\n\nAI prove file: {AI_PROVE_PATH} (use coq-lsp to fix)",
                         suggested_action=Action.PROPERTY_FALSE if ce_dict else Action.RETRY_LLM,
-                        suggestion_text=error[:200],
+                        suggestion_text=error[:200]
+                            + f"\nProve with: coq-lsp_coq_focus {AI_PROVE_PATH} {func_name}_correct",
                         proof_method="wp_reduce")
     finally:
         if tmp_path:
@@ -2900,10 +2955,8 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
 
         # Build all conjuncts for Q_k
         conj_strs: list[str] = []
-        # Overall precondition — ensures all stages have access to it
         if pre_coq != "True":
             conj_strs.append("(" + pre_coq + ")")
-        # This stage: value + type
         conj_strs.append("(" + val_conj + ")")
         conj_strs.append("(isVZ (s \042" + ccall.target + "\042%string) = true)")
         # Accumulated from previous stages
@@ -2985,11 +3038,10 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
             stage_lemmas += "  - unfold lget, upd, updZ; simpl.\n"
             stage_lemmas += "    split; [try assumption; try lia | reflexivity].\n"
 
-            # Postcondition + frame — stage 1: init VZ values, unfold asZ+lget ok
+            # Postcondition + frame — stage 1: init VZ values, cbn reduces string_dec
             stage_lemmas += "  - intro r. intro Hr. split.\n"
             stage_lemmas += (
-                "    + unfold " + qn + "; simpl. repeat split; "
-                "try (unfold asZ, lget in *; simpl; lia); try reflexivity; try assumption.\n"
+                "    + unfold " + qn + "; cbn. repeat split; auto.\n"
             )
             stage_lemmas += (
                 '    + apply (wp_ccall_frame _ "'
@@ -3048,11 +3100,10 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
                 stage_lemmas += "  - unfold lget, upd, updZ; simpl.\n"
                 stage_lemmas += "    split; [try lia | try reflexivity; try assumption].\n"
 
-            # Postcondition + frame — rewrite Hr (equality) + assumption/lia
+            # Postcondition + frame — cbn reduces string_dec, auto closes frame terms
             stage_lemmas += "  - intro r. intro Hr. split.\n"
             stage_lemmas += (
-                "    + unfold " + qn + "; simpl. rewrite Hr. repeat split; "
-                "try assumption; try lia.\n"
+                "    + unfold " + qn + "; cbn. rewrite Hr. repeat split; auto.\n"
             )
             stage_lemmas += (
                 '    + apply (wp_ccall_frame _ "'
@@ -3217,7 +3268,7 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
 
     # Build the staged body composition for theorem statement
     staged_body = _compose_seg_seq(seg_names, final_com, seg_coqs)
-    if initial_com != "CSkip":
+    if initial_com != "CSkip" and not ghost_has:
         staged_body = f"(CSeq {initial_com} {staged_body})"
 
     return seg_defs + q_defs, stage_lemmas, main_proof, staged_body
@@ -3324,7 +3375,7 @@ def _gen_destruct_and_final_proof(qn: str, conjs: list[str], fv: list[str],
     lines.append("      " + "simpl. unfold lget.")
     # Direct proof: rewrite with value hypotheses and use lia
     lines.append("      " + "repeat (try rewrite H0; try rewrite H1; try rewrite H2; try rewrite H3; try rewrite H4; try rewrite H5; try rewrite H6; try rewrite H7).")
-    lines.append("      " + "try reflexivity; try lia.")
+    lines.append("      " + "try assumption; try reflexivity; try lia.")
     return "\n".join(lines)
 
 
@@ -3334,7 +3385,7 @@ def _gen_final_assign_proof(fv: list[str], q_value_conjs: list[str],
     lines = []
     lines.append("        simpl. unfold lget.")
     lines.append("        repeat (try rewrite G0; try rewrite G1; try rewrite G2; try rewrite G3; try rewrite G4; try rewrite G5; try rewrite G6; try rewrite G7).")
-    lines.append("        try reflexivity; try lia.")
+    lines.append("        try assumption; try reflexivity; try lia.")
     return lines
 
 
@@ -3785,9 +3836,13 @@ Theorem {name}_vcg_exit : forall {vcg_params},
     if staged_proof_body:
         frame_lemmas += staged_lemma_text
         proof_block = staged_proof_body
-        # When ghost vars exist, replace {name}_body with staged composition
         if ghost_vars and staged_body_composition:
             ghost_wrap = ghost_wrap.replace(f"wp {name}_body", f"wp {staged_body_composition}")
+            # Replace init_state with extended_init since ghost CIf is excluded from body
+            extended_init_state = init_state
+            for g, init_expr in ghost_vars.items():
+                extended_init_state = f'(upd {extended_init_state} "{g}"%string (VZ {init_expr}))'
+            ghost_wrap = ghost_wrap.replace(init_state, extended_init_state)
     else:
         if frame_lemmas:
             pass

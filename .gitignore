@@ -12,3 +12,4 @@ dist/
 *.o
 *.cm*
 .lia.cache
+.axiomander/proofs/

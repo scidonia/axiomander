@@ -54,6 +54,7 @@ class CacheEntry:
     result: dict = field(default_factory=dict)
     tool_version: str = TOOL_VERSION
     timestamp: float = 0.0
+    ai_proof: str | None = None
 
     @classmethod
     def from_goal_status(
@@ -336,6 +337,7 @@ class VerificationCache:
                 result=data.get("result", {}),
                 tool_version=data.get("tool_version", TOOL_VERSION),
                 timestamp=data.get("timestamp", 0.0),
+                ai_proof=data.get("ai_proof"),
             )
         except (json.JSONDecodeError, KeyError):
             return None
@@ -343,7 +345,7 @@ class VerificationCache:
     def put(self, entry: CacheEntry) -> None:
         """Store a verification result in the cache."""
         path = self._entry_path(entry.cache_key)
-        path.write_text(json.dumps({
+        path.write_text(json.dumps(d, indent=2) if (d := {
             "function_name": entry.function_name,
             "cache_key": entry.cache_key,
             "body_hash": entry.body_hash,
@@ -353,7 +355,8 @@ class VerificationCache:
             "result": entry.result,
             "tool_version": entry.tool_version,
             "timestamp": entry.timestamp,
-        }, indent=2))
+            **({"ai_proof": entry.ai_proof} if entry.ai_proof is not None else {}),
+        }) else "{}")
 
     def lookup(
         self,
@@ -391,6 +394,50 @@ class VerificationCache:
         self.put(entry)
         self.graph.update(hashes.name, hashes.contract_hash, hashes.callees)
         self.graph.save()
+
+    def store_proof(self, hashes: FunctionHashes, proof: str) -> None:
+        """Store an AI-generated proof script in the cache.
+
+        Creates or updates a cache entry with the given proof. The entry
+        is marked as LEVEL3_LLM so that re-verification uses the cached proof
+        instead of generating wp_prove.
+        """
+        cache_key = compute_cache_key(
+            hashes.body_hash,
+            hashes.contract_hash,
+            hashes.local_assert_hash,
+            hashes.callee_contract_hashes,
+        )
+        entry = self.get(cache_key) or CacheEntry(
+            function_name=hashes.name,
+            cache_key=cache_key,
+            body_hash=hashes.body_hash,
+            contract_hash=hashes.contract_hash,
+            local_assert_hash=hashes.local_assert_hash,
+            callee_contract_hashes=dict(hashes.callee_contract_hashes),
+            result={"level": "level3_llm", "proof_method": "AI oracle (coq-lsp)"},
+            timestamp=time.time(),
+        )
+        entry.ai_proof = proof
+        self.put(entry)
+        self.graph.update(hashes.name, hashes.contract_hash, hashes.callees)
+        self.graph.save()
+
+    def lookup_proof(self, hashes: FunctionHashes) -> str | None:
+        """Look up a cached AI proof for a function.
+
+        Returns None if no cached proof exists or the hashes don't match.
+        """
+        cache_key = compute_cache_key(
+            hashes.body_hash,
+            hashes.contract_hash,
+            hashes.local_assert_hash,
+            hashes.callee_contract_hashes,
+        )
+        entry = self.get(cache_key)
+        if entry is None:
+            return None
+        return entry.ai_proof
 
     # ── Invalidation / change detection ─────────────────────────
 
