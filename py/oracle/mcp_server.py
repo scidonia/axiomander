@@ -1632,6 +1632,7 @@ def _try_coqlsp_oracle(source: str, func_name: str, goal: GoalStatus) -> GoalSta
 
     print(f"  [oracle] Attempting coq-lsp proof for {func_name}...", file=_sys.stderr)
 
+    session = None
     try:
         session = CoqpytSession(BUILD_DIR, timeout=30)
     except Exception as e:
@@ -1651,7 +1652,6 @@ def _try_coqlsp_oracle(source: str, func_name: str, goal: GoalStatus) -> GoalSta
             return goal
     except Exception as e:
         goal.error_detail += f" (coq-lsp: load failed: {e})"
-        session.close()
         return goal
 
     TACTIC_LADDER = [
@@ -1668,6 +1668,9 @@ def _try_coqlsp_oracle(source: str, func_name: str, goal: GoalStatus) -> GoalSta
 
     tac_count = 0
     max_tacs = 20
+    import time as _time
+    t_start = _time.time()
+    budget_secs = 180  # 3 minutes
 
     # First, try wp_prove + Qed in one shot (handles >80% of functions)
     session.try_tactic("wp_prove")
@@ -1681,12 +1684,13 @@ def _try_coqlsp_oracle(source: str, func_name: str, goal: GoalStatus) -> GoalSta
             goal.proof_method = "AI oracle (coq-lsp)"
             goal.suggestion_text = "coq-lsp proof (wp_prove)"
             print(f"  [oracle] coq-lsp wp_prove succeeded", file=_sys.stderr)
+            session.close()
             return goal
         # Qed failed, pop wp_prove and try individual tactics
         session.pop_tactic()
         tac_count -= 1
 
-    while tac_count < max_tacs:
+    while tac_count < max_tacs and (_time.time() - t_start) < budget_secs:
         state = session.get_goals()
         if state.is_proved():
             if session.finish_proof("Qed."):
@@ -1696,6 +1700,7 @@ def _try_coqlsp_oracle(source: str, func_name: str, goal: GoalStatus) -> GoalSta
                 goal.suggestion_text = f"coq-lsp proof ({tac_count} tactics)"
                 goal.proof_method = "AI oracle (coq-lsp)"
                 print(f"  [oracle] coq-lsp succeeded ({tac_count} tactics)", file=_sys.stderr)
+                session.close()
                 return goal
             else:
                 goal.error_detail += " (coq-lsp: Qed failed)"
@@ -1722,6 +1727,10 @@ def _try_coqlsp_oracle(source: str, func_name: str, goal: GoalStatus) -> GoalSta
         tactic_succeeded = False
         for tactic in TACTIC_LADDER:
             if tac_count >= max_tacs:
+                goal.error_detail += " (coq-lsp: tactic limit reached)"
+                break
+            if (_time.time() - t_start) >= budget_secs:
+                goal.error_detail += f" (coq-lsp: time budget {budget_secs}s exceeded)"
                 break
             session.try_tactic(tactic)
             tac_count += 1
