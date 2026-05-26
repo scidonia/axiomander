@@ -1536,8 +1536,9 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
         llm_hint += f"\n\nTake your time thinking. {hint}\n"
 
     print(f"  [oracle] Attempting LLM proof for {func_name}...", file=_sys.stderr)
-    use_interactive = hint and "interactive" in hint.lower()
-    if use_interactive:
+    # Always use interactive mode — LLM sees goals + hypotheses at each step
+    # Same discipline as mcp-coq-lsp + DeepSeek chat loop
+    if True:  # interactive always
         result = interactive_oracle_query(
             goal=goal_text,
             context=coq_context,

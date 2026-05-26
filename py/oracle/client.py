@@ -323,6 +323,13 @@ def oracle_query(
     user_prompt = prompt_user(goal, context, dependencies, examples, hint)
 
     for attempt in range(1, max_retries + 1):
+        if credit_budget_exhausted():
+            print(f"  [oracle] credit budget exhausted ({_credit_budget} max)", file=__import__('sys').stderr)
+            return OracleResult(
+                success=False, proof_script="",
+                error_message="Credit budget exhausted.",
+                attempts=attempt-1,
+            )
         print(f"  [oracle] attempt {attempt}/{max_retries}...", end=" ", flush=True)
 
         response = call_llm(config, system_prompt, user_prompt)
@@ -437,6 +444,13 @@ destruct, eexists, rewrite, eapply, match goal, Z.leb_le, Z.leb_gt."""
             user_prompt = "Prove the goal step by step. Start with 'wp_prove.'"
 
             for step in range(1, max_steps + 1):
+                if credit_budget_exhausted():
+                    return OracleResult(
+                        success=False, proof_script="\n".join(tactics_used),
+                        error_message=f"Credit budget exhausted after {step-1} steps.",
+                        attempts=step-1,
+                    )
+
                 goals_state = session.get_goals()
                 if goals_state.is_proved():
                     session.finish_proof("Qed.")
