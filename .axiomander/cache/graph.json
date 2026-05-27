@@ -18,7 +18,8 @@
     "callees": [],
     "callers": [
       "extract_goal_from_coq",
-      "_parse"
+      "_parse",
+      "run_langgraph_oracle"
     ]
   },
   "strip": {
@@ -110,7 +111,8 @@
       "load_theory",
       "test",
       "interactive_oracle_query",
-      "oracle_query"
+      "oracle_query",
+      "run_langgraph_oracle"
     ]
   },
   "re.findall": {
@@ -193,7 +195,8 @@
       "_sha256",
       "validate_proof",
       "_save_transcript",
-      "interactive_oracle_query"
+      "interactive_oracle_query",
+      "run_langgraph_oracle"
     ]
   },
   "_classify_in_function": {
@@ -221,7 +224,8 @@
       "_add_function_to_map",
       "try_tactic",
       "coq_search",
-      "coq_open_goals"
+      "coq_open_goals",
+      "coq_try_tactic"
     ]
   },
   "parts.append": {
@@ -875,7 +879,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "route"
+      "route",
+      "run_langgraph_oracle"
     ]
   },
   "hyps.append": {
@@ -1047,7 +1052,8 @@
     "callers": [
       "interactive_oracle_query",
       "oracle_query",
-      "_save_transcript"
+      "_save_transcript",
+      "run_langgraph_oracle"
     ]
   },
   "call_llm": {
@@ -1280,7 +1286,8 @@
     "callers": [
       "reset_credit_budget",
       "_save_transcript",
-      "interactive_oracle_query"
+      "interactive_oracle_query",
+      "run_langgraph_oracle"
     ]
   },
   "os.environ.get": {
@@ -1345,7 +1352,8 @@
     "callers": [
       "_save_transcript",
       "interactive_oracle_query",
-      "__init__"
+      "__init__",
+      "run_langgraph_oracle"
     ]
   },
   "transcripts_dir.mkdir": {
@@ -1353,7 +1361,8 @@
     "callees": [],
     "callers": [
       "_save_transcript",
-      "interactive_oracle_query"
+      "interactive_oracle_query",
+      "run_langgraph_oracle"
     ]
   },
   "_save_transcript": {
@@ -1373,7 +1382,8 @@
       "transcripts_dir.mkdir"
     ],
     "callers": [
-      "interactive_oracle_query"
+      "interactive_oracle_query",
+      "run_langgraph_oracle"
     ]
   },
   "append": {
@@ -1459,7 +1469,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "run_verification"
+      "run_verification",
+      "run_langgraph_oracle"
     ]
   },
   "os.environ.setdefault": {
@@ -1486,7 +1497,9 @@
       "os.environ.setdefault",
       "str"
     ],
-    "callers": []
+    "callers": [
+      "test_verification_passes"
+    ]
   },
   "_get_session": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
@@ -1552,9 +1565,7 @@
   "graph.invoke": {
     "contract_hash": "",
     "callees": [],
-    "callers": [
-      "run_langgraph_oracle"
-    ]
+    "callers": []
   },
   "session.close": {
     "contract_hash": "",
@@ -1575,26 +1586,44 @@
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
       "Path",
-      "RocqRobotClient",
+      "__import__",
       "_consume_credit",
+      "_find_coq_lsp",
+      "_json.dumps",
+      "_log",
+      "_run",
+      "_save_transcript",
       "_tmp_v_file.exists",
       "_tmp_v_file.read_text",
       "_tmp_v_file.unlink",
       "_tmp_v_file.write_text",
+      "asyncio.run",
       "build_graph",
-      "client.start",
-      "client.stop",
+      "create_session",
       "final.get",
       "full.rfind",
       "getattr",
-      "graph.invoke",
+      "graph.ainvoke",
+      "hasattr",
+      "int",
+      "len",
+      "load_mcp_tools",
       "min",
+      "next",
       "os.close",
+      "print",
       "range",
+      "re.search",
+      "resolve",
+      "session.initialize",
       "str",
       "strip",
       "tempfile.mkstemp",
-      "traceback.format_exc"
+      "thm_match.group",
+      "time.time",
+      "traceback.format_exc",
+      "transcripts_dir.mkdir",
+      "write_text"
     ],
     "callers": []
   },
@@ -1623,7 +1652,9 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "try_tactic"
+      "try_tactic",
+      "_patch_insert_tactic_dot",
+      "_run"
     ]
   },
   "try_tactic": {
@@ -1636,7 +1667,9 @@
       "t.endswith",
       "tactic.strip"
     ],
-    "callers": []
+    "callers": [
+      "coq_try_tactic"
+    ]
   },
   "_annotation_to_guard": {
     "contract_hash": "",
@@ -1757,7 +1790,8 @@
       "shutil.which"
     ],
     "callers": [
-      "load"
+      "load",
+      "run_langgraph_oracle"
     ]
   },
   "route": {
@@ -1988,7 +2022,8 @@
       "coq_insert_tactic",
       "coq_search",
       "coq_about",
-      "coq_open_goals"
+      "coq_open_goals",
+      "coq_try_tactic"
     ]
   },
   "focus": {
@@ -2040,9 +2075,7 @@
   "RocqRobotClient": {
     "contract_hash": "",
     "callees": [],
-    "callers": [
-      "run_langgraph_oracle"
-    ]
+    "callers": []
   },
   "_tmp_v_file.exists": {
     "contract_hash": "",
@@ -2075,16 +2108,12 @@
   "client.start": {
     "contract_hash": "",
     "callees": [],
-    "callers": [
-      "run_langgraph_oracle"
-    ]
+    "callers": []
   },
   "client.stop": {
     "contract_hash": "",
     "callees": [],
-    "callers": [
-      "run_langgraph_oracle"
-    ]
+    "callers": []
   },
   "full.rfind": {
     "contract_hash": "",
@@ -2137,5 +2166,181 @@
       "open_goals"
     ],
     "callers": []
+  },
+  "coq_try_tactic": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_c",
+      "join",
+      "try_tactic"
+    ],
+    "callers": []
+  },
+  "_json.dumps": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "time.time": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "write_text": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "out.lower": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": []
+  },
+  "_run": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_orig_run",
+      "endswith",
+      "kwargs.get",
+      "tactic.strip"
+    ],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "_wrap_insert_tactic": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": []
+  },
+  "_wrap_tool": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": []
+  },
+  "asyncio.run": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "create_session": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "graph.ainvoke": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "load_mcp_tools": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "session.initialize": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "thm_match.group": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "_orig_arun": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_patch_insert_tactic_dot"
+    ]
+  },
+  "_orig_run": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_patch_insert_tactic_dot",
+      "_run"
+    ]
+  },
+  "endswith": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_patch_insert_tactic_dot",
+      "_run"
+    ]
+  },
+  "kwargs.get": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_patch_insert_tactic_dot",
+      "_run"
+    ]
+  },
+  "_patch_insert_tactic_dot": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_orig_arun",
+      "_orig_run",
+      "endswith",
+      "kwargs.get",
+      "tactic.strip"
+    ],
+    "callers": []
+  },
+  "goal.is_proved": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_verification_passes"
+    ]
+  },
+  "pytest.mark.parametrize": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_verification_passes"
+    ]
+  },
+  "test_verification_passes": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "goal.is_proved",
+      "pytest.mark.parametrize",
+      "run_verification"
+    ],
+    "callers": []
+  },
+  "focus_tool.ainvoke": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": []
+  },
+  "_log": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
   }
 }

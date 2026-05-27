@@ -1,0 +1,24 @@
+{
+  "function_name": "coq_try_tactic",
+  "cache_key": "c4ba77c0cfa8204603859cc2cf8170b6c06c77e6117c08b40723ffd5c3b695b7",
+  "body_hash": "c3f00c478486c2dd1c70e3bdcb97cf7cd2bda2dc0f0b7651d923a50b7eb1615c",
+  "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "local_assert_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "callee_contract_hashes": {
+    "try_tactic": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "_c": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda"
+  },
+  "result": {
+    "level": "level3",
+    "proof_method": "AI oracle (langgraph)",
+    "elapsed_ms": 0.0,
+    "goal_statement": "wp coq_try_tactic_body ...",
+    "dependencies": [],
+    "counterexample": {},
+    "error_detail": "",
+    "suggested_action": "no_action_needed",
+    "suggestion_text": "LangGraph proof:\nProof.\nQed."
+  },
+  "tool_version": "0.4.0",
+  "timestamp": 1779871715.0755043
+}

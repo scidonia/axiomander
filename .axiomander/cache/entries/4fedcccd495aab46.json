@@ -1,0 +1,23 @@
+{
+  "function_name": "coq_insert_tactic",
+  "cache_key": "4fedcccd495aab46ca8bb643f3a406bdccdbc93b4dd2d86f3e4c7daabd4569ec",
+  "body_hash": "6ffe831648276e9819d0f7680ff3ed708984f5406bbf889ab40bc6b6414a3b98",
+  "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "local_assert_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "callee_contract_hashes": {
+    "_c": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda"
+  },
+  "result": {
+    "level": "level3",
+    "proof_method": "AI oracle (langgraph)",
+    "elapsed_ms": 0.0,
+    "goal_statement": "wp coq_insert_tactic_body ...",
+    "dependencies": [],
+    "counterexample": {},
+    "error_detail": "",
+    "suggested_action": "no_action_needed",
+    "suggestion_text": "LangGraph proof:\nProof.\nQed."
+  },
+  "tool_version": "0.4.0",
+  "timestamp": 1779872194.0849714
+}

@@ -1497,7 +1497,7 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
     expanded, _, params_coq, _, _ = _expand_params(tree, params, func_node)
     imp_body, imp_ir = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
 
-    # Generate full Coq source
+    # Generate full Coq source with decomposed segments (s1, s2, Q_k)
     var_types2 = _infer_var_types(func_node)
     linter_pre = ContractLinter(expanded, "precondition")
     linter_post = ContractLinter(expanded, "postcondition")
@@ -1524,19 +1524,13 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
         return goal
     goal_text = goal_match.group(1).strip()
 
-    # Build MINIMAL context — only body + segment defs (s1, s2, Q_k).
-    # No lemmas. Keeps coq-lsp stable, gives LLM the decomposition tools.
+    # Extract segmented definitions (s1, s2, Q_k)
     staged_defs_match = re.search(
         r'(Definition s\d+ : com.*?|Definition Q_\w+.*?)(?=(?:Lemma|Theorem)\s+)',
         coq_source, re.DOTALL
     )
     staged_seg_text = staged_defs_match.group(1).strip() if staged_defs_match else ""
-    coq_context = ""
-    if staged_seg_text:
-        coq_context = staged_seg_text
-
-    # The generated goal may already use staged body (if imp_ir was passed).
-    # Keep it as-is — wp_prove will handle the decomposed segments instantly.
+    coq_context = staged_seg_text if staged_seg_text else ""
 
     # Extract the failing proof and error for the LLM to learn from
     failing_proof_text = ""

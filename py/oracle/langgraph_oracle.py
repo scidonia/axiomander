@@ -1,22 +1,18 @@
 """
-LangGraph Coq proof oracle using rocq-robot MCP tools.
+LangGraph Coq proof oracle using langchain-mcp-adapters + rocq-robot.
 
-The LLM has direct function-calling access to:
-  coq_focus(name) → full proof context (goals, proof script, bullet stack)
-  coq_open_goals(name) → current goals with hypotheses
-  coq_try_tactic(name, tactic) → speculative tactic execution
-  coq_insert_tactic(name, tactic) → apply tactic, auto-bullets
-  coq_search(pattern) → search available lemmas
-  coq_check() → force document checking
-  coq_check_term(term) → check type of expression
-  coq_about(term) → get info about a definition
+The LLM has direct access to rocq-robot MCP tools:
+  coq_focus(file, name)          → full proof context
+  coq_insert_tactic(file, name, tactic) → execute tactic, auto-Qed on completion
+
+Uses langchain-mcp-adapters as the MCP client — no bespoke JSON-RPC.
 """
 
+import asyncio
 import os
-import sys
-import json
-import time
+import re
 import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -28,6 +24,7 @@ try:
     from langgraph.graph.message import add_messages
     from langgraph.prebuilt import ToolNode
     from langgraph.checkpoint.memory import MemorySaver
+    from langchain_core.messages import ToolMessage
     from typing_extensions import TypedDict, Annotated
 except ImportError:
     ChatOpenAI = None
@@ -38,8 +35,8 @@ except ImportError:
     TypedDict = None
     Annotated = None
 
-from oracle.rocq_robot_client import RocqRobotClient
-from oracle.mcp_server import BUILD_DIR
+from langchain_mcp_adapters.sessions import create_session, StdioConnection
+from langchain_mcp_adapters.tools import load_mcp_tools
 
 
 class ProofState(TypedDict):
@@ -48,99 +45,15 @@ class ProofState(TypedDict):
     error: str
 
 
-# ── Global session state ───────────────────────────────────────────
+# ── Coq LSP finder ─────────────────────────────────────────────────
 
-_client: Optional[RocqRobotClient] = None
-_tmp_v_file: Optional[Path] = None
-PROOF_NAME = "axiomander_proof"
-
-
-def _c():
-    global _client
-    if not _client:
-        raise RuntimeError("No active rocq-robot session")
-    return _client
-
-
-# ── MCP tools exposed to the LLM ───────────────────────────────────
-
-def coq_focus() -> str:
-    """Get full proof context: goals, hypotheses, proof script, bullet stack."""
-    result = _c().focus(PROOF_NAME)
-    if result.error:
-        return f"ERROR: {result.error[:300]}"
-    if result.is_complete:
-        return "PROOF COMPLETE — all goals closed. The theorem is proved."
-    return result.proof_script
-
-
-def coq_open_goals() -> str:
-    """Get current goals with hypotheses (Prev mode)."""
-    result = _c().open_goals(PROOF_NAME)
-    if result.error:
-        return f"ERROR: {result.error[:300]}"
-    if result.is_complete:
-        return "No open goals — proof may be complete."
-    goals = "\n".join(result.goals[:5]) if result.goals else "(no goals displayed)"
-    hyps = "\n".join(result.hypotheses[-20:]) if result.hypotheses else "(no hypotheses)"
-    return f"GOALS:\n{goals}\n\nHYPOTHESES:\n{hyps}"
-
-
-def coq_try_tactic(tactic: str) -> str:
-    """Try a tactic speculatively. Does NOT modify the proof script.
-    Use this to TEST a tactic before committing with coq_insert_tactic."""
-    result = _c().try_tactic(PROOF_NAME, tactic)
-    if result.error:
-        return f"FAILED: {result.error[:300]}"
-    if result.is_complete:
-        return "Tactic succeeded — proof appears complete. Use coq_insert_tactic to commit."
-    goals = "\n".join(result.goals[:3]) if result.goals else "(no goals)"
-    hyps = "\n".join(result.hypotheses[-10:]) if result.hypotheses else ""
-    return f"OK. Result:\nGOALS:\n{goals}\n\nHYPOTHESES:\n{hyps}"
-
-
-def coq_insert_tactic(tactic: str) -> str:
-    """Insert a tactic into the proof script. Auto-prepends bullet prefix.
-    Returns the updated proof context."""
-    result = _c().insert_tactic(PROOF_NAME, tactic)
-    if result.error:
-        return f"FAILED: {result.error[:300]}"
-    if result.is_complete:
-        return "PROOF COMPLETE — all goals closed. Theorem proved!"
-    return result.proof_script
-
-
-def coq_search(pattern: str) -> str:
-    """Search for lemmas/theorems matching PATTERN.
-    Example: '(_ + 0 = _)' or 'plus_n_O'"""
-    results = _c().search(pattern)
-    if not results:
-        return "No matches found."
-    return "\n".join(results[:20])
-
-
-def coq_check() -> str:
-    """Force document checking. Returns status."""
-    return _c().check()
-
-
-def coq_about(term: str) -> str:
-    """Get information about a Coq term/definition (speculative)."""
-    result = _c().about(term)
-    return result if result else "No information available."
-
-
-def coq_check_term(term: str) -> str:
-    """Check the type of a Coq expression (speculative)."""
-    result = _c().check_term(term)
-    return result if result else "No information available."
-
-
-tools = [
-    coq_focus, coq_open_goals, coq_insert_tactic,
-    coq_search, coq_check,
-    coq_about, coq_check_term,
-]
+def _find_coq_lsp() -> str:
+    import shutil
+    for name in ("rocq-robot", "rocq-lsp", "coq-lsp"):
+        path = shutil.which(name)
+        if path:
+            return path
+    return "coq-lsp"
 
 
 # ── LLM ────────────────────────────────────────────────────────────
@@ -158,39 +71,84 @@ def _make_llm():
     )
 
 
-SYSTEM_PROMPT = """You are a Coq proof assistant with rocq-robot MCP tools.
+SYSTEM_PROMPT = """You are a Coq proof assistant using rocq-robot MCP tools.
 
 Tools:
-- coq_focus() — full proof context: goals, proof script, table of contents
-- coq_open_goals() — current goals + hypotheses
-- coq_insert_tactic(tactic) — COMMIT a tactic to the proof
-- coq_search(pattern) — find lemmas
-- coq_about(term) / coq_check_term(term) — inspect definitions
+  focus_proof(file, name)  — show proof state and goals
+  insert_tactic(file, name, tactic)  — run a tactic
+  search_lemmas(pattern)  — search available lemmas/theorems
+  add_lemma(file, name, statement, before)  — insert a lemma stub above a proof
 
-Strategy:
-1. Start with coq_focus().
-2. For each goal, call coq_insert_tactic() with ONE tactic.
-   Available: intros, wp_prove, split, lia, reflexivity, auto,
-   unfold, rewrite, apply, destruct, eexists.
-3. Check coq_focus() after each tactic.
-4. When coq_focus says all goals closed, you're DONE.
-5. Keep it SHORT. Most proofs need 1-5 tactics."""
+CRITICAL RULES:
+1. insert_tactic automatically applies Qed. when the proof is complete.
+   You will see "done — Qed applied" in the output.
+2. NEVER manually insert "Qed." — the tool does it for you.
+3. If focus_proof shows "Proof complete" or "done", stop. The proof is done.
+4. If insert_tactic shows "next: N goal(s)", you need more tactics.
+
+Workflow:
+1. focus_proof(file, name)  — see the goal
+2. insert_tactic(file, name, tactic)  — prove it
+3. Repeat 2 until "done — Qed applied" or focus_proof shows "Proof complete"
+4. Stop — do NOT insert Qed. yourself.
+5. After every insert_tactic, call focus_proof to verify the goal state.
+   If focus_proof shows 1+ goals, continue.  Only stop at "Proof complete" or
+   "done — Qed applied".  apply alone does NOT close the goal — it creates subgoals.
+6. Use search_lemmas to discover available tactics and lemmas when stuck.
+
+For IMP verification goals (wp, CSeq, CCall), look for decomposition lemmas
+with search_lemmas — search for "wp_seq", "wp_ccall", "wp_seg".  Common ones:
+wp_seq_decompose splits a CSeq, wp_ccall_frame handles callee frame conditions,
+wp_seg wraps a segment.
+
+CRITICAL: do NOT use wp_reduce on large goals.  wp_reduce expands the entire wp
+into a massive term that coq-lsp cannot handle.  Use the decomposition lemmas
+instead — they break the proof into small, fast pieces.
+
+For CCall frame conditions, do NOT manually destruct strings or try to prove
+"~ In x (target :: writes)".  Use `apply (wp_ccall_frame _ target writes r)` — it
+handles the In proof automatically in one step.
+
+Strategy for segmented proofs (s1, s2, Q1, Q2 already defined):
+1. Use search_lemmas to find wp_seq_decompose and wp_ccall_frame
+2. Use add_lemma to create helper lemmas for each segment above the theorem:
+   Lemma stage_1 : wp s1 Q1 init_state.
+   Lemma stage_2 : forall s, Q1 s -> wp s2 Q2 s.
+3. Prove each helper lemma: wp_reduce for assignments, apply wp_ccall_frame for calls
+4. Prove the main theorem by chaining with apply wp_seq_decompose"""
 
 
 # ── Graph ──────────────────────────────────────────────────────────
 
-def build_graph() -> StateGraph:
+def build_graph(tools: list) -> StateGraph:
     llm = _make_llm()
     llm_with_tools = llm.bind_tools(tools)
 
     workflow = StateGraph(ProofState)
+    tool_map = {t.name: t for t in tools}
 
-    def assistant(state: ProofState) -> ProofState:
-        response = llm_with_tools.invoke(state["messages"])
+    async def assistant(state: ProofState) -> ProofState:
+        response = await llm_with_tools.ainvoke(state["messages"])
         return {"messages": [response]}
 
+    async def tool_executor(state: ProofState) -> ProofState:
+        """Execute tool calls manually, bypassing ToolNode."""
+        last = state["messages"][-1]
+        results = []
+        for tc in last.tool_calls:
+            tool = tool_map.get(tc["name"])
+            if tool:
+                try:
+                    result = await tool.ainvoke(tc["args"])
+                except Exception as e:
+                    result = f"Tool error: {e}"
+            else:
+                result = f"Unknown tool: {tc['name']}"
+            results.append(ToolMessage(content=str(result), tool_call_id=tc["id"]))
+        return {"messages": results}
+
     workflow.add_node("assistant", assistant)
-    workflow.add_node("tools", ToolNode(tools))
+    workflow.add_node("tools", tool_executor)
     workflow.set_entry_point("assistant")
 
     def route(state: ProofState) -> str:
@@ -213,84 +171,140 @@ def run_langgraph_oracle(
 ) -> tuple[bool, str, str]:
     """Run the LangGraph proof agent via rocq-robot MCP tools.
 
-    Writes the preamble to a temp .v file, starts rocq-robot MCP server,
-    and lets the LLM drive the proof via tool calls.
+    Uses langchain-mcp-adapters to auto-wrap rocq-robot's MCP tools.
+    The LLM drives the proof via coq_focus/coq_insert_tactic.
 
     Returns:
         (success, proof_script, error_message)
     """
-    global _client, _tmp_v_file
+    global _tmp_v_file
+
+    thm_match = re.search(r'(?:Theorem|Lemma)\s+(\w+)', preamble)
+    proof_name = thm_match.group(1) if thm_match else "axiomander_proof"
 
     if ChatOpenAI is None:
         return False, "", "langgraph not installed"
 
     from oracle.client import _consume_credit
 
-    # Estimate and consume credits
-    est_calls = min(max_steps, 10)
+    est_calls = min(max_steps, 5)
     for _ in range(est_calls):
         if not _consume_credit():
             return False, "", "Credit budget exhausted"
 
-    # Write preamble to temp .v file
+    project_root = Path(__file__).resolve().parent.parent.parent
+
+    # Write temp .v file
     fd, tmp_path = tempfile.mkstemp(suffix=".v", prefix="axiomander_")
     os.close(fd)
     _tmp_v_file = Path(tmp_path)
-    _tmp_v_file.write_text(preamble)
+    _tmp_v_file.write_text(preamble + "\nAdmitted.")
 
-    # Start rocq-robot MCP server
-    client = RocqRobotClient(
-        file_path=_tmp_v_file,
-        timeout=60,
-    )
-    _client = client
+    robot_js = project_root / "vendor" / "rocq-robot" / "dist" / "index.js"
+    file_path = str(_tmp_v_file)
 
-    if not client.start():
-        _tmp_v_file.unlink(missing_ok=True)
-        return False, "", "Failed to start rocq-robot MCP server"
+    async def _run():
+        import sys as _sys_stderr
+        def _log(msg):
+            print(f"  [lg-oracle] {msg}", file=_sys_stderr.stderr, flush=True)
 
-    try:
-        # Run the agent
-        initial_state = {
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": "Prove this theorem. Call coq_focus() to see the proof state, then use coq_try_tactic() and coq_insert_tactic()."}
+        _log(f"connecting, file={file_path}")
+        coq_lsp = _find_coq_lsp()
+        build_coq = str(project_root / "_build" / "default" / "coq")
+        connection: StdioConnection = {
+            "transport": "stdio",
+            "command": "node",
+            "args": [
+                str(robot_js),
+                "--coq-lsp-path", coq_lsp,
+                "--coq-lsp-args", f"-R {build_coq},Imp",
             ],
-            "proof_script": "",
-            "error": "",
+            "cwd": str(project_root),
         }
 
-        graph = build_graph()
-        config = {"configurable": {"thread_id": "proof"}, "recursion_limit": max_steps * 5}
-        final = graph.invoke(initial_state, config)
+        async with create_session(connection) as session:
+            await session.initialize()
+            _log("session init done")
+            all_tools = await load_mcp_tools(session)
 
-        # Check if proof succeeded
-        proved = False
-        for msg in final.get("messages", []):
-            content = str(getattr(msg, 'content', ''))
-            if "PROVED" in content or "PROOF COMPLETE" in content:
-                proved = True
-                break
+            focus_tool = next((t for t in all_tools if t.name == "focus_proof"), None)
+            insert_tool = next((t for t in all_tools if t.name == "insert_tactic"), None)
+            search_tool = next((t for t in all_tools if t.name == "search_lemmas"), None)
+            add_lemma_tool = next((t for t in all_tools if t.name == "add_lemma"), None)
+            if not focus_tool or not insert_tool:
+                return False, "", "rocq-robot missing required tools"
 
-        # Read the proof script from the file
-        proof_script = ""
-        if _tmp_v_file.exists():
-            full = _tmp_v_file.read_text()
-            idx = full.rfind("Proof.")
-            if idx >= 0:
-                proof_script = full[idx:].strip()
+            tools = [focus_tool, insert_tool, search_tool, add_lemma_tool]
+            tools = [t for t in tools if t is not None]
+            _log(f"tools loaded, building graph")
 
-        return proved, proof_script, ""
+            # Quick pre-flight: call focus on the file directly before the graph
+            try:
+                r = await focus_tool.ainvoke({"file": file_path, "name": proof_name})
+                _log(f"pre-flight OK ({len(r[0]['text'])} chars)")
+            except Exception as e:
+                _log(f"pre-flight FAILED: {e}")
 
+            graph = build_graph(tools)
+
+            initial_state = {
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": (
+                        f"Prove the lemma '{proof_name}'.\n\n"
+                        f"Always pass file=\"{file_path}\" and name=\"{proof_name}\" "
+                        f"to every tool call. Use focus_proof to see goals, insert_tactic to prove them."
+                    )}
+                ],
+                "proof_script": "",
+                "error": "",
+            }
+
+            config = {"configurable": {"thread_id": "proof"}, "recursion_limit": max_steps * 5}
+            _log(f"invoking graph, recursion_limit={max_steps * 5}")
+            try:
+                final = await graph.ainvoke(initial_state, config)
+                _log(f"graph done, {len(final.get('messages', []))} messages")
+            except Exception as exc:
+                _log(f"graph failed: {exc}")
+                return False, _tmp_v_file.read_text() if _tmp_v_file.exists() else "", str(exc)[:500]
+
+            proved = False
+            for msg in final.get("messages", []):
+                content = str(getattr(msg, 'content', ''))
+                if "done - Qed applied" in content or "Proof complete" in content:
+                    proved = True
+                    break
+
+            proof_script = ""
+            if _tmp_v_file.exists():
+                full = _tmp_v_file.read_text()
+                idx = full.rfind("Proof.")
+                if idx >= 0:
+                    proof_script = full[idx:].strip()
+
+            # Save transcript
+            import json as _json
+            ts = int(time.time())
+            transcripts_dir = project_root / ".axiomander" / "transcripts"
+            transcripts_dir.mkdir(parents=True, exist_ok=True)
+            transcript = {
+                "timestamp": ts, "success": proved,
+                "credits_used": getattr(__import__('oracle.client'), '_credits_used', 0),
+                "messages": [
+                    {"role": str(getattr(m, 'type', 'unknown')),
+                     "content": str(getattr(m, 'content', ''))[:500],
+                     "tool_calls": str(getattr(m, 'tool_calls', None))[:500] if hasattr(m, 'tool_calls') else None}
+                    for m in final.get("messages", [])
+                ],
+                "proof_script": proof_script,
+            }
+            (transcripts_dir / f"transcript_{ts}.json").write_text(_json.dumps(transcript, indent=2))
+
+            return proved, proof_script, ""
+
+    try:
+        return asyncio.run(_run())
     except Exception as e:
         import traceback
         return False, "", f"{e}\n{traceback.format_exc()[-300:]}"
-
-    finally:
-        client.stop()
-        _client = None
-        try:
-            _tmp_v_file.unlink(missing_ok=True)
-        except Exception:
-            pass
-        _tmp_v_file = None

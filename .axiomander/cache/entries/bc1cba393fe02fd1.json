@@ -1,0 +1,21 @@
+{
+  "function_name": "_find_coq_lsp",
+  "cache_key": "bc1cba393fe02fd13d26bb7ada444eb634ef9878a5d9bbbb4faf7dfe24188fb0",
+  "body_hash": "c7442839cb5aabdf1fc212dc5fb8f2922207be69fd6277aae57ec4a08f366005",
+  "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "local_assert_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "callee_contract_hashes": {},
+  "result": {
+    "level": "level1",
+    "proof_method": "wp_reduce",
+    "elapsed_ms": 0.0,
+    "goal_statement": "wp _find_coq_lsp_body ...",
+    "dependencies": [],
+    "counterexample": {},
+    "error_detail": "",
+    "suggested_action": null,
+    "suggestion_text": ""
+  },
+  "tool_version": "0.4.0",
+  "timestamp": 1779875391.2970338
+}
