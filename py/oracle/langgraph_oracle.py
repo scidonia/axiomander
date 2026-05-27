@@ -76,8 +76,6 @@ SYSTEM_PROMPT = """You are a Coq proof assistant using rocq-robot MCP tools.
 Tools:
   focus_proof(file, name)  — show proof state and goals
   insert_tactic(file, name, tactic)  — run a tactic
-  search_lemmas(pattern)  — search available lemmas/theorems
-  add_lemma(file, name, statement, before)  — insert a lemma stub above a proof
 
 CRITICAL RULES:
 1. insert_tactic automatically applies Qed. when the proof is complete.
@@ -96,26 +94,9 @@ Workflow:
    "done — Qed applied".  apply alone does NOT close the goal — it creates subgoals.
 6. Use search_lemmas to discover available tactics and lemmas when stuck.
 
-For IMP verification goals (wp, CSeq, CCall), look for decomposition lemmas
-with search_lemmas — search for "wp_seq", "wp_ccall", "wp_seg".  Common ones:
-wp_seq_decompose splits a CSeq, wp_ccall_frame handles callee frame conditions,
-wp_seg wraps a segment.
-
-CRITICAL: do NOT use wp_reduce on large goals.  wp_reduce expands the entire wp
-into a massive term that coq-lsp cannot handle.  Use the decomposition lemmas
-instead — they break the proof into small, fast pieces.
-
-For CCall frame conditions, do NOT manually destruct strings or try to prove
-"~ In x (target :: writes)".  Use `apply (wp_ccall_frame _ target writes r)` — it
-handles the In proof automatically in one step.
-
-Strategy for segmented proofs (s1, s2, Q1, Q2 already defined):
-1. Use search_lemmas to find wp_seq_decompose and wp_ccall_frame
-2. Use add_lemma to create helper lemmas for each segment above the theorem:
-   Lemma stage_1 : wp s1 Q1 init_state.
-   Lemma stage_2 : forall s, Q1 s -> wp s2 Q2 s.
-3. Prove each helper lemma: wp_reduce for assignments, apply wp_ccall_frame for calls
-4. Prove the main theorem by chaining with apply wp_seq_decompose"""
+For IMP verification goals (wp, CSeq, CCall), use wp_seq_decompose to split
+a CSeq and wp_ccall_frame for callee frame conditions.  Both are available
+from the WpTactics import."""
 
 
 # ── Graph ──────────────────────────────────────────────────────────
@@ -229,13 +210,10 @@ def run_langgraph_oracle(
 
             focus_tool = next((t for t in all_tools if t.name == "focus_proof"), None)
             insert_tool = next((t for t in all_tools if t.name == "insert_tactic"), None)
-            search_tool = next((t for t in all_tools if t.name == "search_lemmas"), None)
-            add_lemma_tool = next((t for t in all_tools if t.name == "add_lemma"), None)
             if not focus_tool or not insert_tool:
                 return False, "", "rocq-robot missing required tools"
 
-            tools = [focus_tool, insert_tool, search_tool, add_lemma_tool]
-            tools = [t for t in tools if t is not None]
+            tools = [focus_tool, insert_tool]
             _log(f"tools loaded, building graph")
 
             # Quick pre-flight: call focus on the file directly before the graph
