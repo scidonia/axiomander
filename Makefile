@@ -15,8 +15,8 @@ setup-python:
 	uv pip install -e .
 
 setup-coqlsp:
-	@echo "=== coq-lsp MCP ==="
-	cd vendor/mcp-coq-lsp/mcp-coq-lsp && npm install --omit=dev && npm run build
+	@echo "=== rocq-robot MCP ==="
+	cd vendor/rocq-robot && npm install && npm run build
 
 # ─── Build ────────────────────────────────────────────────────────
 

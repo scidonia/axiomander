@@ -113,6 +113,21 @@ dune build
 # Python side (when present)
 eval $(opam env); PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 
+# rocq-robot MCP server (for AI tool-calling)
+cd vendor/rocq-robot && npm install && npm run build
+
+# Register axiomander + rocq-robot as MCP servers in opencode:
+# Add to ~/.config/opencode/opencode.json:
+#   "mcp": {
+#     "axiomander": {
+#       "command": ["/path/to/axiomander/.venv/bin/python3", "-u", "-m", "oracle.mcp_server"],
+#       "environment": { "PYTHONPATH": "/path/to/axiomander/py", "AXIOMANDER_ROOT": "/path/to/axiomander", ... }
+#     },
+#     "rocq-robot": {
+#       "command": ["node", "/path/to/axiomander/vendor/rocq-robot/dist/index.js", "--coq-lsp-path", "/path/to/coq-lsp"]
+#     }
+#   }
+
 # Web server (needs libssl-dev, libev-dev, then `opam install dream`)
 dune exec server/server.exe
 

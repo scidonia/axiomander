@@ -1,3 +1,3 @@
-[submodule "vendor/mcp-coq-lsp"]
-	path = vendor/mcp-coq-lsp
-	url = git@github.com:scidonia/mcp-coq-lsp.git
+[submodule "vendor/rocq-robot"]
+	path = vendor/rocq-robot
+	url = git@github.com:scidonia/rocq-robot.git
