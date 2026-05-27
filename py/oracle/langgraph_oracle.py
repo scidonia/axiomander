@@ -161,7 +161,9 @@ def run_langgraph_oracle(
     global _tmp_v_file
 
     thm_match = re.search(r'(?:Theorem|Lemma)\s+(\w+)', preamble)
-    proof_name = thm_match.group(1) if thm_match else "axiomander_proof"
+    # If there are multiple theorems/lemmas, find the last one (the main goal)
+    all_matches = re.findall(r'(?:Theorem|Lemma)\s+(\w+)', preamble)
+    proof_name = all_matches[-1] if all_matches else "axiomander_proof"
 
     if ChatOpenAI is None:
         return False, "", "langgraph not installed"

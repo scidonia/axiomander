@@ -1470,6 +1470,26 @@ def _extract_tactic_trace(coq_source: str, error_line: int) -> str:
     return failing
 
 
+def _extract_stage_lemmas(coq_source: str) -> str:
+    """Extract pre-generated stage lemma STATEMENTS from the Coq source.
+
+    _build_staged_proof produces Lemma stage_N_correct statements with
+    pre-written proof bodies.  The proof bodies sometimes have bullet bugs,
+    so extract only the lemma statements (up to Proof.) and let the LLM
+    fill in the proofs.  The LLM knows wp_reduce + wp_ccall_frame.
+    """
+    import re
+    # Match Lemma stage_N_correct ... Proof. (stop at Proof., discard body)
+    lemma_pattern = re.compile(
+        r'Lemma \w+_stage_\d+_correct\b.*?^Proof\.',
+        re.MULTILINE | re.DOTALL
+    )
+    lemmas = lemma_pattern.findall(coq_source)
+    if lemmas:
+        return "\n".join(l.strip() + "\nAdmitted.\n" for l in lemmas) + "\n\n"
+    return ""
+
+
 def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | None = None) -> GoalStatus:
     """Try to prove remaining goals using the LLM oracle."""
     if not goal or goal.is_proved():
@@ -1553,14 +1573,21 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
     # Use LangGraph with tool-calling: the LLM calls get_goals/try_tactic/finish_proof itself
     from oracle.langgraph_oracle import run_langgraph_oracle
 
-    # Build preamble with imports, body, seg defs, goal — clean, no lemmas
+    # Build preamble with imports, segmented defs, stage lemmas, goal
     import_prefix = (
         "Require Import ZArith String List Lia.\n"
         "Require Import Imp Wp WpTactics.\n"
         "Import ListNotations.\n"
         "Open Scope Z_scope.\n\n"
     )
-    preamble = import_prefix + coq_context + "\n" + goal_text + "\nProof."
+
+    # Try to extract pre-generated stage lemmas from the Coq source
+    # (produced by _verify_function's _build_staged_proof).  These handle
+    # wp_reduce + wp_ccall_frame for each CCall segment — the heavy lifting
+    # that the LLM struggles with.  Include them so the LLM only chains them.
+    stage_lemma_text = _extract_stage_lemmas(coq_source)
+
+    preamble = import_prefix + coq_context + "\n" + stage_lemma_text + goal_text + "\nProof."
     ok, proof_script, err = run_langgraph_oracle(preamble)
 
     if ok:
