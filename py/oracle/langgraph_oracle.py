@@ -79,11 +79,24 @@ Tools:
 
 CRITICAL RULES:
 1. insert_tactic automatically applies Qed. when the proof is complete.
+   You will see "done — Qed applied" in the output.
 2. NEVER manually insert "Qed." — the tool does it for you.
-3. After every insert_tactic, call focus_proof to verify the goal state.
-   Only stop when focus_proof shows "Proof complete" or "done".
-4. apply alone does NOT close the goal — it creates subgoals.  Continue
-   proving until focus_proof shows 0 goals at focus."""
+3. If focus_proof shows "Proof complete" or "done", stop. The proof is done.
+4. If insert_tactic shows "next: N goal(s)", you need more tactics.
+
+Workflow:
+1. focus_proof(file, name)  — see the goal
+2. insert_tactic(file, name, tactic)  — prove it
+3. Repeat 2 until "done — Qed applied" or focus_proof shows "Proof complete"
+4. Stop — do NOT insert Qed. yourself.
+5. After every insert_tactic, call focus_proof to verify the goal state.
+   If focus_proof shows 1+ goals, continue.  Only stop at "Proof complete" or
+   "done — Qed applied".  apply alone does NOT close the goal — it creates subgoals.
+6. Use search_lemmas to discover available tactics and lemmas when stuck.
+
+For IMP verification goals (wp, CSeq, CCall), use wp_seq_decompose to split
+a CSeq and wp_ccall_frame for callee frame conditions.  Both are available
+from the WpTactics import."""
 
 
 # ── Graph ──────────────────────────────────────────────────────────
