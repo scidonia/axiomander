@@ -178,6 +178,38 @@ class RocqRobotClient:
         text = self._extract_text(resp)
         return text.split("\n") if text else []
 
+    def about(self, term: str) -> str:
+        """Get information about a term (speculative)."""
+        resp = self._request("tools/call", {
+            "name": "coq_about",
+            "arguments": {"file": str(self.file_path), "thing": term},
+        })
+        return self._extract_text(resp)
+
+    def check_term(self, term: str) -> str:
+        """Check the type of an expression (speculative)."""
+        resp = self._request("tools/call", {
+            "name": "coq_check_term",
+            "arguments": {"file": str(self.file_path), "term": term},
+        })
+        return self._extract_text(resp)
+
+    def require_lib(self, lib: str) -> str:
+        """Import a library speculatively (doesn't modify the file)."""
+        resp = self._request("tools/call", {
+            "name": "coq_require",
+            "arguments": {"file": str(self.file_path), "lib": lib},
+        })
+        return self._extract_text(resp)
+
+    def locate(self, thing: str) -> str:
+        """Find where a term is defined."""
+        resp = self._request("tools/call", {
+            "name": "coq_locate",
+            "arguments": {"file": str(self.file_path), "thing": thing},
+        })
+        return self._extract_text(resp)
+
     # ── Internal ──────────────────────────────────────────────────
 
     def _request(self, method: str, params: dict) -> Optional[dict]:

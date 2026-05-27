@@ -28,7 +28,8 @@
       "extract_goal_from_coq",
       "_extract_tactic",
       "_parse",
-      "_parse_focus_response"
+      "_parse_focus_response",
+      "run_langgraph_oracle"
     ]
   },
   "extract_goal_from_coq": {
@@ -218,7 +219,9 @@
       "interactive_oracle_query",
       "get_goals",
       "_add_function_to_map",
-      "try_tactic"
+      "try_tactic",
+      "coq_search",
+      "coq_open_goals"
     ]
   },
   "parts.append": {
@@ -403,14 +406,16 @@
       "_save_transcript",
       "run_verification",
       "run_langgraph_oracle",
-      "_aexp_to_zterm"
+      "_aexp_to_zterm",
+      "start"
     ]
   },
   "subprocess.Popen": {
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "__enter__"
+      "__enter__",
+      "start"
     ]
   },
   "__enter__": {
@@ -658,7 +663,8 @@
     "callers": [
       "test",
       "validate_proof",
-      "__init__"
+      "__init__",
+      "run_langgraph_oracle"
     ]
   },
   "test": {
@@ -1024,8 +1030,7 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "interactive_oracle_query",
-      "run_langgraph_oracle"
+      "interactive_oracle_query"
     ]
   },
   "OracleResult": {
@@ -1095,8 +1100,7 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "interactive_oracle_query",
-      "run_langgraph_oracle"
+      "interactive_oracle_query"
     ]
   },
   "session.try_tactic": {
@@ -1534,7 +1538,9 @@
   "get": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "start"
+    ]
   },
   "getattr": {
     "contract_hash": "",
@@ -1553,9 +1559,7 @@
   "session.close": {
     "contract_hash": "",
     "callees": [],
-    "callers": [
-      "run_langgraph_oracle"
-    ]
+    "callers": []
   },
   "tactics.append": {
     "contract_hash": "",
@@ -1570,19 +1574,26 @@
   "run_langgraph_oracle": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
-      "CoqpytSession",
+      "Path",
+      "RocqRobotClient",
       "_consume_credit",
-      "after.strip",
+      "_tmp_v_file.exists",
+      "_tmp_v_file.read_text",
+      "_tmp_v_file.unlink",
+      "_tmp_v_file.write_text",
       "build_graph",
+      "client.start",
+      "client.stop",
       "final.get",
-      "full_text.find",
+      "full.rfind",
       "getattr",
       "graph.invoke",
       "min",
+      "os.close",
       "range",
-      "session.close",
-      "session.load",
       "str",
+      "strip",
+      "tempfile.mkstemp",
       "traceback.format_exc"
     ],
     "callers": []
@@ -1774,7 +1785,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "_s"
+      "_s",
+      "_c"
     ]
   },
   "_s": {
@@ -1791,16 +1803,12 @@
   "after.strip": {
     "contract_hash": "",
     "callees": [],
-    "callers": [
-      "run_langgraph_oracle"
-    ]
+    "callers": []
   },
   "full_text.find": {
     "contract_hash": "",
     "callees": [],
-    "callers": [
-      "run_langgraph_oracle"
-    ]
+    "callers": []
   },
   "c.get": {
     "contract_hash": "",
@@ -1896,6 +1904,237 @@
       "self._process.stdin.flush",
       "self._process.stdin.write",
       "self._process.stdout.readline"
+    ],
+    "callers": []
+  },
+  "cmd.extend": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "start"
+    ]
+  },
+  "self._request": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "start"
+    ]
+  },
+  "start": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "cmd.extend",
+      "get",
+      "self._request",
+      "str",
+      "subprocess.Popen"
+    ],
+    "callers": []
+  },
+  "self._process.kill": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "stop"
+    ]
+  },
+  "self._process.stdin.close": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "stop"
+    ]
+  },
+  "self._process.stdout.close": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "stop"
+    ]
+  },
+  "self._process.terminate": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "stop"
+    ]
+  },
+  "self._process.wait": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "stop"
+    ]
+  },
+  "stop": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "self._process.kill",
+      "self._process.stdin.close",
+      "self._process.stdout.close",
+      "self._process.terminate",
+      "self._process.wait"
+    ],
+    "callers": []
+  },
+  "_c": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "RuntimeError"
+    ],
+    "callers": [
+      "coq_focus",
+      "coq_insert_tactic",
+      "coq_search",
+      "coq_about",
+      "coq_open_goals"
+    ]
+  },
+  "focus": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "coq_focus"
+    ]
+  },
+  "coq_focus": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_c",
+      "focus"
+    ],
+    "callers": []
+  },
+  "insert_tactic": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "coq_insert_tactic"
+    ]
+  },
+  "coq_insert_tactic": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_c",
+      "insert_tactic"
+    ],
+    "callers": []
+  },
+  "search": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "coq_search"
+    ]
+  },
+  "coq_search": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_c",
+      "join",
+      "search"
+    ],
+    "callers": []
+  },
+  "RocqRobotClient": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "_tmp_v_file.exists": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "_tmp_v_file.read_text": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "_tmp_v_file.unlink": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "_tmp_v_file.write_text": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "client.start": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "client.stop": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "full.rfind": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "os.close": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "tempfile.mkstemp": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "run_langgraph_oracle"
+    ]
+  },
+  "about": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "coq_about"
+    ]
+  },
+  "coq_about": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_c",
+      "about"
+    ],
+    "callers": []
+  },
+  "open_goals": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "coq_open_goals"
+    ]
+  },
+  "coq_open_goals": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_c",
+      "join",
+      "open_goals"
     ],
     "callers": []
   }
