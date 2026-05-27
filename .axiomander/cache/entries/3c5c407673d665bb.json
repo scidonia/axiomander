@@ -1,0 +1,21 @@
+{
+  "function_name": "_parse_goals_response",
+  "cache_key": "3c5c407673d665bbe478392df8981dd05341d6f8a728abe373b1f53ea547a276",
+  "body_hash": "fbcae29bbf72b147d0b9734d95528127d0faa2d0e98fdc6c2135d24478f86cdd",
+  "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "local_assert_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "callee_contract_hashes": {},
+  "result": {
+    "level": "level1",
+    "proof_method": "wp_reduce + conditional split",
+    "elapsed_ms": 0.0,
+    "goal_statement": "wp _parse_goals_response_body ...",
+    "dependencies": [],
+    "counterexample": {},
+    "error_detail": "",
+    "suggested_action": null,
+    "suggestion_text": ""
+  },
+  "tool_version": "0.4.0",
+  "timestamp": 1779870064.910502
+}

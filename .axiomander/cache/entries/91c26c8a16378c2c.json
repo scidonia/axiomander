@@ -1,0 +1,23 @@
+{
+  "function_name": "get_goals",
+  "cache_key": "91c26c8a16378c2c1048aa7f6340bd1392763b369e6bdace1f02451d6ceb3b4a",
+  "body_hash": "ebc5144618da98d759fc845cefd51c810cc6e61f6320c18df77367081c6789b2",
+  "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "local_assert_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "callee_contract_hashes": {
+    "_s": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda"
+  },
+  "result": {
+    "level": "level3",
+    "proof_method": "AI oracle (langgraph)",
+    "elapsed_ms": 0.0,
+    "goal_statement": "wp get_goals_body ...",
+    "dependencies": [],
+    "counterexample": {},
+    "error_detail": "",
+    "suggested_action": "no_action_needed",
+    "suggestion_text": "LangGraph proof:\n\nQed."
+  },
+  "tool_version": "0.4.0",
+  "timestamp": 1779829439.183346
+}

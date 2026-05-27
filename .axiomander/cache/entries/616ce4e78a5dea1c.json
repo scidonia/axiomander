@@ -1,0 +1,21 @@
+{
+  "function_name": "route",
+  "cache_key": "616ce4e78a5dea1ce4a9f7458deb79aa80c410aac22a4f446471dc46e0b48bb2",
+  "body_hash": "ecaa5b542ad0b34c5872e3c377ff4c1df2464e91756503e41f9c606d23cf149f",
+  "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "local_assert_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "callee_contract_hashes": {},
+  "result": {
+    "level": "level3",
+    "proof_method": "AI oracle (langgraph)",
+    "elapsed_ms": 0.0,
+    "goal_statement": "wp route_body ...",
+    "dependencies": [],
+    "counterexample": {},
+    "error_detail": "",
+    "suggested_action": "no_action_needed",
+    "suggestion_text": "LangGraph proof:\n\nQed."
+  },
+  "tool_version": "0.4.0",
+  "timestamp": 1779827962.384445
+}

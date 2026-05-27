@@ -1,0 +1,24 @@
+{
+  "function_name": "_add_function_to_map",
+  "cache_key": "b9c331530dacb4c052310da9c262aaafff55a5448a14883d05364ca3d688d43e",
+  "body_hash": "4fa0e0188f92052ccda4d67b49e55d86ba5eaa0db35e593663857727987634fa",
+  "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "local_assert_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "callee_contract_hashes": {
+    "_classify_assert": "6b161ef31b2a03fd9384438c081097ffa301a9adaea13327e530717a2e63a0a1",
+    "_annotation_to_guard": "f4d1ac5055dd99a6c141bc9d2309787a5bfffc30f9b50c6e82771f1b6116436c"
+  },
+  "result": {
+    "level": "level3",
+    "proof_method": "AI oracle (langgraph)",
+    "elapsed_ms": 0.0,
+    "goal_statement": "wp _add_function_to_map_body ...",
+    "dependencies": [],
+    "counterexample": {},
+    "error_detail": "",
+    "suggested_action": "no_action_needed",
+    "suggestion_text": "LangGraph proof:\n\nQed."
+  },
+  "tool_version": "0.4.0",
+  "timestamp": 1779805916.0291655
+}

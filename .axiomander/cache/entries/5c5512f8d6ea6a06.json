@@ -1,0 +1,23 @@
+{
+  "function_name": "finish_proof",
+  "cache_key": "5c5512f8d6ea6a0618fce14bedc8885361351857ab1be881fc7deaaa532c8c9d",
+  "body_hash": "57f1615ac0408e616489ccb2a54db273a7c7f094db139aa3ba42b87afa87ef74",
+  "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "local_assert_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+  "callee_contract_hashes": {
+    "_s": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda"
+  },
+  "result": {
+    "level": "level1",
+    "proof_method": "wp_reduce",
+    "elapsed_ms": 0.0,
+    "goal_statement": "wp finish_proof_body ...",
+    "dependencies": [],
+    "counterexample": {},
+    "error_detail": "",
+    "suggested_action": null,
+    "suggestion_text": ""
+  },
+  "tool_version": "0.4.0",
+  "timestamp": 1779829432.940163
+}
