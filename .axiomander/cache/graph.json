@@ -4040,9 +4040,7 @@
   "lines_proof.append": {
     "contract_hash": "",
     "callees": [],
-    "callers": [
-      "_mk_stage_k_statement_proof"
-    ]
+    "callers": []
   },
   "lines_stmt.append": {
     "contract_hash": "",
@@ -4054,9 +4052,7 @@
   "rewrite_hyps.append": {
     "contract_hash": "",
     "callees": [],
-    "callers": [
-      "_mk_stage_k_statement_proof"
-    ]
+    "callers": []
   },
   "_mk_stage_k_statement_proof": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
@@ -4064,10 +4060,8 @@
       "enumerate",
       "join",
       "len",
-      "lines_proof.append",
       "lines_stmt.append",
-      "range",
-      "rewrite_hyps.append"
+      "range"
     ],
     "callers": []
   },
@@ -4100,6 +4094,20 @@
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
       "join"
+    ],
+    "callers": []
+  },
+  "inc_simple": {
+    "contract_hash": "e7ab664dd84e880299af31ef2ac0c12973871e86a3feee39ac92e027a222b35c",
+    "callees": [],
+    "callers": [
+      "call_inc"
+    ]
+  },
+  "call_inc": {
+    "contract_hash": "22c1416727ae5ae9eeae77a51491556a68706d843eb4458bfd2fb945d6981b99",
+    "callees": [
+      "inc_simple"
     ],
     "callers": []
   }

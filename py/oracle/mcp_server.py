@@ -1135,14 +1135,25 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
             return False
         has_ccall = _has_ir_ccall(imp_ir)
     if has_ccall:
-        ghost_vars = {}
-
-    if os.environ.get("AXIOMANDER_OBLIGATIONS") == "1":
-        coq_source = _render_obligations_coq(func_node, lint_results, imp_body, tree,
-                                              hint, ghost_vars=ghost_vars if not has_ccall else {}, imp_ir=imp_ir)
+        coq_source = _render_obligations_coq(
+            func_node,
+            lint_results,
+            imp_body,
+            tree,
+            hint,
+            ghost_vars=ghost_vars,
+            imp_ir=imp_ir,
+        )
     else:
-        coq_source = _generate_coq(func_node, lint_results, imp_body, tree, hint,
-                                    ghost_vars=ghost_vars, imp_ir=imp_ir)
+        coq_source = _generate_coq(
+            func_node,
+            lint_results,
+            imp_body,
+            tree,
+            hint,
+            ghost_vars=ghost_vars,
+            imp_ir=imp_ir,
+        )
 
     # --- Coq-lsp oracle check ---
     # Companion hash file tracks what was last written by _verify_function.
@@ -3789,7 +3800,7 @@ def _render_obligations_coq(func_node, lint_results, imp_body: str,
         extra = " /\\ ".join(implicit_pres)
         pre_coq = f"({extra})" if pre_coq == "True" else f"({pre_coq} /\\ {extra})"
 
-    hammer_import = "From Hammer Require Import Hammer.\n" if hint == "hammer" else ""
+    hammer_import = "From Hammer Require Import Hammer Tactics.\n"
     bool_import = "Require Import Bool.\n" if "BOr" in imp_body else ""
 
     source_notes = ""
@@ -4173,11 +4184,14 @@ Theorem {name}_vcg_exit : forall {vcg_params},
                 post_frame = " /\\ ".join(frame_conds)
                 post_coq = f"({post_coq}) /\\ ({post_frame})"
 
-    hammer_import = "From Hammer Require Import Hammer.\n"
+    hammer_import = "From Hammer Require Import Hammer Tactics.\n"
     if hint == "hammer":
         proof = "  intros.\n  wp_reduce.\n  hammer."
     elif hint == "lia":
         proof = "  intros.\n  wp_reduce.\n  lia."
+    elif frame_applies:
+        # CCall functions: sauto handles frame conditions automatically
+        proof = "  intros.\n  wp_reduce.\n  sauto."
     elif post_coq == "True":
         proof = "  intros.\n  wp_prove."
     else:

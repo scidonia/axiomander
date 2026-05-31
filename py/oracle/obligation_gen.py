@@ -420,15 +420,7 @@ def _mk_stage1_statement_proof(
     if len(pre_parts) > 1:
         pre_hyps = " ".join(f"H{i}" for i in range(len(pre_parts)))
         lines.append(f"  destruct Hpre as [{pre_hyps}].")
-    lines.append("  wp_reduce. split.")
-    lines.append("  - unfold lget, upd, updZ; simpl.")
-    lines.append("    split; [try assumption; try lia | reflexivity].")
-    lines.append("  - intro r. intro Hr. split.")
-    lines.append(f"    + unfold {qn}; cbn. repeat split; eauto.")
-    lines.append(
-        f'    + apply (wp_ccall_frame _ "{ccall.target}"%string nil r);'
-        f' try (intros x Hx; exfalso; apply Hx; left; reflexivity).'
-    )
+    lines.append("  wp_reduce. hammer.")
     proof = "\n".join(lines)
     return statement, proof
 
@@ -482,28 +474,8 @@ def _mk_stage_k_statement_proof(
         f"  intros {params_lemma} s "
         + ("Hpre " if has_pre_hyp else "")
         + hyp_names + ".",
-        "  wp_reduce. split.",
+        "  wp_reduce. hammer.",
     ]
-
-    if arg_hyp_idx is not None:
-        lines_proof.append("  - unfold lget, upd, updZ; simpl.")
-        lines_proof.append(f"    rewrite H{arg_hyp_idx}. split; [lia | assumption].")
-    else:
-        lines_proof.append("  - unfold lget, upd, updZ; simpl.")
-        lines_proof.append("    split; [try lia | try reflexivity; try assumption].")
-
-    lines_proof.append("  - intro r. intro Hr. split.")
-    # Find all asZ equality conjuncts to rewrite
-    rewrite_hyps = ["Hr"]
-    for i in range(hyp_count):
-        if i % 2 == 1 and i < hyp_count and "asZ" in prev_conjs[i]:
-            rewrite_hyps.append(f"H{i}")
-    rewrite_cmd = ", ".join(rewrite_hyps)
-    lines_proof.append(f"    + unfold {qn}; cbn. rewrite {rewrite_cmd}. repeat split; eauto.")
-    lines_proof.append(
-        f'    + apply (wp_ccall_frame _ "{ccall.target}"%string nil r);'
-        f' try (intros x Hx; exfalso; apply Hx; left; reflexivity).'
-    )
     proof = "\n".join(lines_proof)
     return statement, proof
 
@@ -528,14 +500,7 @@ def _mk_post_obligation(
     )
 
     lines = [f"  intros {' '.join(expanded_params)} s."]
-    # Reduce wp, split conjunctive postcondition, rewrite frame hypotheses
-    lines.append("  wp_reduce.")
-    lines.append("  split; [ | split ].")
-    lines.append("  - simpl. unfold lget.")
-    # Generate rewrites for ALL hypotheses (not just first 8)
-    for i in range(n_hyps):
-        lines.append(f"    try rewrite H{i}.")
-    lines.append("    try assumption; try reflexivity; try lia.")
+    lines.append("  wp_reduce. hammer.")
     proof = "\n".join(lines)
     return statement, proof
 
@@ -567,7 +532,7 @@ def _mk_composition_obligation(
 
     ghost_has = ghost_vars is not None and len(ghost_vars) > 0
 
-    call_params = expanded_params_sorted if ghost_has else params_lemma
+    call_params = expanded_lemma if ghost_has else params_lemma
 
     if ghost_has:
         statement = (
