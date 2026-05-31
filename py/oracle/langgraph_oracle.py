@@ -183,7 +183,7 @@ def run_langgraph_oracle(
     _tmp_v_file = Path(tmp_path)
     _tmp_v_file.write_text(preamble + "\nAdmitted.")
 
-    robot_js = project_root / "vendor" / "rocq-robot" / "dist" / "index.js"
+    robot_js = project_root / "vendor" / "rocq-piler" / "dist" / "index.js"
     file_path = str(_tmp_v_file)
 
     async def _run():

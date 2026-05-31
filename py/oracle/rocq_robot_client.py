@@ -46,7 +46,7 @@ class RocqRobotClient:
         if robot_path is None:
             # Default: vendor/rocq-robot/dist/index.js relative to this file
             project_root = Path(__file__).resolve().parent.parent.parent
-            robot_path = project_root / "vendor" / "rocq-robot" / "dist" / "index.js"
+            robot_path = project_root / "vendor" / "rocq-piler" / "dist" / "index.js"
 
         if coq_lsp_path is None:
             import shutil
@@ -124,7 +124,7 @@ class RocqRobotClient:
     def focus(self, proof_name: str) -> GoalState:
         """Get full proof context (like coq_focus)."""
         resp = self._request("tools/call", {
-            "name": "coq_focus",
+            "name": "focus_proof",
             "arguments": {"file": str(self.file_path), "name": proof_name},
         })
         return self._parse_focus_response(resp)
@@ -132,7 +132,7 @@ class RocqRobotClient:
     def open_goals(self, proof_name: str) -> GoalState:
         """Get current goals with hypotheses (like coq_open_goals)."""
         resp = self._request("tools/call", {
-            "name": "coq_open_goals",
+            "name": "open_goals",
             "arguments": {"file": str(self.file_path), "name": proof_name},
         })
         return self._parse_goals_response(resp)
@@ -140,7 +140,7 @@ class RocqRobotClient:
     def insert_tactic(self, proof_name: str, tactic: str) -> GoalState:
         """Insert a tactic and get new state (like coq_insert_tactic)."""
         resp = self._request("tools/call", {
-            "name": "coq_insert_tactic",
+            "name": "insert_tactic",
             "arguments": {
                 "file": str(self.file_path),
                 "name": proof_name,
@@ -152,7 +152,7 @@ class RocqRobotClient:
     def try_tactic(self, proof_name: str, tactic: str) -> GoalState:
         """Try a tactic speculatively (like coq_try_tactic)."""
         resp = self._request("tools/call", {
-            "name": "coq_try_tactic",
+            "name": "try_step",
             "arguments": {
                 "file": str(self.file_path),
                 "name": proof_name,
@@ -164,7 +164,7 @@ class RocqRobotClient:
     def check(self) -> str:
         """Force document checking."""
         resp = self._request("tools/call", {
-            "name": "coq_check",
+            "name": "check_file",
             "arguments": {"file": str(self.file_path)},
         })
         return self._extract_text(resp)
@@ -172,7 +172,7 @@ class RocqRobotClient:
     def search(self, pattern: str) -> list[str]:
         """Search for lemmas/theorems."""
         resp = self._request("tools/call", {
-            "name": "coq_search",
+            "name": "search_lemmas",
             "arguments": {"file": str(self.file_path), "pattern": pattern},
         })
         text = self._extract_text(resp)
@@ -181,15 +181,15 @@ class RocqRobotClient:
     def about(self, term: str) -> str:
         """Get information about a term (speculative)."""
         resp = self._request("tools/call", {
-            "name": "coq_about",
-            "arguments": {"file": str(self.file_path), "thing": term},
+            "name": "inspect_about",
+            "arguments": {"file": str(self.file_path), "term": term},
         })
         return self._extract_text(resp)
 
     def check_term(self, term: str) -> str:
         """Check the type of an expression (speculative)."""
         resp = self._request("tools/call", {
-            "name": "coq_check_term",
+            "name": "inspect_term",
             "arguments": {"file": str(self.file_path), "term": term},
         })
         return self._extract_text(resp)
@@ -197,7 +197,7 @@ class RocqRobotClient:
     def require_lib(self, lib: str) -> str:
         """Import a library speculatively (doesn't modify the file)."""
         resp = self._request("tools/call", {
-            "name": "coq_require",
+            "name": "require_lib",
             "arguments": {"file": str(self.file_path), "lib": lib},
         })
         return self._extract_text(resp)
@@ -205,7 +205,7 @@ class RocqRobotClient:
     def locate(self, thing: str) -> str:
         """Find where a term is defined."""
         resp = self._request("tools/call", {
-            "name": "coq_locate",
+            "name": "locate_term",
             "arguments": {"file": str(self.file_path), "thing": thing},
         })
         return self._extract_text(resp)
@@ -254,7 +254,7 @@ class RocqRobotClient:
             return GoalState(error="no response from MCP server")
         if "error" in text.lower() or "failed" in text.lower():
             return GoalState(error=text[:500])
-        if "0 goals" in text or "no goals" in text or "done" in text.lower():
+        if "0 goals" in text or "no goals" in text or "done" in text.lower() or "proof finished" in text.lower():
             return GoalState(is_complete=True, proof_script=text)
         return GoalState(goals=[text])
 
@@ -264,7 +264,7 @@ class RocqRobotClient:
             return GoalState(error="no response from MCP server")
         if "error" in text.lower():
             return GoalState(error=text[:500])
-        if "0 goals" in text.lower() or "done" in text.lower():
+        if "0 goals" in text.lower() or "done" in text.lower() or "proof finished" in text.lower():
             return GoalState(is_complete=True, proof_script=text)
 
         # coq_focus response has: goals, proof script, bullet info
