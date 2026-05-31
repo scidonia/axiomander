@@ -7,8 +7,8 @@
     and the operational IMP commands implement it via the flat state encoding.
  *)
 
-Require Import ZArith String List.
-Require Import Coq.Sets.Ensembles.
+From Stdlib Require Import ZArith String List.
+From Stdlib Require Import Sets.Ensembles.
 Import ListNotations.
 Open Scope Z_scope.
 

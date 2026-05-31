@@ -1,8 +1,8 @@
-(lang dune 3.17)
-(using coq 0.10)
+(lang dune 3.21)
+(using rocq 0.11)
 
 (name axiomander)
 (package
   (name axiomander)
   (synopsis "Hoare-logic verification pipeline for Python")
-  (depends (coq (>= 8.20.0))))
+  (depends (rocq-core (>= 9.0.0)) (rocq-stdlib (>= 9.0.0))))

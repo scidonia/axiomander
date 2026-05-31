@@ -1,4 +1,4 @@
-Require Import ZArith String List Lia. Import ListNotations. Open Scope Z_scope.
+From Stdlib Require Import ZArith String List micromega.Lia. Import ListNotations. Open Scope Z_scope.
 Require Import Imp Wp Pydantic WpTactics.
 
 Definition s1 := (CSeq (CAss "x"%string (AVar "a"%string)) (CCall "inc"%string ((AVar "a"%string) :: nil) (fun s => ((asZ (s "x"%string) >= 0) /\ isVZ (s "x"%string) = true)) (fun s => (asZ (s "a2"%string) = (asZ (s "x"%string) + 1))) nil "a2"%string)).

@@ -1,5 +1,5 @@
 (* Generated from py/examples/simple_test.py *)
-Require Import ZArith String List Lia.
+From Stdlib Require Import ZArith String List micromega.Lia.
 Require Import Imp Wp WpTactics.
 Import ListNotations.
 Open Scope Z_scope.

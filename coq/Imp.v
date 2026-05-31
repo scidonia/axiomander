@@ -1,4 +1,4 @@
-Require Import ZArith String List Bool.
+From Stdlib Require Import ZArith String List Bool.
 Import ListNotations.
 
 Open Scope Z_scope.

@@ -113,18 +113,18 @@ dune build
 # Python side (when present)
 eval $(opam env); PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 
-# rocq-robot MCP server (for AI tool-calling)
-cd vendor/rocq-robot && npm install && npm run build
+# rocq-piler MCP server (for AI tool-calling)
+cd vendor/rocq-piler && npm install && npm run build
 
-# Register axiomander + rocq-robot as MCP servers in opencode:
+# Register axiomander + rocq-piler as MCP servers in opencode:
 # Add to ~/.config/opencode/opencode.json:
 #   "mcp": {
 #     "axiomander": {
 #       "command": ["/path/to/axiomander/.venv/bin/python3", "-u", "-m", "oracle.mcp_server"],
 #       "environment": { "PYTHONPATH": "/path/to/axiomander/py", "AXIOMANDER_ROOT": "/path/to/axiomander", ... }
 #     },
-#     "rocq-robot": {
-#       "command": ["node", "/path/to/axiomander/vendor/rocq-robot/dist/index.js", "--coq-lsp-path", "/path/to/coq-lsp"]
+#     "rocq-piler": {
+#       "command": ["node", "/path/to/axiomander/vendor/rocq-piler/dist/index.js", "--coq-lsp-path", "/path/to/coq-lsp"]
 #     }
 #   }
 
@@ -305,3 +305,5 @@ Best used after wp_reduce has cleared the structural layer.
 2. **Never `git checkout --` on multiple files.** That reverts everything indiscriminately. Instead, use `git checkout -- <single-file>` or `git stash` to preserve context. If a file is corrupted by a bad edit, restore only that file.
 3. **Verify tests pass after each change.** Run `uv run pytest py/tests/test_pipeline.py -q` before declaring a unit of work done.
 4. **Check `git status` before destructive git operations.** Know what you're about to lose.
+5. **Never change toolchain versions without explicit permission.** Do not `opam pin`, `opam install` a different version, downgrade, or upgrade dune/rocq/ocaml without asking first. Version changes cascade through the opam switch and can remove or break other packages.
+6. **Never alter the rocq standard library.** Do not delete, modify, or create files/symlinks in `~/.opam/rocq-*/lib/coq/`. The stdlib is a managed installation; debugging should focus on the project's own configuration.

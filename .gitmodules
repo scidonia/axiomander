@@ -1,3 +1,7 @@
-[submodule "vendor/rocq-robot"]
-	path = vendor/rocq-robot
-	url = git@github.com:scidonia/rocq-robot.git
+[submodule "vendor/coqhammer"]
+	path = vendor/coqhammer
+	url = https://github.com/lukaszcz/coqhammer.git
+	branch = rocq-9.1
+[submodule "vendor/rocq-piler"]
+	path = vendor/rocq-piler
+	url = git@github.com:scidonia/rocq-piler.git

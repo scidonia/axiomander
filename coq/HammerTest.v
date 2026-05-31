@@ -1,4 +1,4 @@
-Require Import ZArith.
+From Stdlib Require Import ZArith.
 From Hammer Require Import Hammer.
 Open Scope Z_scope.
 Set Hammer ATPLimit 30.

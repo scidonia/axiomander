@@ -1,4 +1,4 @@
-Require Import ZArith String List.
+From Stdlib Require Import ZArith String List.
 Require Import Imp.
 
 (** * Weakest Precondition Calculus *)

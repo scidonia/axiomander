@@ -1,4 +1,4 @@
-Require Import ZArith List Lia.
+From Stdlib Require Import ZArith List micromega.Lia.
 Import ListNotations.
 Open Scope Z_scope.
 

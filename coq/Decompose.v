@@ -1,4 +1,4 @@
-Require Import ZArith String List Lia. Import ListNotations. Open Scope Z_scope.
+From Stdlib Require Import ZArith String List micromega.Lia. Import ListNotations. Open Scope Z_scope.
 Require Import Imp Wp Pydantic WpTactics.
 
 Lemma wp_monotone : forall c (Q1 Q2 : assertion) s,

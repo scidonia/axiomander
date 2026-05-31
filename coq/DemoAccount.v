@@ -1,4 +1,4 @@
-Require Import ZArith String List Lia.
+From Stdlib Require Import ZArith String List micromega.Lia.
 Require Import Imp Wp Pydantic WpTactics.
 Import ListNotations.
 Open Scope Z_scope.
