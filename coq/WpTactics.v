@@ -10,7 +10,7 @@ Open Scope Z_scope.
 
 (** [wp_reduce] — unfold state, aeval, beval, asZ; simplify. *)
 Ltac wp_reduce :=
-  unfold wp, aeval, beval, asZ, asString, asFloat; cbn -[In clobber lget upd updZ].
+  unfold wp, aeval, beval, asZ, asString, asFloat; cbn -[In clobber lget upd updZ]; try (simpl; trivial).
 
 (** [wp_cif_btrue] — collapse [CIf BTrue c1 c2] WP to just [wp c1 Q s]. *)
 Lemma wp_cif_btrue : forall c1 c2 Q s,
@@ -131,6 +131,7 @@ Ltac wp_prove :=
   | [ H: Z.eqb ?a ?b = false |- _ ] => apply Z.eqb_neq in H; wp_prove
   | |- _ /\ _ => split; wp_prove
   | |- _ -> _ => intro; wp_prove
+  | |- (true -> _) /\ _ => split; [intros; wp_prove | intros; exfalso; auto]
   | |- context[wp (CIf BTrue _ _) _ _] => rewrite wp_cif_btrue; wp_prove
   | |- forall _, ~ In _ (_ :: _) -> lget _ _ = lget (clobber (lupd _ _ (VZ _)) _) _ => apply wp_ccall_frame
   | |- forall _, _ => intro; wp_prove
