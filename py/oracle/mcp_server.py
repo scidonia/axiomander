@@ -1115,8 +1115,34 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
 
     # Generate IMP via PyIR -> ImpIR
     imp_body, imp_ir = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
-    coq_source = _generate_coq(func_node, lint_results, imp_body, tree, hint,
-                                ghost_vars=ghost_vars, imp_ir=imp_ir)
+
+    # Ghost vars make staged proofs complex; the WP + frame conditions
+    # already prove variable preservation without ghost snapshots.
+    from oracle.imp_ir import ImpCCall
+    has_ccall = False
+    if imp_ir is not None:
+        def _has_ir_ccall(node) -> bool:
+            if isinstance(node, ImpCCall):
+                return True
+            for attr in ['commands', 'then_branch', 'else_branch', 'body']:
+                if hasattr(node, attr):
+                    val = getattr(node, attr)
+                    if isinstance(val, list):
+                        if any(_has_ir_ccall(c) for c in val):
+                            return True
+                    elif val is not None and _has_ir_ccall(val):
+                        return True
+            return False
+        has_ccall = _has_ir_ccall(imp_ir)
+    if has_ccall:
+        ghost_vars = {}
+
+    if os.environ.get("AXIOMANDER_OBLIGATIONS") == "1":
+        coq_source = _render_obligations_coq(func_node, lint_results, imp_body, tree,
+                                              hint, ghost_vars=ghost_vars, imp_ir=imp_ir)
+    else:
+        coq_source = _generate_coq(func_node, lint_results, imp_body, tree, hint,
+                                    ghost_vars=ghost_vars, imp_ir=imp_ir)
 
     # --- Coq-lsp oracle check ---
     # Companion hash file tracks what was last written by _verify_function.
@@ -3359,7 +3385,7 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
             # Postcondition + frame — stage 1: init VZ values, cbn reduces string_dec
             stage_lemmas += "  - intro r. intro Hr. split.\n"
             stage_lemmas += (
-                "    + unfold " + qn + "; cbn. repeat split; auto.\n"
+                "    + unfold " + qn + "; cbn. repeat (match goal with H: _ /\\ _ |- _ => destruct H end). repeat split; eauto.\n"
             )
             stage_lemmas += (
                 '    + apply (wp_ccall_frame _ "'
@@ -3404,10 +3430,11 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
             )
             has_pre_hyp = arg_name and arg_name in all_params
             stage_lemmas += (
-                "  intros " + params_lemma_call + " s "
+                "  intros " + params_lemma + " s "
                 + ("Hpre " if has_pre_hyp else "")
                 + hyp_names + ".\n"
             )
+            stage_lemmas += "  repeat (match goal with H: _ /\\ _ |- _ => destruct H end).\n"
             stage_lemmas += "  wp_reduce. split.\n"
 
             # Precondition check — rewrite asZ using the value conjunct, then lia
@@ -3421,7 +3448,7 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
             # Postcondition + frame — cbn reduces string_dec, auto closes frame terms
             stage_lemmas += "  - intro r. intro Hr. split.\n"
             stage_lemmas += (
-                "    + unfold " + qn + "; cbn. rewrite Hr. repeat split; auto.\n"
+                "    + unfold " + qn + "; cbn. rewrite Hr. repeat (match goal with H: _ /\\ _ |- _ => destruct H end). repeat split; eauto.\n"
             )
             stage_lemmas += (
                 '    + apply (wp_ccall_frame _ "'
@@ -3574,7 +3601,8 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
                     + _gen_q_destruct_pat(prev_conjs_outer, prefix="G") + "."
                 )
                 final_proof = _gen_final_assign_proof(
-                    fv, q_value_conjs, n_stages, name)
+                    fv, q_value_conjs, n_stages, name,
+                    num_hyps=len(prev_conjs_outer))
                 main_proof_lines.extend(final_proof)
                 main_proof_lines.append("    }")
             # Close each level's closing brace
@@ -3692,19 +3720,162 @@ def _gen_destruct_and_final_proof(qn: str, conjs: list[str], fv: list[str],
     lines.append("      " + "destruct Hq as " + pat + ".")
     lines.append("      " + "simpl. unfold lget.")
     # Direct proof: rewrite with value hypotheses and use lia
-    lines.append("      " + "repeat (try rewrite H0; try rewrite H1; try rewrite H2; try rewrite H3; try rewrite H4; try rewrite H5; try rewrite H6; try rewrite H7).")
+    rewrites = "; ".join(f"try rewrite H{i}" for i in range(num_conjs))
+    lines.append("      " + f"repeat ({rewrites}).")
     lines.append("      " + "try assumption; try reflexivity; try lia.")
     return "\n".join(lines)
 
 
 def _gen_final_assign_proof(fv: list[str], q_value_conjs: list[str],
-                              n_stages: int, name: str) -> list[str]:
+                              n_stages: int, name: str,
+                              num_hyps: int = 8) -> list[str]:
     """Generate the final assignment proof for multi-CCall chain."""
     lines = []
     lines.append("        simpl. unfold lget.")
-    lines.append("        repeat (try rewrite G0; try rewrite G1; try rewrite G2; try rewrite G3; try rewrite G4; try rewrite G5; try rewrite G6; try rewrite G7).")
+    rewrites = "; ".join(f"try rewrite G{i}" for i in range(num_hyps))
+    lines.append(f"        repeat ({rewrites}).")
     lines.append("        try assumption; try reflexivity; try lia.")
     return lines
+
+
+def _render_obligations_coq(func_node, lint_results, imp_body: str,
+                             full_tree=None, hint: str | None = None,
+                             ghost_vars: dict[str, str] | None = None,
+                             imp_ir: object = None) -> str:
+    """Generate Coq from per-obligation theorems (AXIOMANDER_OBLIGATIONS=1 path)."""
+    import ast as _ast
+    from .obligation_gen import generate_obligations
+
+    name = func_node.name
+    params = [name for name, _ in _func_params(func_node)]
+
+    if full_tree is not None:
+        expanded_params, class_fields, params_coq, init_state, record_section = \
+            _expand_params(full_tree, params, func_node)
+    else:
+        expanded_params = params
+        coq_types = {
+            arg: _py_type_to_coq(annot)
+            for arg, annot in _func_params(func_node)
+        }
+        params_coq = " ".join(f"({p} : {coq_types.get(p, 'Z')})" for p in params)
+        init_state = "empty_state"
+        for p in params:
+            init_state = f'(upd {init_state} "{p}"%string (VZ {p}))'
+        record_section = ""
+
+    pres = [r for r in lint_results if r.classification == "precondition"]
+    posts = [r for r in lint_results if r.classification == "postcondition"]
+
+    pre_coq = " /\\ ".join(
+        r.lint_result.coq_translation
+        for r in pres if r.lint_result.coq_translation
+    ) or "True"
+    post_coq = " /\\ ".join(
+        r.lint_result.coq_translation
+        for r in posts if r.lint_result.coq_translation
+    ) or "True"
+
+    if full_tree is not None:
+        pre_coq = _subst_param_names(pre_coq, func_node, full_tree)
+
+    implicit_pres: list[str] = []
+    for arg, annot in _func_params(func_node):
+        if _is_list_param(annot) or _is_string_param(annot):
+            implicit_pres.append(f"({arg}__len >= 0)")
+        elif _is_dict_param(annot):
+            implicit_pres.append(f"({arg}__count >= 0)")
+    if implicit_pres:
+        extra = " /\\ ".join(implicit_pres)
+        pre_coq = f"({extra})" if pre_coq == "True" else f"({pre_coq} /\\ {extra})"
+
+    hammer_import = "From Hammer Require Import Hammer.\n" if hint == "hammer" else ""
+    bool_import = "Require Import Bool.\n" if "BOr" in imp_body else ""
+
+    source_notes = ""
+    for r in lint_results:
+        if r.lint_result.coq_translation:
+            safe = r.lint_result.coq_translation.replace("*)", "* )").replace("(*", "( *")[:80]
+            source_notes += f"(* line {r.lineno}: [{r.classification}] {safe} *)\n"
+
+    contract_map = _build_contract_map(full_tree) if full_tree else {}
+
+    obligations = generate_obligations(
+        func_node, imp_ir, contract_map, params,
+        ghost_vars or {}, init_state, pre_coq, post_coq, name,
+    )
+
+    # Collect segment + Q definitions from obligations' dependencies
+    seg_defs = ""
+    q_defs = ""
+    from .obligation_gen import _collect_ccalls, _extract_segments, _get_ccall_from_seg
+    from .obligation_gen import _build_q_defs, _writes_list_coq
+
+    ccalls = _collect_ccalls(imp_ir)
+    if ccalls:
+        all_frame_vars = set(params) | set(ghost_vars.keys() if ghost_vars else [])
+        expanded_params = sorted(all_frame_vars)
+        val_init: dict[str, str] = {p: p for p in params}
+        if ghost_vars:
+            val_init.update(ghost_vars)
+
+        segments, ccall_segs = _extract_segments(imp_ir)
+        q_def_data, seg_names, seg_coqs = _build_q_defs(
+            ccall_segs, contract_map, expanded_params, pre_coq, post_coq, name,
+            all_params_param=expanded_params, val_init=val_init,
+        )
+
+        # Emit segment definitions
+        for seg_name, seg_coq in zip(seg_names, seg_coqs):
+            seg_defs += f"Definition {seg_name} : com := {seg_coq}.\n"
+
+        # Emit Q definitions
+        n_stages = len(ccall_segs)
+        params_for_q = " ".join(expanded_params)
+        for k in range(n_stages):
+            qn = f"Q_{name}_{k + 1}"
+            conj_strs = q_def_data.all_conjs[k]
+            body = " /\\ ".join(conj_strs)
+            q_defs += (
+                f"Definition {qn} ({params_for_q} : Z) : assertion :=\n"
+                f"  fun s => {body}.\n\n"
+            )
+
+    frame_lemmas_block = ""
+    stage_lemmas_block = ""
+    post_block = ""
+    main_theorem_block = ""
+
+    for ob in obligations:
+        block = ob.coq_block
+        if ob.kind.value == "frame":
+            frame_lemmas_block += block + "\n"
+        elif ob.kind.value == "ccall_stage":
+            stage_lemmas_block += block + "\n"
+        elif ob.kind.value == "post":
+            post_block = block + "\n"
+        elif ob.kind.value == "composition":
+            main_theorem_block = block + "\n"
+
+    return f"""(* Auto-generated from {name} -- per-obligation mode *)
+{source_notes}
+{hammer_import}
+Require Import ZArith String List Lia.
+{bool_import}Require Import Imp Wp Pydantic WpTactics.
+Import ListNotations.
+Open Scope Z_scope.
+
+{record_section}
+Definition {name}_body : com :=
+  {imp_body}.
+
+{seg_defs}
+{q_defs}
+{frame_lemmas_block}
+{stage_lemmas_block}
+{post_block}
+{main_theorem_block}
+"""
 
 
 def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: str | None = None, ghost_vars: dict[str, str] | None = None, imp_ir: object = None) -> str:
@@ -4156,14 +4327,14 @@ Theorem {name}_vcg_exit : forall {vcg_params},
         proof_block = staged_proof_body
         if ghost_vars and staged_body_composition:
             ghost_wrap = ghost_wrap.replace(f"wp {name}_body", f"wp {staged_body_composition}")
-            # Replace init_state with extended_init since ghost CIf is excluded from body
             extended_init_state = init_state
             for g, init_expr in ghost_vars.items():
                 extended_init_state = f'(upd {extended_init_state} "{g}"%string (VZ {init_expr}))'
             ghost_wrap = ghost_wrap.replace(init_state, extended_init_state)
     else:
-        if frame_lemmas:
-            pass
+        if frame_applies:
+            # Wire per-callee frame lemmas into the proof before wp_prove
+            proof = proof.replace("  wp_prove.", f"{frame_applies}  wp_prove.")
         proof_block = proof
 
     return f"""(* Auto-generated from {name} *){frame_comment}
