@@ -71,7 +71,7 @@ def _make_llm():
     )
 
 
-SYSTEM_PROMPT = """You are a Coq proof assistant using rocq-robot MCP tools.
+SYSTEM_PROMPT = """You are a Coq proof assistant using rocq-piler MCP tools.
 
 Tools:
   focus_proof(file, name)  — show proof state and goals
@@ -94,9 +94,37 @@ Workflow:
    "done — Qed applied".  apply alone does NOT close the goal — it creates subgoals.
 6. Use search_lemmas to discover available tactics and lemmas when stuck.
 
-For IMP verification goals (wp, CSeq, CCall), use wp_seq_decompose to split
-a CSeq and wp_ccall_frame for callee frame conditions.  Both are available
-from the WpTactics import."""
+For IMP verification goals (wp, CSeq, CCall), prefer this workflow:
+
+1. If the theorem already contains stage lemmas such as `foo_stage_1_correct`,
+   `foo_stage_2_correct`, and a post lemma `foo_post`, USE THEM.
+2. For sequential composition, use `wp_seq_decompose`.
+
+`wp_seq_decompose` signature:
+
+  forall c1 c2 (Q1 Q2 : assertion) s,
+    wp c1 Q1 s ->
+    (forall s', Q1 s' -> wp c2 Q2 s') ->
+    wp (CSeq c1 c2) Q2 s.
+
+When to use it:
+- Goal shape: `wp (CSeq c1 c2) Q s`
+- Strategy:
+  - `apply (wp_seq_decompose c1 c2 Q1 Q _).`
+  - first subgoal: apply the stage lemma for `c1`
+  - second subgoal: `intros s' Hq.` then unfold `Q1` and continue
+
+Typical staged proof skeleton:
+
+  apply (wp_seq_decompose s1 rest (Q_name_1 params...) post _).
+  { apply foo_stage_1_correct. ... }
+  { intros s1 Hq. unfold Q_name_1 in Hq. destruct Hq as [...]. ... }
+
+For callee frame conditions, use either generated frame lemmas such as
+`inc_frame_a_a2` / `inc_frame_b_b2`, or the generic `wp_ccall_frame`.
+
+If the file contains generated helper lemmas/theorems, prefer applying them
+over inventing low-level proofs from scratch."""
 
 
 # ── Graph ──────────────────────────────────────────────────────────

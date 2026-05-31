@@ -3856,6 +3856,7 @@ def _render_obligations_coq(func_node, lint_results, imp_body: str,
     stage_lemmas_block = ""
     post_block = ""
     main_theorem_block = ""
+    suggested_proof_comment = ""
 
     for ob in obligations:
         block = ob.coq_block
@@ -3867,6 +3868,20 @@ def _render_obligations_coq(func_node, lint_results, imp_body: str,
             post_block = block + "\n"
         elif ob.kind.value == "composition":
             main_theorem_block = block + "\n"
+
+    stage_names = [ob.theorem_name for ob in obligations if ob.kind.value == "ccall_stage"]
+    post_names = [ob.theorem_name for ob in obligations if ob.kind.value == "post"]
+    if stage_names:
+        stage_list = ", ".join(stage_names)
+        post_list = ", ".join(post_names) if post_names else "(no post lemma)"
+        suggested_proof_comment = f"""(* Suggested staged proof strategy:
+   - use wp_seq_decompose to split each CSeq stage
+   - apply stage lemmas: {stage_list}
+   - finish with post lemma: {post_list}
+   - if stuck, focus on one stage theorem at a time before the main theorem
+*)
+
+"""
 
     return f"""(* Auto-generated from {name} -- per-obligation mode *)
 {source_notes}
@@ -3880,6 +3895,7 @@ Open Scope Z_scope.
 Definition {name}_body : com :=
   {imp_body}.
 
+{suggested_proof_comment}
 {seg_defs}
 {q_defs}
 {frame_lemmas_block}
