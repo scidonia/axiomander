@@ -492,21 +492,9 @@ def tool_check_function(args: dict) -> str:
             lines.append(f"**✓ Proved ({cached.level.value}){method}** — cached — {elapsed:.0f}ms\n")
             return "\n".join(lines)
 
-    # Step 3: Try verification
-    goal = _verify_function(source, func_name, args.get("hint"))
+    # Step 3: Try full verification pipeline (level1 -> coq-lsp -> LLM)
+    goal = _verify_function_full(source, func_name, args.get("hint"))
     elapsed = (time.time() - t0) * 1000
-
-    # Step 3b: If Level 1 couldn't close the goal, try coq-lsp oracle
-    if goal and not goal.is_proved():
-        goal = _try_coqlsp_oracle(source, func_name, goal)
-        elapsed = (time.time() - t0) * 1000
-    # Step 3c: If still not proved, try LLM oracle
-    if goal and not goal.is_proved():
-        from oracle.client import credits_used as _credits_used, credit_budget_exhausted as _budget_exhausted
-        goal = _try_llm_oracle(source, func_name, goal, args.get("hint"))
-        elapsed = (time.time() - t0) * 1000
-        if _budget_exhausted():
-            goal.error_detail += f" (LLM credit budget exhausted: {_credits_used()} calls)"
 
     # Step 3c: Store result in cache (only if proved)
     if hashes and goal and goal.is_proved():
@@ -650,9 +638,7 @@ def tool_verify_changed(args: dict) -> str:
                 proved += 1
                 continue
 
-        goal = _verify_function(source, name, args.get("hint"))
-        if goal and not goal.is_proved():
-            goal = _try_llm_oracle(source, name, goal, args.get("hint"))
+        goal = _verify_function_full(source, name, args.get("hint"))
 
         elapsed = (time.time() - t0) * 1000
 
@@ -1372,6 +1358,27 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
             tmp_path.unlink(missing_ok=True)
 
 
+def _verify_function_full(source: str, func_name: str, hint: str | None = None) -> GoalStatus | None:
+    """Run the full verification pipeline for one function.
+
+    Stages:
+      1. Base Coq verification (`_verify_function`)
+      2. coq-lsp / rocq-piler repair oracle
+      3. LLM oracle
+
+    This helper is the structured entrypoint the public tools should call.
+    """
+    goal = _verify_function(source, func_name, hint)
+    if goal and not goal.is_proved():
+        goal = _try_coqlsp_oracle(source, func_name, goal)
+    if goal and not goal.is_proved():
+        from oracle.client import credits_used as _credits_used, credit_budget_exhausted as _budget_exhausted
+        goal = _try_llm_oracle(source, func_name, goal, hint)
+        if goal and _budget_exhausted():
+            goal.error_detail += f" (LLM credit budget exhausted: {_credits_used()} calls)"
+    return goal
+
+
 def _capture_residual_goal(coq_source: str, error_line: int) -> "str | None":
     """Generate a Coq fragment with Show at the error point, compile, parse goal."""
     lines = coq_source.split("\n")
@@ -1550,18 +1557,38 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
 
     coq_source = AI_PROVE_PATH.read_text()
     import re
-    thm_match = re.search(r'(Theorem|Lemma) (\w+_correct)\b', coq_source)
-    if not thm_match:
+    blocks = re.findall(r'((?:Theorem|Lemma)\s+(\w+)\b.*?Proof\.(.*?)(Qed\.|Admitted\.))', coq_source, re.DOTALL)
+    if not blocks:
+        return goal
+
+    solved_names: list[str] = []
+    unsolved_names: list[str] = []
+    for _, name, _body, ender in blocks:
+        if ender == 'Qed.':
+            solved_names.append(name)
+        else:
+            unsolved_names.append(name)
+
+    if not unsolved_names:
         return goal
 
     proof_idx = coq_source.rfind("Proof.")
     if proof_idx == -1:
         return goal
-    preamble = coq_source[:proof_idx + len("Proof.")]
+    preamble = coq_source
 
-    print(f"  [oracle] Attempting LangGraph LLM proof for {func_name}...", file=_sys.stderr)
+    print(
+        f"  [oracle] Attempting LangGraph LLM proof for {func_name} "
+        f"(unsolved: {', '.join(unsolved_names)})...",
+        file=_sys.stderr,
+    )
     from oracle.langgraph_oracle import run_langgraph_oracle
-    ok, proof_script, err = run_langgraph_oracle(preamble, max_steps=20)
+    ok, proof_script, err = run_langgraph_oracle(
+        preamble,
+        max_steps=max(20, 20 * len(unsolved_names)),
+        target_names=unsolved_names,
+        solved_names=solved_names,
+    )
 
     if ok:
         goal.level = ProofLevel.LEVEL3_LLM
