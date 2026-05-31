@@ -12,6 +12,15 @@ Open Scope Z_scope.
 Ltac wp_reduce :=
   unfold wp, aeval, beval, asZ, asString, asFloat; cbn -[In clobber lget upd updZ].
 
+(** [wp_cif_btrue] — collapse [CIf BTrue c1 c2] WP to just [wp c1 Q s]. *)
+Lemma wp_cif_btrue : forall c1 c2 Q s,
+  wp (CIf BTrue c1 c2) Q s <-> wp c1 Q s.
+Proof.
+  intros; split; intros H.
+  - unfold wp in H; simpl in H. destruct H as [Ht _]. apply Ht; reflexivity.
+  - unfold wp; simpl. split; [intros; apply H | intros Hb; inversion Hb].
+Qed.
+
 (** Frame condition lemmas for CCall writes enforcement. *)
 Lemma upd_unchanged : forall s x y v, x <> y -> lget (upd s y v) x = lget s x.
 Proof.
@@ -122,6 +131,7 @@ Ltac wp_prove :=
   | [ H: Z.eqb ?a ?b = false |- _ ] => apply Z.eqb_neq in H; wp_prove
   | |- _ /\ _ => split; wp_prove
   | |- _ -> _ => intro; wp_prove
+  | |- context[wp (CIf BTrue _ _) _ _] => rewrite wp_cif_btrue; wp_prove
   | |- forall _, ~ In _ (_ :: _) -> lget _ _ = lget (clobber (lupd _ _ (VZ _)) _) _ => apply wp_ccall_frame
   | |- forall _, _ => intro; wp_prove
   | |- exists _, _ => eexists; wp_prove
