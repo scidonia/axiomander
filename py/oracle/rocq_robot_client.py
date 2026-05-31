@@ -79,6 +79,8 @@ class RocqRobotClient:
         ]
         if self.workspace_root:
             cmd.extend(["--workspace-root", str(self.workspace_root)])
+            build_coq = str(Path(self.workspace_root) / "_build" / "default" / "coq")
+            cmd.extend(["--coq-lsp-args", f"-R {build_coq},Imp"])
 
         self._process = subprocess.Popen(
             cmd,

@@ -55,6 +55,8 @@ class PyToImpLowerer:
         if isinstance(expr, PyConstant):
             return self._lower_constant(expr)
         if isinstance(expr, PyName):
+            if expr.name == "__debug__":
+                return ImpANum(value=1)
             return ImpAVar(name=expr.name)
         if isinstance(expr, PyBinaryOp):
             return self._lower_binop(expr)
@@ -206,6 +208,8 @@ class PyToImpLowerer:
         if isinstance(expr, PyIsInstance):
             return self._lower_isinstance(expr)
         if isinstance(expr, PyName):
+            if expr.name == "__debug__":
+                return ImpBTrue()
             return ImpBNot(operand=ImpBEq(
                 left=ImpAVar(name=expr.name), right=ImpANum(value=0)))
         if isinstance(expr, PyCall):

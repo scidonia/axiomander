@@ -13,3 +13,6 @@ dist/
 *.cm*
 .lia.cache
 .axiomander/proofs/
+.axiomander/cache/
+.axiomander/transcripts/
+.axiomander/cache/graph.json
