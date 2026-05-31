@@ -1137,9 +1137,9 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
     if has_ccall:
         ghost_vars = {}
 
-    if os.environ.get("AXIOMANDER_OBLIGATIONS") == "1":
+    if has_ccall:
         coq_source = _render_obligations_coq(func_node, lint_results, imp_body, tree,
-                                              hint, ghost_vars=ghost_vars, imp_ir=imp_ir)
+                                              hint, ghost_vars=ghost_vars if not has_ccall else {}, imp_ir=imp_ir)
     else:
         coq_source = _generate_coq(func_node, lint_results, imp_body, tree, hint,
                                     ghost_vars=ghost_vars, imp_ir=imp_ir)
