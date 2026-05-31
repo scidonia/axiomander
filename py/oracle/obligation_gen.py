@@ -420,7 +420,7 @@ def _mk_stage1_statement_proof(
     if len(pre_parts) > 1:
         pre_hyps = " ".join(f"H{i}" for i in range(len(pre_parts)))
         lines.append(f"  destruct Hpre as [{pre_hyps}].")
-    lines.append("  wp_reduce. hammer.")
+    lines.append("  wp_reduce. solve [sauto | hammer].")
     proof = "\n".join(lines)
     return statement, proof
 
@@ -474,7 +474,7 @@ def _mk_stage_k_statement_proof(
         f"  intros {params_lemma} s "
         + ("Hpre " if has_pre_hyp else "")
         + hyp_names + ".",
-        "  wp_reduce. hammer.",
+        "  wp_reduce. solve [sauto | hammer].",
     ]
     proof = "\n".join(lines_proof)
     return statement, proof
@@ -500,7 +500,7 @@ def _mk_post_obligation(
     )
 
     lines = [f"  intros {' '.join(expanded_params)} s."]
-    lines.append("  wp_reduce. hammer.")
+    lines.append("  wp_reduce. solve [sauto | hammer].")
     proof = "\n".join(lines)
     return statement, proof
 
