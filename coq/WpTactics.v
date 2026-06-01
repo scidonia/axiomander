@@ -10,7 +10,7 @@ Open Scope Z_scope.
 
 (** [wp_reduce] — unfold state, aeval, beval, asZ; simplify. *)
 Ltac wp_reduce :=
-  unfold wp, aeval, beval, asZ, asString, asFloat; cbn -[In clobber lget upd updZ]; try (simpl; trivial).
+  unfold wp, aeval, beval, asZ, asString, asFloat; cbn -[In clobber lget upd updZ lupd].
 
 (** [wp_cif_btrue] — collapse [CIf BTrue c1 c2] WP to just [wp c1 Q s]. *)
 Lemma wp_cif_btrue : forall c1 c2 Q s,
@@ -84,7 +84,27 @@ Proof.
     + intro Hin. apply Hnotin. right. auto.
 Qed.
 
+Lemma wp_ccall_frame_lookup : forall (s : state) (target : var) (writes : list var) (r : Z) (x : var),
+  ~ In x (target :: writes) -> (clobber (lupd s target (VZ r)) writes) x = s x.
+Proof.
+  intros s target writes r x Hnotin.
+  change ((clobber (lupd s target (VZ r)) writes) x) with
+    (lget (clobber (lupd s target (VZ r)) writes) x).
+  change (s x) with (lget s x).
+  symmetry. apply wp_ccall_frame. exact Hnotin.
+Qed.
+
 Opaque In.
+
+Ltac frame_notin :=
+  let H := fresh "Hnotin" in
+  intro H; repeat (destruct H as [H | H]);
+  try discriminate; contradiction.
+
+Lemma isVZ_asZ : forall v, isVZ v = true -> v = VZ (asZ v).
+Proof.
+  destruct v; simpl; intros H; try discriminate; reflexivity.
+Qed.
 
 (** Coercion-form state-lookup lemmas.
 

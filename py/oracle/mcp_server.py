@@ -49,6 +49,7 @@ from .reporting import (
 from .client import oracle_query, interactive_oracle_query, load_config
 from .py_ir_translator import PyIRTranslator
 from .py_to_imp import PyToImpLowerer
+from .docstring_contracts import docstring_assert_nodes, parse_axiomander_docstring
 
 PROJECT_ROOT = Path(os.environ.get(
     "AXIOMANDER_ROOT",
@@ -158,6 +159,15 @@ def _compute_hashes(source: str, func_name: str, tree: "ast.Module | None" = Non
                     callee = _get_call_name(n)
                     if callee:
                         callees.add(callee)
+
+    for stmt, cls in _docstring_contract_asserts(func_node):
+        linter = linter_pre if cls == "precondition" else linter_post
+        lr = linter.lint_expression(stmt.test)
+        coq = lr.coq_translation or ""
+        if cls == "precondition":
+            pres_coq.append(coq)
+        elif cls == "postcondition":
+            posts_coq.append(coq)
 
     # Also walk body for calls (non-assert, non-expr)
     for stmt in ast.walk(func_node):
@@ -1086,6 +1096,13 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
                 node=stmt, lineno=stmt.lineno, col_offset=stmt.col_offset,
                 classification=cls, lint_result=lr,
             ))
+    for stmt, cls in _docstring_contract_asserts(func_node):
+        linter = linter_pre if cls == "precondition" else linter_post
+        lr = linter.lint_expression(stmt.test)
+        lint_results.append(AssertInfo(
+            node=stmt, lineno=stmt.lineno, col_offset=stmt.col_offset,
+            classification=cls, lint_result=lr,
+        ))
 
     bad = [r for r in lint_results if not r.lint_result.is_valid]
     if bad:
@@ -1592,7 +1609,7 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
         # Prefer the last reported line number: warnings often mention early
         # import lines, while the final line number usually points at the
         # actual failing theorem/lemma.
-        line_matches = re.findall(r'line (\d+)', goal.error_detail)
+        line_matches = re.findall(r'File "[^"]+", line (\d+)', goal.error_detail)
         if line_matches:
             err_line = int(line_matches[-1])
             lines = coq_source.splitlines()
@@ -1625,8 +1642,8 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
     for _full, name, _body, ender, _start, _end in reversed(blocks):
         if name in unsolved_names and ender == 'Qed.' and 'frame_' not in name:
             llm_source = re.sub(
-                rf'((?:Theorem|Lemma)\s+{re.escape(name)}\b.*?Proof\..*?)Qed\.',
-                r'\1Admitted.',
+                rf'((?:Theorem|Lemma)\s+{re.escape(name)}\b.*?Proof\.).*?Qed\.',
+                r'\1\nAdmitted.',
                 llm_source,
                 count=1,
                 flags=re.DOTALL,
@@ -1749,7 +1766,7 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
 
     # Build preamble with imports, segmented defs, stage lemmas, goal
     import_prefix = (
-        "Require Import ZArith String List Lia.\n"
+        "From Stdlib Require Import ZArith String List Lia.\n"
         "Require Import Imp Wp WpTactics.\n"
         "Import ListNotations.\n"
         "Open Scope Z_scope.\n\n"
@@ -1776,7 +1793,7 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
         proofs_dir.mkdir(parents=True, exist_ok=True)
         # Save full proof — imports + definitions (NOT staged lemmas) + new proof
         import_prefix_save = (
-            "Require Import ZArith String List Lia.\n"
+            "From Stdlib Require Import ZArith String List Lia.\n"
             "Require Import Imp Wp WpTactics.\n"
             "Import ListNotations.\n"
             "Open Scope Z_scope.\n\n"
@@ -2466,6 +2483,10 @@ def _get_attribute_base(node: ast.Attribute) -> str | None:
     return None
 
 
+def _docstring_contract_asserts(func_node: ast.FunctionDef) -> list[tuple[ast.Assert, str]]:
+    return docstring_assert_nodes(func_node)
+
+
 def _detect_ghost_vars(func_node: ast.FunctionDef) -> dict[str, str]:
     """Detect ghost variables and their initialiser expressions.
 
@@ -2488,6 +2509,10 @@ def _detect_ghost_vars(func_node: ast.FunctionDef) -> dict[str, str]:
         if isinstance(node, ast_module.Name):
             return node.id
         return None
+
+    for g, init in parse_axiomander_docstring(func_node).where.items():
+        ghost.add(g)
+        ghost_inits[g] = init
 
     # Pass 1: variables assigned inside 'if __debug__:' blocks
     for node in ast_module.walk(func_node):
@@ -3848,6 +3873,16 @@ def _render_obligations_coq(func_node, lint_results, imp_body: str,
     if full_tree is not None:
         pre_coq = _subst_param_names(pre_coq, func_node, full_tree)
 
+    # In docstring `where:` specs, ghost names are logical aliases for their
+    # initializer expressions.  Obligation-local post/stage lemmas do not carry
+    # the outer existential equality, so substitute aliases before generating
+    # obligations.
+    if ghost_vars:
+        import re as _re_ghost
+        for g, init in ghost_vars.items():
+            pre_coq = _re_ghost.sub(rf'(?<![A-Za-z0-9_"%]){_re_ghost.escape(g)}(?![A-Za-z0-9_"%])', init, pre_coq)
+            post_coq = _re_ghost.sub(rf'(?<![A-Za-z0-9_"%]){_re_ghost.escape(g)}(?![A-Za-z0-9_"%])', init, post_coq)
+
     implicit_pres: list[str] = []
     for arg, annot in _func_params(func_node):
         if _is_list_param(annot) or _is_string_param(annot):
@@ -3863,7 +3898,7 @@ def _render_obligations_coq(func_node, lint_results, imp_body: str,
     frame_applies = ""
     frame_applies = ""
     hammer_import = "From Hammer Require Import Hammer Tactics.\n"
-    bool_import = "Require Import Bool.\n" if "BOr" in imp_body else ""
+    bool_import = "From Stdlib Require Import Bool.\n" if "BOr" in imp_body else ""
 
     source_notes = ""
     for r in lint_results:
@@ -3948,7 +3983,7 @@ def _render_obligations_coq(func_node, lint_results, imp_body: str,
     return f"""(* Auto-generated from {name} -- per-obligation mode *)
 {source_notes}
 {hammer_import}
-Require Import ZArith String List Lia.
+From Stdlib Require Import ZArith String List Lia.
 {bool_import}Require Import Imp Wp Pydantic WpTactics.
 Import ListNotations.
 Open Scope Z_scope.
@@ -4276,7 +4311,7 @@ Theorem {name}_vcg_exit : forall {vcg_params},
     else:
         proof = "  intros.\n  wp_prove."
 
-    bool_import = "Require Import Bool.\n" if "BOr" in imp_body else ""
+    bool_import = "From Stdlib Require Import Bool.\n" if "BOr" in imp_body else ""
 
     # Build annotated source comments for pre/post conditions
     source_notes = ""
@@ -4433,7 +4468,7 @@ Theorem {name}_vcg_exit : forall {vcg_params},
     return f"""(* Auto-generated from {name} *){frame_comment}
 {source_notes}
 {hammer_import}
-Require Import ZArith String List Lia.
+From Stdlib Require Import ZArith String List Lia.
 {bool_import}Require Import Imp Wp Pydantic WpTactics.
 Import ListNotations.
 Open Scope Z_scope.

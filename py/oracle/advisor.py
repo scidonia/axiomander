@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from .client import load_config, call_llm
+from .docstring_contracts import parse_axiomander_docstring
 
 
 import ast
@@ -74,6 +75,16 @@ def analyze_function(source: str, func_name: str | None = None) -> FunctionAnaly
         return FunctionAnalysis(name=func_name or "unknown")
 
     analysis = FunctionAnalysis(name=func_node.name)
+
+    doc_contracts = parse_axiomander_docstring(func_node)
+    if doc_contracts.requires:
+        analysis.has_preconditions = True
+        for req in doc_contracts.requires:
+            analysis.existing_asserts.append(f"Docstring [precondition]: {req}")
+    if doc_contracts.ensures:
+        analysis.has_postconditions = True
+        for ens in doc_contracts.ensures:
+            analysis.existing_asserts.append(f"Docstring [postcondition]: {ens}")
 
     # Check for loops and conditionals
     for node in ast.walk(func_node):

@@ -6,10 +6,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from oracle.mcp_server import (
-    _verify_function, _generate_coq, _gen_imp_body, _build_contract_map,
+    _generate_coq, _render_obligations_coq, _gen_imp_body, _build_contract_map,
     ContractLinter, _classify_assert, _infer_var_types, _func_params,
     _expand_params, _collect_predicates, _detect_ghost_vars,
+    _docstring_contract_asserts,
 )
+from oracle.imp_ir import ImpCCall
 
 
 def dump_obligations(source: str, func_name: str, outdir: str) -> str:
@@ -45,11 +47,36 @@ def dump_obligations(source: str, func_name: str, outdir: str) -> str:
                 node=stmt, lineno=stmt.lineno, col_offset=stmt.col_offset,
                 classification=cls, lint_result=lr,
             ))
+    for stmt, cls in _docstring_contract_asserts(func_node):
+        linter = linter_pre if cls == "precondition" else linter_post
+        lr = linter.lint_expression(stmt.test)
+        from oracle.mcp_server import AssertInfo
+        lint_results.append(AssertInfo(
+            node=stmt, lineno=stmt.lineno, col_offset=stmt.col_offset,
+            classification=cls, lint_result=lr,
+        ))
 
     imp_body, imp_ir = _gen_imp_body(tree, func_node,
                                       contract_map=_build_contract_map(tree))
-    coq = _generate_coq(func_node, lint_results, imp_body, tree, None,
-                         ghost_vars=ghost_vars, imp_ir=imp_ir)
+
+    def has_ccall(node) -> bool:
+        if isinstance(node, ImpCCall):
+            return True
+        for attr in ("commands", "then_branch", "else_branch", "body"):
+            if hasattr(node, attr):
+                val = getattr(node, attr)
+                if isinstance(val, list) and any(has_ccall(v) for v in val):
+                    return True
+                if val is not None and not isinstance(val, list) and has_ccall(val):
+                    return True
+        return False
+
+    if has_ccall(imp_ir):
+        coq = _render_obligations_coq(func_node, lint_results, imp_body, tree, None,
+                                      ghost_vars=ghost_vars, imp_ir=imp_ir)
+    else:
+        coq = _generate_coq(func_node, lint_results, imp_body, tree, None,
+                            ghost_vars=ghost_vars, imp_ir=imp_ir)
 
     outpath = Path(outdir) / f"{func_name}.v"
     outpath.parent.mkdir(parents=True, exist_ok=True)

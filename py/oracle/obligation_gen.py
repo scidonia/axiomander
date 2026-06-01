@@ -51,7 +51,11 @@ def generate_obligations(
 
     obligations: list[Obligation] = []
 
-    all_frame_vars = set(params) | set(ghost_vars.keys())
+    # Frame vars are all source parameters, ghost snapshots, and CCall targets.
+    # Later stages need facts about earlier call targets (e.g. a2 must be
+    # preserved across a second call assigning b2), so previous targets must
+    # have per-target frame lemmas too.
+    all_frame_vars = set(params) | set(ghost_vars.keys()) | {c.target for c in ccalls}
     multi_call_callees = _multi_call_callees(ccalls)
 
     # ── Frame obligations ──
@@ -93,8 +97,12 @@ def generate_obligations(
 
     # Q definitions
     expanded_params = params + sorted(ghost_vars.keys())
+    val_init: dict[str, str] = {p: p for p in params}
+    if ghost_vars:
+        val_init.update(ghost_vars)
     q_def_data, seg_names, seg_coqs = _build_q_defs(
         ccall_segs, contract_map, expanded_params, pre_coq, post_coq, name,
+        all_params_param=expanded_params, val_init=val_init,
     )
 
     # Pre-parts count
@@ -420,7 +428,15 @@ def _mk_stage1_statement_proof(
     if len(pre_parts) > 1:
         pre_hyps = " ".join(f"H{i}" for i in range(len(pre_parts)))
         lines.append(f"  destruct Hpre as [{pre_hyps}].")
-    lines.append("  wp_reduce. solve [sauto | hammer].")
+    lines.extend([
+        "  wp_reduce.",
+        "  repeat rewrite upd_eq.",
+        "  repeat (rewrite upd_ne by discriminate).",
+        "  repeat rewrite ls_lupd_eq.",
+        "  repeat (rewrite ls_lupd_ne by discriminate).",
+        "  repeat rewrite clobber_nil.",
+        "  repeat split; try assumption; try lia; try reflexivity; try apply wp_ccall_frame.",
+    ])
     proof = "\n".join(lines)
     return statement, proof
 
@@ -437,16 +453,6 @@ def _mk_stage_k_statement_proof(
     params_lemma = " ".join(expanded_params)
     prev_conjs = q_def_data.all_conjs[k - 1]
 
-    arg_name = bindings[0][1] if bindings else None
-
-    # Find hypothesis index for arg_name value
-    arg_hyp_idx = None
-    if arg_name:
-        for ci, conj in enumerate(prev_conjs):
-            if 'asZ (s "' + arg_name + '"%string)' in conj:
-                arg_hyp_idx = ci
-                break
-
     # Build hypothesis list
     hyp_count = len(prev_conjs)
     hyp_names = " ".join(f"H{i}" for i in range(hyp_count))
@@ -456,8 +462,6 @@ def _mk_stage_k_statement_proof(
         f"Lemma {lemma_name} : forall {params_forall}"
         f" (s : state),",
     ]
-    if arg_name and arg_name in expanded_params:
-        lines_stmt.append(f"  ({arg_name} >= 0)%Z ->")
     for ci, h in enumerate(prev_conjs):
         sep = " ->" if ci < hyp_count - 1 else " ->"
         lines_stmt.append(f"  {h}{sep}")
@@ -469,13 +473,36 @@ def _mk_stage_k_statement_proof(
     statement = "\n".join(lines_stmt)
 
     # Build proof
-    has_pre_hyp = arg_name and arg_name in expanded_params
+    q_next_conjs = q_def_data.all_conjs[k]
+    q_next_text = "\n".join(q_next_conjs)
+    q_vars = sorted(set(re.findall(r's "([^"]+)"%string', q_next_text)))
+    frame_vars = [v for v in q_vars if v != ccall.target]
+    writes_coq = _writes_list_coq(ccall.writes)
+
     lines_proof = [
-        f"  intros {params_lemma} s "
-        + ("Hpre " if has_pre_hyp else "")
-        + hyp_names + ".",
-        "  wp_reduce. solve [sauto | hammer].",
+        f"  intros {params_lemma} s " + hyp_names + ".",
+        "  wp_reduce.",
+        "  split.",
+        "  - solve [lia | repeat split; eauto; try lia; try reflexivity].",
+        "  - intros r Hr. split.",
+        f"    + unfold {qn}.",
     ]
+    for v in frame_vars:
+        lines_proof.append(
+            f'      repeat rewrite (wp_ccall_frame_lookup s "{ccall.target}"%string {writes_coq} r "{v}"%string) '
+            "by frame_notin."
+        )
+    lines_proof.extend([
+        "      repeat rewrite clobber_nil.",
+        "      repeat rewrite ls_lupd_eq.",
+        "      repeat (rewrite ls_lupd_ne by discriminate).",
+        "      repeat rewrite ls_lupd_eq in Hr.",
+        "      repeat (rewrite ls_lupd_ne in Hr by discriminate).",
+        "      try rewrite H5 in Hr.",
+        "      try rewrite Hr.",
+        "      repeat split; try assumption; try lia; try reflexivity; try apply wp_ccall_frame.",
+        "    + try apply wp_ccall_frame.",
+    ])
     proof = "\n".join(lines_proof)
     return statement, proof
 
@@ -492,15 +519,35 @@ def _mk_post_obligation(
 
     params_forall = " ".join(f"({p} : Z)" for p in expanded_params)
     post_str = "(fun s => " + post_coq + ")"
+    hyp_lines = "".join(f"  ({h}) ->\n" for h in all_conjs)
     statement = (
         f"Lemma {lemma_name} : forall {params_forall} (s : state),\n"
+        f"{hyp_lines}"
         f"  wp {final_com}\n"
         f"     {post_str}\n"
         f"     s."
     )
 
-    lines = [f"  intros {' '.join(expanded_params)} s."]
-    lines.append("  wp_reduce. solve [sauto | hammer].")
+    hyp_names = " ".join(f"H{i}" for i in range(n_hyps))
+    lines = [f"  intros {' '.join(expanded_params)} s {hyp_names}."]
+    lines.append("  wp_reduce.")
+    lines.append("  repeat rewrite ls_lupd_eq.")
+    lines.append("  repeat (rewrite ls_lupd_ne by discriminate).")
+    q_vars = sorted(set(re.findall(r's "([^"]+)"%string', "\n".join(all_conjs) + "\n" + post_coq)))
+    for v in q_vars:
+        lines.append(f'  try change (s "{v}"%string) with (lget s "{v}"%string) in *.')
+    for i, h in enumerate(all_conjs):
+        m = re.search(r'isVZ \(s "([^"]+)"%string\) = true', h)
+        if m:
+            v = m.group(1)
+            lines.append(f'  try rewrite (isVZ_asZ (lget s "{v}"%string) H{i}).')
+    lines.append("  cbn -[lget upd lupd clobber Z.add Z.mul].")
+    for i in range(n_hyps):
+        lines.append(f"  try rewrite H{i}.")
+    for p in expanded_params:
+        if f"3 * asZ (s \"{p}\"%string)" in post_coq or f"3 * {p}" in post_coq:
+            lines.append(f"  try change (match {p} with | 0 => 0 | Z.pos y' => Z.pos (y' + y'~0) | Z.neg y' => Z.neg (y' + y'~0) end) with (3 * {p})%Z.")
+    lines.append("  try ring; try lia; try reflexivity; try assumption.")
     proof = "\n".join(lines)
     return statement, proof
 
@@ -533,39 +580,29 @@ def _mk_composition_obligation(
     ghost_has = ghost_vars is not None and len(ghost_vars) > 0
 
     call_params = expanded_lemma if ghost_has else params_lemma
+    proof_params = " ".join(ghost_vars.get(p, p) for p in expanded_params_sorted) if ghost_has else params_lemma
 
+    base_goal = (
+        f"(({pre_coq.strip()}) ->\n"
+        f"  wp {staged_body}\n"
+        f"     {post_str}\n"
+        f"     ({init_state_used}))"
+    )
     if ghost_has:
-        statement = (
-            f"Theorem {name}_correct : forall {params_forall},\n"
-            + "\n".join(
-                f"  (exists ({g} : Z), (({g} = {init}) /\\" for g, init in ghost_vars.items()
-            )
-            + f"  (({pre_coq.strip()}) ->\n"
-            + f"  wp {staged_body}\n"
-            + f"     {post_str}\n"
-            + f"     ({init_state_used})))"
-            + ")" * len(ghost_vars)
-        )
+        wrapped = base_goal
+        for g, init in reversed(list(ghost_vars.items())):
+            wrapped = f"(exists ({g} : Z), ({g} = {init} /\\\n  {wrapped}))"
+        statement = f"Theorem {name}_correct : forall {params_forall},\n  {wrapped}."
     else:
-        statement = (
-            f"Theorem {name}_correct : forall {params_forall},\n"
-            f"  (({pre_coq.strip()}) ->\n"
-            f"  wp {staged_body}\n"
-            f"     {post_str}\n"
-            f"     ({init_state_used}))."
-        )
+        statement = f"Theorem {name}_correct : forall {params_forall},\n  {base_goal}."
 
     # Build proof: chain stage lemmas via wp_seq_decompose, then final post lemma
     lines: list[str] = []
 
     if ghost_has:
         lines.append("  intros.")
-        for i, (g, init) in enumerate(ghost_vars.items()):
-            depth = i + 1
-            lines.append(f"  exists {init}.")
-            lines.append(f"  split.")
-            lines.append(f"  {'-' * depth} reflexivity.")
-            lines.append(f"  {'-' * depth} ")
+        for _g, init in ghost_vars.items():
+            lines.append(f"  exists {init}. split; [reflexivity | ].")
         lines.append("  intros Hpre.")
     else:
         lines.append(f"  intros {call_params} Hpre.")
@@ -581,10 +618,15 @@ def _mk_composition_obligation(
         if final_com != "CSkip":
             post_lemma = f"{name}_post"
             lines.append(
-                f"  apply (wp_seq_decompose {seg_name} {final_com} ({q1} {call_params}) {post_str} _)."
+                f"  apply (wp_seq_decompose {seg_name} {final_com} ({q1} {proof_params}) {post_str} _)."
             )
-            lines.append(f"  {{ apply {stage1_lemma}. split; assumption. }}")
-            lines.append(f"  {{ apply {post_lemma}. }}")
+            pre_solve = "split; assumption" if len(pre_parts) > 1 else "assumption"
+            lines.append(f"  {{ apply {stage1_lemma}. {pre_solve}. }}")
+            q1_conjs = q_def_data.all_conjs[0]
+            lines.append(f"  {{ intros s_final Hq. unfold {q1} in Hq.")
+            lines.append(f"    destruct Hq as {_destruct_pat(len(q1_conjs), 'Q')}.")
+            q_hyps = " ".join(f"Q{i}" for i in range(len(q1_conjs)))
+            lines.append(f"    apply ({post_lemma} {proof_params} s_final {q_hyps}). }}")
         else:
             lines.append(f"  apply {stage1_lemma}. split; assumption.")
     else:
@@ -593,9 +635,10 @@ def _mk_composition_obligation(
         q1 = f"Q_{name}_1"
 
         lines.append(
-            f"  apply (wp_seq_decompose {seg_names[0]} {rest_com} ({q1} {call_params}) {post_str} _)."
+            f"  apply (wp_seq_decompose {seg_names[0]} {rest_com} ({q1} {proof_params}) {post_str} _)."
         )
-        lines.append(f"  {{ apply {name}_stage_1_correct. split; assumption. }}")
+        pre_solve = "split; assumption" if len(pre_parts) > 1 else "assumption"
+        lines.append(f"  {{ apply {name}_stage_1_correct. {pre_solve}. }}")
 
         prev_state = "s1"
         for k in range(1, n_stages):
@@ -612,28 +655,29 @@ def _mk_composition_obligation(
             next_state = f"s{k + 1}"
 
             lines.append(f"  {{ intros {prev_state} Hq. unfold {prev_q_base} in Hq.")
-            dest_pat = _destruct_pat(len(prev_conjs))
+            dest_pat = _destruct_pat(len(prev_conjs), 'P')
             lines.append(f"    destruct Hq as {dest_pat}.")
 
             lines.append(
-                f"    apply (wp_seq_decompose {seg_names[k]} {next_com} ({qn_next} {call_params}) {post_str} _)."
+                f"    apply (wp_seq_decompose {seg_names[k]} {next_com} ({qn_next} {proof_params}) {post_str} _)."
             )
 
             # Apply stage lemma with all hypotheses
-            hyps_str = " ".join(f"H{i}" for i in range(len(prev_conjs)))
-            lines.append(f"    {{ apply ({stage_lemma} {call_params} {prev_state} {hyps_str}). }}")
+            hyps_str = " ".join(f"P{i}" for i in range(len(prev_conjs)))
+            lines.append(f"    {{ apply ({stage_lemma} {proof_params} {prev_state} {hyps_str}). }}")
 
             prev_state = next_state
 
             if k == n_stages - 1:
                 # Innermost: apply post lemma
                 post_lemma = f"{name}_post"
-                lines.append(f"    {{ apply {post_lemma}. }}")
+                q_next_conjs = q_def_data.all_conjs[k]
+                lines.append(f"    {{ intros {next_state} Hq_next. unfold {qn_next} in Hq_next.")
+                lines.append(f"      destruct Hq_next as {_destruct_pat(len(q_next_conjs), 'R')}.")
+                q_next_hyps = " ".join(f"R{i}" for i in range(len(q_next_conjs)))
+                lines.append(f"      apply ({post_lemma} {proof_params} {next_state} {q_next_hyps}). }}")
                 lines.append(f"    }}")
 
-            # Close intermediate braces
-        for _ in range(1, n_stages):
-            lines.append("  }")
 
     proof = "\n".join(lines)
     return Obligation(
@@ -667,6 +711,7 @@ def _make_wholefn_obligation(
             + "\n".join(f"  (exists ({g} : Z), (({g} = {init}) /\\" for g, init in ghost_vars.items())
             + inner
             + ")" * len(ghost_vars)
+            + "."
         )
     else:
         statement = (
@@ -707,14 +752,14 @@ def _compose_seg_seq(seg_names: list[str], final_com: str) -> str:
     return result
 
 
-def _destruct_pat(n: int) -> str:
+def _destruct_pat(n: int, prefix: str = "H") -> str:
     if n <= 1:
-        return "[H0]"
-    pat = "[H0"
+        return f"[{prefix}0]"
+    pat = f"[{prefix}0"
     for i in range(1, n):
         if i == n - 1:
-            pat += f" H{i}"
+            pat += f" {prefix}{i}"
         else:
-            pat += f" [H{i}"
+            pat += f" [{prefix}{i}"
     pat += "]" * (n - 1)
     return pat

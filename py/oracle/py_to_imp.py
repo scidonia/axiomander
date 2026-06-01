@@ -801,30 +801,67 @@ class PyToImpLowerer:
         args_list = [self.lower_expr(a) for a in expr.args]
         args_list = [a for a in args_list if a is not None]
 
-        bindings: list[ImpCom] = []
-        for i, arg in enumerate(expr.args):
-            if i < len(callee_params):
-                val = self.lower_expr(arg)
-                if val:
-                    bindings.append(ImpCAss(target=callee_params[i], value=val))
-
-        pre = self._scope_ccall_pre(pre_s, callee_params, name)
-        post = self._subst_result(post_s, target, callee_params)
+        # Inline actual arguments into callee contracts instead of emitting
+        # synthetic assignments like `x := a` before the CCall.  Keeping those
+        # temporary assignments inside each call stage makes later frame proofs
+        # much harder: a stage must prove both parameter-temp preservation and
+        # real CCall frame preservation.  CCall already stores `args`, so the
+        # contracts should mention actual arguments directly.
+        pre = self._scope_ccall_pre(pre_s, callee_params, args_list, name)
+        post = self._subst_result(post_s, target, callee_params, args_list)
         call = ImpCCall(
             name=name, args=args_list,
             precondition=pre, postcondition=post,
             writes=callee_writes, target=target)
 
-        result = call
-        for b in reversed(bindings):
-            result = ImpCSeq(commands=[b, result])
-        return result
+        return call
 
-    def _scope_ccall_pre(self, coq_expr: str, params: list[str],
+    def _aexp_contract_zterm(self, aexp: ImpAExp) -> str:
+        if isinstance(aexp, ImpAVar):
+            return f'asZ (s "{aexp.name}"%string)'
+        if isinstance(aexp, ImpANum):
+            return str(aexp.value)
+        if isinstance(aexp, ImpAPlus):
+            return f"({self._aexp_contract_zterm(aexp.left)} + {self._aexp_contract_zterm(aexp.right)})%Z"
+        if isinstance(aexp, ImpAMinus):
+            return f"({self._aexp_contract_zterm(aexp.left)} - {self._aexp_contract_zterm(aexp.right)})%Z"
+        if isinstance(aexp, ImpAMult):
+            return f"({self._aexp_contract_zterm(aexp.left)} * {self._aexp_contract_zterm(aexp.right)})%Z"
+        if isinstance(aexp, ImpAMod):
+            return f"({self._aexp_contract_zterm(aexp.left)} mod {self._aexp_contract_zterm(aexp.right)})%Z"
+        if isinstance(aexp, ImpADiv):
+            return f"({self._aexp_contract_zterm(aexp.left)} / {self._aexp_contract_zterm(aexp.right)})%Z"
+        return f"asZ ({aexp.to_coq()})"
+
+    def _aexp_contract_value(self, aexp: ImpAExp) -> str:
+        if isinstance(aexp, ImpAVar):
+            return f's "{aexp.name}"%string'
+        if isinstance(aexp, ImpANum):
+            return f"VZ {aexp.value}"
+        return f"VZ ({self._aexp_contract_zterm(aexp)})"
+
+    def _scope_ccall_pre(self, coq_expr: str, params: list[str], args: list[ImpAExp],
                           callee_name: str = "") -> str:
         import re
         result = coq_expr
+        arg_map = {p: a for p, a in zip(params, args)}
         for p in params:
+            if p in arg_map:
+                zterm = self._aexp_contract_zterm(arg_map[p])
+                vterm = self._aexp_contract_value(arg_map[p])
+            else:
+                zterm = f'asZ (s "{p}"%string)'
+                vterm = f's "{p}"%string'
+            result = re.sub(
+                rf'asZ\s*\(\s*s\s+"{re.escape(p)}"%string\s*\)',
+                zterm,
+                result,
+            )
+            result = re.sub(
+                rf'isVZ\s*\(\s*s\s+"{re.escape(p)}"%string\s*\)',
+                f'isVZ ({vterm})',
+                result,
+            )
             result = re.sub(
                 rf'(?<![a-zA-Z0-9_"%]){re.escape(p)}__len(?![a-zA-Z0-9_"%])',
                 f'asZ (s "{p}._len"%string)', result)
@@ -832,14 +869,29 @@ class PyToImpLowerer:
             # A state variable is always followed by optional whitespace then a double-quote.
             result = re.sub(
                 rf'(?<![a-zA-Z0-9_"%]){re.escape(p)}(?!\s*")(?![a-zA-Z0-9_"%])',
-                f'asZ (s "{p}"%string)', result)
+                zterm, result)
         return f"(fun s => {result})"
 
     @staticmethod
-    def _subst_result(post_coq: str, target: str, callee_params: list[str]) -> str:
+    def _subst_result(post_coq: str, target: str, callee_params: list[str], args: list[ImpAExp]) -> str:
+        import re
         if 'result' in callee_params:
             return f"(fun s => {post_coq})"
         result = post_coq.replace('s "result"%string', f's "{target}"%string')
+        lowerer = PyToImpLowerer()
+        for p, a in zip(callee_params, args):
+            zterm = lowerer._aexp_contract_zterm(a)
+            vterm = lowerer._aexp_contract_value(a)
+            result = re.sub(
+                rf'asZ\s*\(\s*s\s+"{re.escape(p)}"%string\s*\)',
+                zterm,
+                result,
+            )
+            result = re.sub(
+                rf'isVZ\s*\(\s*s\s+"{re.escape(p)}"%string\s*\)',
+                f'isVZ ({vterm})',
+                result,
+            )
         return f"(fun s => {result})"
 
     def _lower_call(self, expr: PyCall) -> Optional[ImpAExp]:

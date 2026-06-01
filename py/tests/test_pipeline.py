@@ -179,11 +179,15 @@ def double(n: int):
 
     # ── Ghost state ─────────────────────────────────────────────────
     ("ghost_snapshot", '''def ghost_snapshot(n: int):
+    """
+    axiomander:
+        where:
+            old_n: int = n
+        ensures:
+            result == old_n + 1
+    """
     assert n >= 0
-    if __debug__:
-        old_n = n
     result = n + 1
-    assert result == old_n + 1
     return result'''),
 
     # ── Range quantifiers ──────────────────────────────────────────
@@ -306,11 +310,16 @@ def double(n: int):
     return result
 
 def frame_old_unchanged(a: int):
+    """
+    axiomander:
+        where:
+            old_a: int = a
+        ensures:
+            result == old_a
+    """
     assert a>=0
-    old_a = a
     discard = inc(5)
     result = a
-    assert result == old_a
     return result'''),
     # requires a >= 0 && b >= 0
     # modifies {result}  — each callee writes only its own result
@@ -322,13 +331,20 @@ def frame_old_unchanged(a: int):
      return result
 
 def frame_two_calls(a: int, b: int):
+     """
+     axiomander:
+         where:
+             old_a: int = a
+             old_b: int = b
+         ensures:
+             a == old_a
+             b == old_b
+             result == a + b + 2
+     """
      assert a>=0; assert b>=0
-     if __debug__: old_a = a; old_b = b
      a2 = inc(a)
      b2 = inc(b)
-     assert a == old_a; assert b == old_b
      result = a2 + b2
-     assert result == a + b + 2
      return result'''),
      # requires n >= 0 && n % 2 == 0
      # modifies {result}
@@ -340,12 +356,17 @@ def frame_two_calls(a: int, b: int):
      return result
 
 def frame_old_equals_result(n: int):
+     """
+     axiomander:
+         where:
+             snapshot: int = n
+         ensures:
+             n == snapshot
+             result == n
+     """
      assert n>=0; assert n%2==0
-     if __debug__: snapshot = n
      h = half(n)
-     assert n == snapshot
      result = h + h
-     assert result == n
      return result'''),
      # Three callees, each writes only result — prove triple composition.
      # requires n >= 0
@@ -356,17 +377,17 @@ def frame_old_equals_result(n: int):
      result=x+1
      assert result==x+1
      return result
- def times_two(x: int):
+
+def times_two(x: int):
      assert x>=0
      result=x*2
      assert result==x*2
      return result
 
- def frame_triple_compose(n: int):
+def frame_triple_compose(n: int):
      assert n>=0
      a = plus_one(n)
      b = times_two(n)
-     assert n == n
      result = a + b
      assert result == 3*n + 1
      return result'''),
