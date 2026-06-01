@@ -2650,6 +2650,7 @@ def _build_contract_map(tree) -> dict[str, tuple[list[str], str, str, list[str],
     def _add_function_to_map(fn_node: ast.FunctionDef, cmap: dict):
         name = fn_node.name
         param_names = [p[0] for p in _func_params(fn_node)]
+        doc_contracts = parse_axiomander_docstring(fn_node)
         linter_pre = ContractLinter(param_names, "precondition")
         linter_post = ContractLinter(param_names, "postcondition")
         pres = []
@@ -2665,6 +2666,15 @@ def _build_contract_map(tree) -> dict[str, tuple[list[str], str, str, list[str],
                     lr = linter_post.lint_expression(stmt.test)
                     if lr.is_valid and lr.coq_translation:
                         posts.append(lr.coq_translation)
+        for stmt, cls in docstring_assert_nodes(fn_node):
+            if cls == "precondition":
+                lr = linter_pre.lint_expression(stmt.test)
+                if lr.is_valid and lr.coq_translation:
+                    pres.append(lr.coq_translation)
+            elif cls == "postcondition":
+                lr = linter_post.lint_expression(stmt.test)
+                if lr.is_valid and lr.coq_translation:
+                    posts.append(lr.coq_translation)
         pre_coq = " /\\ ".join(pres) or "True"
         post_coq = " /\\ ".join(posts) or "True"
         # Inject type guards for annotated parameters (CCall precondition)
@@ -2690,8 +2700,10 @@ def _build_contract_map(tree) -> dict[str, tuple[list[str], str, str, list[str],
             if ret_guard:
                 post_coq = f"({post_coq} /\\ {ret_guard})" if post_coq != "True" else ret_guard
         # Include if there are ANY asserts (even True) — caller needs CCall target
-        if pres or posts or pre_coq != "True" or post_coq != "True":
-            cmap[name] = (param_names, pre_coq, post_coq, [], [])
+        reads = list(doc_contracts.reads)
+        writes = list(doc_contracts.modifies)
+        if pres or posts or pre_coq != "True" or post_coq != "True" or reads or writes:
+            cmap[name] = (param_names, pre_coq, post_coq, reads, writes)
 
     contract_map: dict[str, tuple[list[str], str, str, list[str], list[str]]] = {}
     for node in ast.iter_child_nodes(tree):

@@ -1,8 +1,8 @@
 """Parser for Axiomander docstring contracts.
 
 This is intentionally small: it implements the first usable slice of the
-Nagini-lifted syntax (`where`, `requires`, `ensures`) and leaves ownership,
-raises, predicates, etc. for later phases.
+Nagini-lifted syntax (`where`, `requires`, `ensures`, `reads`, `modifies`) and
+leaves ownership, raises, predicates, etc. for later phases.
 """
 
 from __future__ import annotations
@@ -18,10 +18,12 @@ class DocstringContracts:
     where: dict[str, str] = field(default_factory=dict)
     requires: list[str] = field(default_factory=list)
     ensures: list[str] = field(default_factory=list)
+    reads: list[str] = field(default_factory=list)
+    modifies: list[str] = field(default_factory=list)
 
     @property
     def has_contracts(self) -> bool:
-        return bool(self.where or self.requires or self.ensures)
+        return bool(self.where or self.requires or self.ensures or self.reads or self.modifies)
 
 
 def parse_axiomander_docstring(func_node: ast.FunctionDef) -> DocstringContracts:
@@ -37,6 +39,8 @@ def parse_axiomander_docstring(func_node: ast.FunctionDef) -> DocstringContracts
                 a >= 0
             ensures:
                 result == old_a
+            modifies:
+                none
 
     Section bodies are one expression/binding per non-empty line.  More complex
     continuation syntax is intentionally not supported yet.
@@ -75,14 +79,43 @@ def parse_axiomander_docstring(func_node: ast.FunctionDef) -> DocstringContracts
             continue
 
         if section == "requires":
-            result.requires.append(stripped)
+            result.requires.append(_rewrite_old_refs(stripped, result.where))
             continue
 
         if section == "ensures":
-            result.ensures.append(stripped)
+            result.ensures.append(_rewrite_old_refs(stripped, result.where))
+            continue
+
+        if section == "reads":
+            result.reads.extend(_parse_name_list(stripped))
+            continue
+
+        if section == "modifies":
+            result.modifies.extend(_parse_name_list(stripped))
             continue
 
     return result
+
+
+def _rewrite_old_refs(expr: str, where: dict[str, str]) -> str:
+    """Rewrite `old(x)` in docstring specs to an implicit where binding.
+
+    Minimal first slice: only `old(name)` is supported.  It becomes `old_name`,
+    and `where["old_name"] = "name"` is added unless already present.
+    """
+    def repl(match: re.Match[str]) -> str:
+        name = match.group(1)
+        ghost_name = f"old_{name}"
+        where.setdefault(ghost_name, name)
+        return ghost_name
+
+    return re.sub(r"\bold\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)", repl, expr)
+
+
+def _parse_name_list(line: str) -> list[str]:
+    if line in {"none", "[]", "(none)"}:
+        return []
+    return [part.strip() for part in re.split(r",|\s+", line) if part.strip()]
 
 
 def docstring_assert_nodes(func_node: ast.FunctionDef) -> list[tuple[ast.Assert, str]]:

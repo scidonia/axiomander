@@ -106,6 +106,22 @@ Proof.
   destruct v; simpl; intros H; try discriminate; reflexivity.
 Qed.
 
+Lemma wp_ccall_decompose : forall (name : var) (args : list aexp)
+    (pre post Q : assertion) (writes : list var) (target : var) (s : state),
+  pre s ->
+  (forall r, post (lupd s target (VZ r)) ->
+     Q (clobber (lupd s target (VZ r)) writes)) ->
+  (forall r x, ~ In x (target :: writes) ->
+     lget s x = lget (clobber (lupd s target (VZ r)) writes) x) ->
+  wp (CCall name args pre post writes target) Q s.
+Proof.
+  intros name args pre post Q writes target s Hpre Hpost Hframe.
+  unfold wp; simpl. split; [exact Hpre|].
+  intros r Hcallee. split.
+  - apply Hpost. exact Hcallee.
+  - intros x Hnotin. apply Hframe. exact Hnotin.
+Qed.
+
 (** Coercion-form state-lookup lemmas.
 
     The coercion [Coercion ls : state >-> Funclass] makes [s "x"] work

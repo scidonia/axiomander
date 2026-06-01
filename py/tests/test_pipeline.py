@@ -181,10 +181,8 @@ def double(n: int):
     ("ghost_snapshot", '''def ghost_snapshot(n: int):
     """
     axiomander:
-        where:
-            old_n: int = n
         ensures:
-            result == old_n + 1
+            result == old(n) + 1
     """
     assert n >= 0
     result = n + 1
@@ -312,10 +310,8 @@ def double(n: int):
 def frame_old_unchanged(a: int):
     """
     axiomander:
-        where:
-            old_a: int = a
         ensures:
-            result == old_a
+            result == old(a)
     """
     assert a>=0
     discard = inc(5)
@@ -333,12 +329,9 @@ def frame_old_unchanged(a: int):
 def frame_two_calls(a: int, b: int):
      """
      axiomander:
-         where:
-             old_a: int = a
-             old_b: int = b
          ensures:
-             a == old_a
-             b == old_b
+             a == old(a)
+             b == old(b)
              result == a + b + 2
      """
      assert a>=0; assert b>=0
@@ -358,10 +351,8 @@ def frame_two_calls(a: int, b: int):
 def frame_old_equals_result(n: int):
      """
      axiomander:
-         where:
-             snapshot: int = n
          ensures:
-             n == snapshot
+             n == old(n)
              result == n
      """
      assert n>=0; assert n%2==0
@@ -409,6 +400,27 @@ def frame_triple_compose(n: int):
     assert result >= 2
     return result'''),
 
+
+    ("modifies_blocks_frame", '''def mutate(a: int) -> int:
+    """
+    axiomander:
+        requires:
+            a >= 0
+        modifies:
+            a
+        ensures:
+            result >= 0
+    """
+    result = a + 1
+    return result
+
+def modifies_blocks_frame(a: int) -> int:
+    assert a >= 0
+    if __debug__: old_a = a
+    r = mutate(a)
+    result = a
+    assert result == old_a
+    return result'''),
     # ── Negative tests ─────────────────────────────────────────────
     ("weak_count", "def weak_count(n: int):\n    assert n>=0\n    count=0;i=0\n    while i<n:\n        assert count>=0;assert i<=n\n        count+=1;i+=1\n    assert count==n\n    return count"),
     ("missing_bound", "def missing_bound(n: int):\n    assert n>=0\n    total=0;i=0\n    while i<n:\n        assert total>=0\n        total+=i;i+=1\n    assert total==n*(n-1)//2\n    return total"),
@@ -779,7 +791,7 @@ def enroll(course: Course) -> int:
 NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail", "all_positive", "use_wrong", "user_no_post", "inv_body_violation",     "bad_pass_str", "bad_call_str", "bad_int_to_bool", "frame_fail_pop",
     # Weak stub postconditions can't support callers that need
     # return-value info (pop returns any int, CCall frame too deep)
-    "frame_stub_pop", "frame_stub_disjoint",
+    "frame_stub_pop", "frame_stub_disjoint", "modifies_blocks_frame",
 }
 
 

@@ -149,22 +149,23 @@ def generate_obligations(
         )
         obligations.append(obl)
 
-    # ── Post/final-arithmetic obligation ──
-    if final_com != "CSkip":
-        post_lemma = f"{name}_post"
-        post_stmt, post_proof = _mk_post_obligation(
-            post_lemma, name, expanded_params, final_com,
-            post_coq, pre_parts, ccall_segs, q_def_data, n_stages=len(ccall_segs),
-        )
-        obl = Obligation(
-            id=f"{name}.{post_lemma}",
-            kind=ObligationKind.POST,
-            theorem_name=post_lemma,
-            theorem_statement=post_stmt,
-            proof_attempts=[ProofAttempt(tactic=post_proof, outcome="closed")],
-            status=ObligationStatus.PROVED,
-        )
-        obligations.append(obl)
+    # ── Post/final obligation ──
+    # Always generate this, even when final_com is CSkip.  The composition
+    # theorem still needs a continuation from Q_last to the user's postcondition.
+    post_lemma = f"{name}_post"
+    post_stmt, post_proof = _mk_post_obligation(
+        post_lemma, name, expanded_params, final_com,
+        post_coq, pre_parts, ccall_segs, q_def_data, n_stages=len(ccall_segs),
+    )
+    obl = Obligation(
+        id=f"{name}.{post_lemma}",
+        kind=ObligationKind.POST,
+        theorem_name=post_lemma,
+        theorem_statement=post_stmt,
+        proof_attempts=[ProofAttempt(tactic=post_proof, outcome="closed")],
+        status=ObligationStatus.PROVED,
+    )
+    obligations.append(obl)
 
     # ── Composition obligation ──
     comp_obl = _mk_composition_obligation(
@@ -434,8 +435,7 @@ def _mk_stage1_statement_proof(
         "  repeat (rewrite upd_ne by discriminate).",
         "  repeat rewrite ls_lupd_eq.",
         "  repeat (rewrite ls_lupd_ne by discriminate).",
-        "  repeat rewrite clobber_nil.",
-        "  repeat split; try assumption; try lia; try reflexivity; try apply wp_ccall_frame.",
+        "  solve [sauto | repeat split; try assumption; try lia; try reflexivity; try apply wp_ccall_frame].",
     ])
     proof = "\n".join(lines)
     return statement, proof
@@ -481,11 +481,13 @@ def _mk_stage_k_statement_proof(
 
     lines_proof = [
         f"  intros {params_lemma} s " + hyp_names + ".",
-        "  wp_reduce.",
-        "  split.",
-        "  - solve [lia | repeat split; eauto; try lia; try reflexivity].",
-        "  - intros r Hr. split.",
-        f"    + unfold {qn}.",
+        f"  unfold {seg_name}.",
+        "  apply wp_ccall_decompose.",
+        "  - repeat split; try assumption; try lia; try reflexivity.",
+        "  - intros r Hr.",
+        f"    unfold {qn}.",
+        "      repeat match goal with H : _ /\\ _ |- _ => destruct H end.",
+        "      repeat match goal with H : _ \/ _ |- _ => destruct H end.",
     ]
     for v in frame_vars:
         lines_proof.append(
@@ -501,7 +503,7 @@ def _mk_stage_k_statement_proof(
         "      try rewrite H5 in Hr.",
         "      try rewrite Hr.",
         "      repeat split; try assumption; try lia; try reflexivity; try apply wp_ccall_frame.",
-        "    + try apply wp_ccall_frame.",
+        "  - intros r x Hnotin. apply wp_ccall_frame. exact Hnotin.",
     ])
     proof = "\n".join(lines_proof)
     return statement, proof
@@ -544,6 +546,7 @@ def _mk_post_obligation(
     lines.append("  cbn -[lget upd lupd clobber Z.add Z.mul].")
     for i in range(n_hyps):
         lines.append(f"  try rewrite H{i}.")
+    lines.append("  repeat match goal with H : _ \/ _ |- _ => destruct H end.")
     for p in expanded_params:
         if f"3 * asZ (s \"{p}\"%string)" in post_coq or f"3 * {p}" in post_coq:
             lines.append(f"  try change (match {p} with | 0 => 0 | Z.pos y' => Z.pos (y' + y'~0) | Z.neg y' => Z.neg (y' + y'~0) end) with (3 * {p})%Z.")
@@ -615,20 +618,17 @@ def _mk_composition_obligation(
         seg_name = seg_names[0]
         q1 = f"Q_{name}_1"
         stage1_lemma = f"{name}_stage_1_correct"
-        if final_com != "CSkip":
-            post_lemma = f"{name}_post"
-            lines.append(
-                f"  apply (wp_seq_decompose {seg_name} {final_com} ({q1} {proof_params}) {post_str} _)."
-            )
-            pre_solve = "split; assumption" if len(pre_parts) > 1 else "assumption"
-            lines.append(f"  {{ apply {stage1_lemma}. {pre_solve}. }}")
-            q1_conjs = q_def_data.all_conjs[0]
-            lines.append(f"  {{ intros s_final Hq. unfold {q1} in Hq.")
-            lines.append(f"    destruct Hq as {_destruct_pat(len(q1_conjs), 'Q')}.")
-            q_hyps = " ".join(f"Q{i}" for i in range(len(q1_conjs)))
-            lines.append(f"    apply ({post_lemma} {proof_params} s_final {q_hyps}). }}")
-        else:
-            lines.append(f"  apply {stage1_lemma}. split; assumption.")
+        post_lemma = f"{name}_post"
+        lines.append(
+            f"  apply (wp_seq_decompose {seg_name} {final_com} ({q1} {proof_params}) {post_str} _)."
+        )
+        pre_solve = "split; assumption" if len(pre_parts) > 1 else "assumption"
+        lines.append(f"  {{ apply {stage1_lemma}. {pre_solve}. }}")
+        q1_conjs = q_def_data.all_conjs[0]
+        lines.append(f"  {{ intros s_final Hq. unfold {q1} in Hq.")
+        lines.append(f"    destruct Hq as {_destruct_pat(len(q1_conjs), 'Q')}.")
+        q_hyps = " ".join(f"Q{i}" for i in range(len(q1_conjs)))
+        lines.append(f"    apply ({post_lemma} {proof_params} s_final {q_hyps}). }}")
     else:
         # Multi-stage chain
         rest_com = _compose_seg_seq(seg_names[1:], final_com)
