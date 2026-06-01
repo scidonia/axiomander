@@ -1161,7 +1161,6 @@
       "_build_q_defs",
       "_destruct_pat",
       "_fresh_names",
-      "_mk_post_obligation",
       "_mk_stage1_statement_proof",
       "_mk_stage_k_statement_proof"
     ]
@@ -4014,8 +4013,7 @@
     "callees": [
       "join",
       "len",
-      "lines.append",
-      "range"
+      "lines.append"
     ],
     "callers": []
   },

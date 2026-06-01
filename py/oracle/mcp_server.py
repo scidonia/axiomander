@@ -1370,7 +1370,22 @@ def _verify_function_full(source: str, func_name: str, hint: str | None = None) 
     """
     goal = _verify_function(source, func_name, hint)
     if goal and not goal.is_proved():
-        goal = _try_coqlsp_oracle(source, func_name, goal)
+        # Per-obligation CCall files are often too heavy for the coq-lsp ladder
+        # and are better handed directly to the LLM with the generated stage/post
+        # lemmas and unsolved target names.
+        obligation_mode = False
+        try:
+            if AI_PROVE_PATH.exists():
+                txt = AI_PROVE_PATH.read_text()
+                obligation_mode = (
+                    "per-obligation mode" in txt
+                    or "_stage_1_correct" in txt
+                    or "Definition s1 : com :=" in txt
+                )
+        except Exception:
+            obligation_mode = False
+        if not obligation_mode:
+            goal = _try_coqlsp_oracle(source, func_name, goal)
     if goal and not goal.is_proved():
         from oracle.client import credits_used as _credits_used, credit_budget_exhausted as _budget_exhausted
         goal = _try_llm_oracle(source, func_name, goal, hint)
@@ -1557,25 +1572,70 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
 
     coq_source = AI_PROVE_PATH.read_text()
     import re
-    blocks = re.findall(r'((?:Theorem|Lemma)\s+(\w+)\b.*?Proof\.(.*?)(Qed\.|Admitted\.))', coq_source, re.DOTALL)
+    block_iter = list(re.finditer(r'(?:Theorem|Lemma)\s+(\w+)\b.*?Proof\.(.*?)(Qed\.|Admitted\.)', coq_source, re.DOTALL))
+    blocks = [(m.group(0), m.group(1), m.group(2), m.group(3), m.start(), m.end()) for m in block_iter]
     if not blocks:
         return goal
 
     solved_names: list[str] = []
     unsolved_names: list[str] = []
-    for _, name, _body, ender in blocks:
+    for _full, name, _body, ender, _start, _end in blocks:
         if ender == 'Qed.':
             solved_names.append(name)
         else:
             unsolved_names.append(name)
 
+    # If the generated file optimistically marks all obligations Qed but the
+    # base Coq checker failed, recover the failing target from the reported
+    # Coq line and mark that theorem plus all following theorems unsolved.
+    if not unsolved_names and goal.error_detail:
+        # Prefer the last reported line number: warnings often mention early
+        # import lines, while the final line number usually points at the
+        # actual failing theorem/lemma.
+        line_matches = re.findall(r'line (\d+)', goal.error_detail)
+        if line_matches:
+            err_line = int(line_matches[-1])
+            lines = coq_source.splitlines()
+            theorem_lines: list[tuple[int, str]] = []
+            for i, line in enumerate(lines, start=1):
+                m = re.match(r'\s*(?:Theorem|Lemma)\s+(\w+)\b', line)
+                if m:
+                    theorem_lines.append((i, m.group(1)))
+
+            failing_idx = None
+            for idx, (start_line, _nm) in enumerate(theorem_lines):
+                next_line = theorem_lines[idx + 1][0] if idx + 1 < len(theorem_lines) else len(lines) + 1
+                if start_line <= err_line < next_line:
+                    failing_idx = idx
+                    break
+            if failing_idx is None:
+                for idx, (start_line, _nm) in enumerate(theorem_lines):
+                    if start_line >= err_line:
+                        failing_idx = idx
+                        break
+            if failing_idx is not None:
+                solved_names = [nm for _ln, nm in theorem_lines[:failing_idx]]
+                unsolved_names = [nm for _ln, nm in theorem_lines[failing_idx:]]
+
     if not unsolved_names:
         return goal
 
-    proof_idx = coq_source.rfind("Proof.")
+    # Hand the LLM a file where only the unsolved targets are admitted.
+    llm_source = coq_source
+    for _full, name, _body, ender, _start, _end in reversed(blocks):
+        if name in unsolved_names and ender == 'Qed.' and 'frame_' not in name:
+            llm_source = re.sub(
+                rf'((?:Theorem|Lemma)\s+{re.escape(name)}\b.*?Proof\..*?)Qed\.',
+                r'\1Admitted.',
+                llm_source,
+                count=1,
+                flags=re.DOTALL,
+            )
+
+    proof_idx = llm_source.rfind("Proof.")
     if proof_idx == -1:
         return goal
-    preamble = coq_source
+    preamble = llm_source
 
     print(
         f"  [oracle] Attempting LangGraph LLM proof for {func_name} "
@@ -1743,42 +1803,13 @@ def _try_coqlsp_oracle(source: str, func_name: str, goal: GoalStatus) -> GoalSta
     from oracle.coqpyt_session import CoqpytSession
     import sys as _sys
 
-    # Re-generate Coq source
-    import ast
-    tree = ast.parse(source)
-    func_node = None
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == func_name:
-            func_node = node
-            break
-    if func_node is None:
+    # Use the exact Coq source emitted by the base verifier. This preserves
+    # per-obligation rendering for CCall functions instead of regenerating the
+    # old monolithic proof shape here.
+    if not AI_PROVE_PATH.exists():
+        goal.error_detail += " (coq-lsp: no AI prove file available)"
         return goal
-
-    params = [name for name, _ in _func_params(func_node)]
-    expanded, class_fields, _, init_state, record_section = _expand_params(tree, params, func_node)
-    ghost_vars = _detect_ghost_vars(func_node)
-    var_types = _infer_var_types(func_node)
-    predicates = _collect_predicates(tree)
-    linter_pre = ContractLinter(expanded, "precondition", predicates=predicates,
-                                unbound=frozenset(ghost_vars.keys()))
-    linter_post = ContractLinter(expanded, "postcondition", predicates=predicates,
-                                 unbound=frozenset(ghost_vars.keys()))
-    linter_pre.var_types = var_types
-    linter_post.var_types = var_types
-    lint_results: list = []
-    for stmt in ast.walk(func_node):
-        if isinstance(stmt, ast.Assert):
-            cls = _classify_assert(func_node, stmt)
-            linter = linter_pre if cls == "precondition" else linter_post
-            lr = linter.lint_expression(stmt.test)
-            lint_results.append(AssertInfo(
-                node=stmt, lineno=stmt.lineno, col_offset=stmt.col_offset,
-                classification=cls, lint_result=lr,
-            ))
-
-    imp_body, imp_ir = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
-    coq_source = _generate_coq(func_node, lint_results, imp_body, tree, None,
-                                ghost_vars=ghost_vars, imp_ir=imp_ir)
+    coq_source = AI_PROVE_PATH.read_text()
 
     # Prepare Coq source without the Proof...Qed block
     prelude = coq_source
@@ -3827,6 +3858,10 @@ def _render_obligations_coq(func_node, lint_results, imp_body: str,
         extra = " /\\ ".join(implicit_pres)
         pre_coq = f"({extra})" if pre_coq == "True" else f"({pre_coq} /\\ {extra})"
 
+    frame_applies = ""
+    frame_applies = ""
+    frame_applies = ""
+    frame_applies = ""
     hammer_import = "From Hammer Require Import Hammer Tactics.\n"
     bool_import = "Require Import Bool.\n" if "BOr" in imp_body else ""
 
@@ -4227,6 +4262,7 @@ Theorem {name}_vcg_exit : forall {vcg_params},
                 post_frame = " /\\ ".join(frame_conds)
                 post_coq = f"({post_coq}) /\\ ({post_frame})"
 
+    frame_applies = ""
     hammer_import = "From Hammer Require Import Hammer Tactics.\n"
     if hint == "hammer":
         proof = "  intros.\n  wp_reduce.\n  hammer."

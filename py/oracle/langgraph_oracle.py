@@ -76,6 +76,7 @@ SYSTEM_PROMPT = """You are a Coq proof assistant using rocq-piler MCP tools.
 Tools:
   focus_proof(file, name)  — show proof state and goals
   insert_tactic(file, name, tactic)  — run a tactic
+  check_file(file)  — verify the whole file and see which proofs remain
 
 CRITICAL RULES:
 1. insert_tactic automatically applies Qed. when the proof is complete.
@@ -85,14 +86,17 @@ CRITICAL RULES:
 4. If insert_tactic shows "next: N goal(s)", you need more tactics.
 
 Workflow:
-1. focus_proof(file, name)  — see the goal
-2. insert_tactic(file, name, tactic)  — prove it
-3. Repeat 2 until "done — Qed applied" or focus_proof shows "Proof complete"
-4. Stop — do NOT insert Qed. yourself.
-5. After every insert_tactic, call focus_proof to verify the goal state.
-   If focus_proof shows 1+ goals, continue.  Only stop at "Proof complete" or
-   "done — Qed applied".  apply alone does NOT close the goal — it creates subgoals.
-6. Use search_lemmas to discover available tactics and lemmas when stuck.
+1. Use focus_proof(file, name) on one unsolved theorem/lemma name.
+2. Use insert_tactic(file, name, tactic) to prove it.
+3. Repeat until that theorem is complete.
+4. Then move to the next unsolved theorem/lemma name in the provided list.
+5. Use check_file(file) near the end to confirm no admitted targets remain.
+6. If focus_proof says "Proof complete" but check_file still reports admitted targets,
+   trust check_file and continue working on the UNSOLVED names.
+7. Stop — do NOT insert Qed. yourself.
+8. After every insert_tactic, call focus_proof to verify the goal state.
+   If focus_proof shows 1+ goals, continue. Only stop a proof when it says
+   "Proof complete" or "done — Qed applied".
 
 For IMP verification goals (wp, CSeq, CCall), prefer this workflow:
 
@@ -124,7 +128,11 @@ For callee frame conditions, use either generated frame lemmas such as
 `inc_frame_a_a2` / `inc_frame_b_b2`, or the generic `wp_ccall_frame`.
 
 If the file contains generated helper lemmas/theorems, prefer applying them
-over inventing low-level proofs from scratch."""
+over inventing low-level proofs from scratch.
+
+When the user prompt provides:
+- UNSOLVED names: these are the only targets you need to finish
+- SOLVED names: do not spend time reproving them; just use them"""
 
 
 # ── Graph ──────────────────────────────────────────────────────────
@@ -177,6 +185,8 @@ def build_graph(tools: list) -> StateGraph:
 def run_langgraph_oracle(
     preamble: str,
     max_steps: int = 20,
+    target_names: list[str] | None = None,
+    solved_names: list[str] | None = None,
 ) -> tuple[bool, str, str]:
     """Run the LangGraph proof agent via rocq-robot MCP tools.
 
@@ -191,7 +201,7 @@ def run_langgraph_oracle(
     thm_match = re.search(r'(?:Theorem|Lemma)\s+(\w+)', preamble)
     # If there are multiple theorems/lemmas, find the last one (the main goal)
     all_matches = re.findall(r'(?:Theorem|Lemma)\s+(\w+)', preamble)
-    proof_name = all_matches[-1] if all_matches else "axiomander_proof"
+    proof_name = (target_names[0] if target_names else None) or (all_matches[-1] if all_matches else "axiomander_proof")
 
     if ChatOpenAI is None:
         return False, "", "langgraph not installed"
@@ -209,7 +219,11 @@ def run_langgraph_oracle(
     fd, tmp_path = tempfile.mkstemp(suffix=".v", prefix="axiomander_")
     os.close(fd)
     _tmp_v_file = Path(tmp_path)
-    _tmp_v_file.write_text(preamble + "\nAdmitted.")
+    stripped = preamble.rstrip()
+    if stripped.endswith("Admitted.") or stripped.endswith("Qed."):
+        _tmp_v_file.write_text(preamble)
+    else:
+        _tmp_v_file.write_text(preamble + "\nAdmitted.")
 
     robot_js = project_root / "vendor" / "rocq-piler" / "dist" / "index.js"
     file_path = str(_tmp_v_file)
@@ -240,10 +254,11 @@ def run_langgraph_oracle(
 
             focus_tool = next((t for t in all_tools if t.name == "focus_proof"), None)
             insert_tool = next((t for t in all_tools if t.name == "insert_tactic"), None)
+            check_tool = next((t for t in all_tools if t.name == "check_file"), None)
             if not focus_tool or not insert_tool:
                 return False, "", "rocq-robot missing required tools"
 
-            tools = [focus_tool, insert_tool]
+            tools = [t for t in [focus_tool, insert_tool, check_tool] if t is not None]
             _log(f"tools loaded, building graph")
 
             # Quick pre-flight: call focus on the file directly before the graph
@@ -259,20 +274,28 @@ def run_langgraph_oracle(
                 "messages": [
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": (
-                        f"Prove the lemma '{proof_name}'.\n\n"
-                        f"Always pass file=\"{file_path}\" and name=\"{proof_name}\" "
-                        f"to every tool call. Use focus_proof to see goals, insert_tactic to prove them."
+                        f"Prove all unsolved theorem/lemma targets in this file.\n\n"
+                        f"UNSOLVED names: {target_names or [proof_name]}\n"
+                        f"SOLVED names: {solved_names or []}\n\n"
+                        f"Start with '{proof_name}'. Always pass file=\"{file_path}\". "
+                        f"When focusing or inserting tactics, use one of the UNSOLVED names as `name`. "
+                        f"Use focus_proof to inspect a target, insert_tactic to prove it, and check_file near the end to confirm all unsolved names are now proved."
                     )}
                 ],
                 "proof_script": "",
                 "error": "",
             }
 
-            config = {"configurable": {"thread_id": "proof"}, "recursion_limit": max_steps * 5}
-            _log(f"invoking graph, recursion_limit={max_steps * 5}")
+            recursion_limit = min(max_steps * 5, int(os.environ.get("AXIOMANDER_LLM_RECURSION_LIMIT", "120")))
+            timeout_s = int(os.environ.get("AXIOMANDER_LLM_TIMEOUT", "180"))
+            config = {"configurable": {"thread_id": "proof"}, "recursion_limit": recursion_limit}
+            _log(f"invoking graph, recursion_limit={recursion_limit}, timeout={timeout_s}s")
             try:
-                final = await graph.ainvoke(initial_state, config)
+                final = await asyncio.wait_for(graph.ainvoke(initial_state, config), timeout=timeout_s)
                 _log(f"graph done, {len(final.get('messages', []))} messages")
+            except asyncio.TimeoutError:
+                _log(f"graph timeout after {timeout_s}s")
+                return False, _tmp_v_file.read_text() if _tmp_v_file.exists() else "", f"LangGraph timeout after {timeout_s}s"
             except Exception as exc:
                 _log(f"graph failed: {exc}")
                 return False, _tmp_v_file.read_text() if _tmp_v_file.exists() else "", str(exc)[:500]
@@ -283,6 +306,15 @@ def run_langgraph_oracle(
                 if "done - Qed applied" in content or "Proof complete" in content:
                     proved = True
                     break
+
+            if target_names and _tmp_v_file.exists():
+                final_text = _tmp_v_file.read_text()
+                remaining = []
+                for name in target_names:
+                    m = re.search(rf'(?:Theorem|Lemma)\s+{re.escape(name)}\b.*?Proof\.(.*?)(Qed\.|Admitted\.)', final_text, re.DOTALL)
+                    if m and m.group(2) == 'Admitted.':
+                        remaining.append(name)
+                proved = proved and not remaining
 
             proof_script = ""
             if _tmp_v_file.exists():
