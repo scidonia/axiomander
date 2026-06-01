@@ -1,18 +1,24 @@
 # axiomander 🦎
 
-**A gold standard verification system for Python.** Write contracts as plain `assert` statements — no imports, no decorators, no DSL. The pipeline formalises proof obligations in Coq, dispatches easy goals to SMT, and falls back to an LLM oracle. Aims to bring theorem-prover-grade verification to a mass audience with a near-zero barrier to entry, while remaining competitive with bespoke systems like [F*](https://en.wikipedia.org/wiki/F*) and [Dafny](https://en.wikipedia.org/wiki/Dafny).
+**A gold standard verification system for Python.** Write contracts as ordinary Python `assert` statements or verifier-only `axiomander:` docstring blocks — no runtime imports, decorators, or contract library required. The pipeline lowers Python to an IMP verification language, generates Coq proof obligations, proves the deterministic cases directly, dispatches harder residuals to SMT/Hammer, and falls back to a rocq-piler/LLM oracle.
 
 ```
-Python assert contracts
+Python asserts + axiomander docstrings
         │
         ▼
-  contract_linter.py  →  IR (Pydantic AST)  →  Coq  →  wp_prove (L1)
+  contract_linter.py  →  Contract IR
+        │
+        ▼
+  py_to_imp.py        →  IMP body
+        │
+        ▼
+  Coq obligations     →  deterministic proof scripts (L1)
         │                                      │
         ▼                                      ▼
-  python_to_imp.py   →  IMP body              SMT (cvc4)  (L2)
-                                                   │
-                                                   ▼
-                                              LLM oracle  (L3)
+  residual obligations only              SMT/Hammer (L2)
+                                                │
+                                                ▼
+                                      rocq-piler + LLM oracle (L3)
 ```
 
 ## Quick Start
@@ -29,162 +35,178 @@ PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 
 ## Usage
 
-Contracts are plain `assert` statements — the verifier classifies them by position:
+Axiomander supports two contract carriers:
+
+1. ordinary Python `assert` statements, still useful for executable checks;
+2. verifier-only `axiomander:` docstring blocks, preferred for ghost state, frames, and non-runtime specifications.
+
+### Assert Contracts
+
+Leading assertions are preconditions. Trailing assertions after the result assignment are postconditions. Loop-body assertions are invariants.
 
 ```python
-# Contracts are plain assert statements — zero imports, zero decorators.
-# Under python -O, all asserts are stripped. Ghost snapshots inside
-# if __debug__: blocks are stripped too. Verification has zero runtime cost.
+def clamp(val: int, lo: int, hi: int) -> int:
+    assert lo <= hi
+    if val < lo:
+        result = lo
+    elif val > hi:
+        result = hi
+    else:
+        result = val
+    assert lo <= result <= hi
+    assert implies(val < lo, result == lo)
+    assert implies(val > hi, result == hi)
+    return result
+```
 
-# Field constraints lifted to compile-time proof (Pydantic in spirit)
-def transfer(balances: dict[str, int], sender: str, receiver: str, amount: int) -> int:
-    assert amount >= 0
-    assert sender in balances
-    assert balances[sender] >= amount            # precondition: sufficient funds
-    if __debug__:
-        old_sender = balances[sender]
-        if receiver in balances:
-            old_receiver = balances[receiver]
-        else:
-            old_receiver = 0
-    balances[sender] -= amount
-    if receiver not in balances:
-        balances[receiver] = 0
-    balances[receiver] += amount
-    result = 1
-    assert balances[sender] >= 0                 # constraint preserved: no overdraft
-    assert (balances[sender] + balances[receiver] == 
-            old_sender + old_receiver)           # conservation of money
-    assert result == 1
+### Docstring Contracts
+
+Docstring contracts are verifier-only. They do not execute at runtime and are the preferred place for ghost bindings and frame declarations.
+
+```python
+def inc(x: int) -> int:
+    """
+    axiomander:
+        requires:
+            x >= 0
+        modifies:
+            none
+        ensures:
+            result == x + 1
+    """
+    result = x + 1
+    return result
+```
+
+Supported first slice:
+
+```text
+axiomander:
+    where:
+        old_a: int = a
+    requires:
+        a >= 0
+    reads:
+        a
+    modifies:
+        none
+    ensures:
+        result == old_a
+```
+
+`old(x)` is shorthand for a logical pre-state binding:
+
+```python
+def frame_old_unchanged(a: int) -> int:
+    """
+    axiomander:
+        requires:
+            a >= 0
+        ensures:
+            result == old(a)
+    """
+    discard = inc(5)
+    result = a
+    return result
+```
+
+This is equivalent to introducing a ghost binding `old_a = a`, but without adding any Python variable.
+
+### Function Calls and Frames
+
+`reads:` and `modifies:` describe a callee's frame. Callers may rely on variables outside `target :: modifies` being preserved.
+
+```python
+def inc(x: int) -> int:
+    """
+    axiomander:
+        requires:
+            x >= 0
+        modifies:
+            none
+        ensures:
+            result == x + 1
+    """
+    result = x + 1
     return result
 
-# Implication — conditional guarantees via implies()
-def clamp(val: int, lo: int, hi: int):
-    assert lo <= hi                         # precondition
-    if val < lo: result = lo
-    elif val > hi: result = hi
-    else: result = val
-    assert lo <= result <= hi               # postcondition
-    assert implies(val < lo, result == lo)  # branch-precise: "if too low, clamped to lo"
-    assert implies(val > hi, result == hi)  # "if too high, clamped to hi"
+def frame_two_calls(a: int, b: int) -> int:
+    """
+    axiomander:
+        requires:
+            a >= 0
+            b >= 0
+        ensures:
+            a == old(a)
+            b == old(b)
+            result == a + b + 2
+    """
+    a2 = inc(a)
+    b2 = inc(b)
+    result = a2 + b2
     return result
+```
 
-# Dicts — build and verify with assertions only (Python -O drops them)
-# The semantic property lives in a pure predicate, inlined at the call site.
-def is_square_dict(d: dict[int, int], n: int) -> bool:
-    return all(d[j] == j * j for j in range(n))
+For CCall-heavy functions, Axiomander generates decomposed Coq obligations: frame lemmas, one stage lemma per call, a post lemma, and a composition theorem using `wp_seq_decompose`.
 
-def square_dict(n: int):
-    assert n >= 0                            # precondition
-    result = {}
-    i = 0
-    while i < n:
-        assert i <= n                         # invariant: bounds
-        assert all(result[j] == j * j for j in range(i))  # invariant: partial dict
-        result[i] = i * i                     # store square
-        i += 1
-    assert is_square_dict(result, n)          # postcondition: every key maps to its square
-    return result
+### Loops and Quantifiers
 
-# Pydantic-style field constraints — automatic from Field(ge=0)
-class Account:
-    balance: int = Field(ge=0)
-    overdraft_limit: int = Field(ge=0)
+Runtime `assert` statements remain the current source for loop invariants and many executable facts:
 
-def withdraw(acct: Account, amount: int) -> int:
-    """Withdraw amount. Returns 1 on success, 0 if insufficient funds."""
-    assert amount >= 0
-    if __debug__:
-        old_balance = acct.balance
-    if amount > acct.balance + acct.overdraft_limit:
-        result = 0
-        assert result == 0
-        return result
-    acct.balance -= amount
-    result = 1
-    assert acct.balance + acct.overdraft_limit >= 0  # constraint preserved
-    assert result == 1
-    return result
-
-# Quantifiers — all() with generator expressions
+```python
 def build_sorted(n: int):
-    assert n >= 0                            # precondition
+    assert n >= 0
     result = []
     i = 0
     while i < n:
-        assert len(result) == i               # invariant: length tracks progress
+        assert len(result) == i
         assert i <= n
-        assert all(result[j] == j for j in range(i))  # invariant: all elements correct
+        assert all(result[j] == j for j in range(i))
         result.append(i)
         i += 1
-    assert all(result[j] == j for j in range(n))     # postcondition: fully sorted
+    assert all(result[j] == j for j in range(n))
     return result
-
-# Loop predicates — predicates with loops are verified separately;
-# their postconditions are inlined at call sites.
-def geq_loop(x: int, n: int) -> bool:
-    assert n >= 0                               # precondition
-    r = x
-    while r < n:
-        r = r + 1
-    result = (r >= n)
-    assert implies(result == 1, x >= n)         # semantic postcondition
-    return result
-
-def double(n: int):
-    assert n >= 0
-    result = n * 2
-    assert geq_loop(result, n)                  # expands to: n*2 >= n
-    return result
+```
 
 ## Pipeline Tiers
 
 | Level | Mechanism | What it handles |
 |---|---|---|
-| 1 — `wp_prove` | Structural recursion + `lia` | Assignments, conditionals, linear arithmetic |
-| 2 — SMT | cvc4 subprocess (QF_NIA) | Non-linear VCG, division, multiplication |
-| 3 — LLM oracle | DeepSeek via coqpyt | Complex invariants, quantifiers |
+| 1 — deterministic Coq | Generated obligations + bounded tactics | Assignments, conditionals, loops, decomposed CCall/frame obligations |
+| 2 — SMT/Hammer | Per-obligation ATP/SMT fallback | Arithmetic and first-order residual goals |
+| 3 — LLM oracle | rocq-piler + LLM | Residual proof repair over the same generated obligation file |
 
 ## Frame Conditions
 
-Functions carry implicit frame conditions via `CCall` with a `writes` set. The verifier proves that variables outside a callee's declared writes are unchanged across the call. Callers can snapshot values before a call and assert they survive.
+Function calls use explicit frame information. A callee's docstring `modifies:` section becomes the CCall write set. The verifier proves that variables outside `target :: modifies` are unchanged across the call.
 
 ```python
-def inc(x: int):
-    assert x >= 0
-    result = x + 1           # writes: {result}
+def mutate(a: int) -> int:
+    """
+    axiomander:
+        requires:
+            a >= 0
+        modifies:
+            a
+        ensures:
+            result >= 0
+    """
+    result = a + 1
     return result
-
-def frame_old_unchanged(a: int):
-    assert a >= 0
-    old_a = a                # snapshot
-    discard = inc(5)
-    assert a == old_a        # frame: inc didn't touch 'a'
-    return a
 ```
 
-Library functions declare `reads`/`writes` in `.pyi` stubs:
+If a caller later tries to prove `a == old(a)` across `mutate(a)`, verification fails because `a` is declared writable.
 
-```python
-# stubs/builtins.pyi
-def pop(lst: list) -> int:
-    """requires: len(lst) >= 1
-    ensures:  True
-    reads:    lst
-    writes:   lst"""         # pop mutates the list; returns list element (not necessarily int)
+Pure functions normally say:
+
+```text
+modifies:
+    none
 ```
 
-MCP tool `frame-report` shows contracts and frame conditions for any function:
+Library functions can also declare `reads`/`writes` in `.pyi` stubs. The docstring syntax and stub syntax both lower to the same internal contract map.
 
-```
-## `frame_stub_pop`
-### Preconditions
-  assert x>=0
-### Postconditions
-  assert result >= old_x
-### Callee Effects
-  ↳ `pop()` requires len(lst) >= 1, reads {lst} writes {lst}
-```
+MCP tool `frame-report` shows contracts and frame conditions for any function.
 
 ## Testing
 
@@ -193,7 +215,7 @@ eval $(opam env)
 PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 ```
 
-108 tests (32 negative, 76 positive) covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, range quantifiers, frame conditions, stub integration, tuple/bytes/dict/set/None value comparisons, implication, and loop-predicate contract inlining.
+111 tests covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, docstring contracts, old-state syntax, reads/modifies frames, range quantifiers, stub integration, tuple/bytes/dict/set/None value comparisons, implication, and loop-predicate contract inlining.
 
 ## Dependencies
 
