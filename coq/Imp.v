@@ -329,6 +329,16 @@ with beval (b : bexp) (s : state) : bool :=
   | BOr b1 b2 => (beval b1 s) || (beval b2 s)
   end.
 
+(** -- Outcome type ------------------------------------------------ *)
+
+(** An [outcome] records how a command terminated.
+    [OReturn s'] means normal exit with final state [s'].
+    [ORaise e s'] means an exception with value [e] was raised;
+    [s'] is the state at the raise point (useful for resource reasoning). *)
+Inductive outcome : Type :=
+  | OReturn (s : state)
+  | ORaise  (e : value) (s : state).
+
 (** -- Commands ---------------------------------------------------- *)
 
 Inductive com : Type :=
@@ -348,7 +358,11 @@ Inductive com : Type :=
   | CDictAppend (name : var) (key val : aexp)
   | CDictAppendKv (name : var) (key val : aexp)
   | CCall (name : var) (args : list aexp) (pre post : state -> Prop) (writes : list var) (target : var)
-  | CAssume (P : state -> Prop).
+  | CAssume (P : state -> Prop)
+  | CRaise (e : aexp)
+  (** [CTry body exc handler]: evaluate [body]; if it raises, bind the
+      exception value to [exc] in the state and run [handler]. *)
+  | CTry (body : com) (exc : var) (handler : com).
 
 (** -- clobber ----------------------------------------------------- *)
 
@@ -357,73 +371,83 @@ Definition clobber (s : state) (vars : list var) : state :=
 
 (** -- Big-step operational semantics ------------------------------ *)
 
-Inductive ceval : com -> state -> state -> Prop :=
+(** [ceval c s o] means: starting from state [s], command [c] terminates
+    with outcome [o].  Normal commands produce [OReturn s']; [CRaise]
+    produces [ORaise e s]; [CTry] catches raises from its body. *)
+Inductive ceval : com -> state -> outcome -> Prop :=
   | E_Skip : forall s,
-      ceval CSkip s s
+      ceval CSkip s (OReturn s)
   | E_Ass : forall s x a,
-      ceval (CAss x a) s (lupd s x (aeval a s))
-  | E_Seq : forall c1 c2 s s' s'',
-      ceval c1 s s' ->
-      ceval c2 s' s'' ->
-      ceval (CSeq c1 c2) s s''
-  | E_IfTrue : forall b c1 c2 s s',
+      ceval (CAss x a) s (OReturn (lupd s x (aeval a s)))
+  | E_SeqReturn : forall c1 c2 s s' o,
+      ceval c1 s (OReturn s') ->
+      ceval c2 s' o ->
+      ceval (CSeq c1 c2) s o
+  | E_SeqRaise : forall c1 c2 s e s',
+      ceval c1 s (ORaise e s') ->
+      ceval (CSeq c1 c2) s (ORaise e s')
+  | E_IfTrue : forall b c1 c2 s o,
       beval b s = true ->
-      ceval c1 s s' ->
-      ceval (CIf b c1 c2) s s'
-  | E_IfFalse : forall b c1 c2 s s',
+      ceval c1 s o ->
+      ceval (CIf b c1 c2) s o
+  | E_IfFalse : forall b c1 c2 s o,
       beval b s = false ->
-      ceval c2 s s' ->
-      ceval (CIf b c1 c2) s s'
+      ceval c2 s o ->
+      ceval (CIf b c1 c2) s o
   | E_WhileFalse : forall b inv c s,
       beval b s = false ->
-      ceval (CWhile b inv c) s s
-  | E_WhileTrue : forall b inv c s s' s'',
+      ceval (CWhile b inv c) s (OReturn s)
+  | E_WhileTrue : forall b inv c s s' o,
       beval b s = true ->
-      ceval c s s' ->
-      ceval (CWhile b inv c) s' s'' ->
-      ceval (CWhile b inv c) s s''
+      ceval c s (OReturn s') ->
+      ceval (CWhile b inv c) s' o ->
+      ceval (CWhile b inv c) s o
+  | E_WhileRaise : forall b inv c s e s',
+      beval b s = true ->
+      ceval c s (ORaise e s') ->
+      ceval (CWhile b inv c) s (ORaise e s')
   | E_Havoc : forall A s s',
       (forall x, ~ In x A -> lget s' x = lget s x) ->
-      ceval (CHavoc A) s s'
+      ceval (CHavoc A) s (OReturn s')
   | E_ListNew : forall name s,
-      ceval (CListNew name) s (hupd s name len_f (VZ 0))
+      ceval (CListNew name) s (OReturn (hupd s name len_f (VZ 0)))
   | E_ListAppend : forall name val s,
       let len := asZ (hget s name len_f) in
       ceval (CListAppend name val) s
-            (hupd (hupd s name (elem_f len) (aeval val s))
-                  name len_f (VZ (len + 1)))
+            (OReturn (hupd (hupd s name (elem_f len) (aeval val s))
+                           name len_f (VZ (len + 1))))
   | E_ListPop : forall name s,
       let len := asZ (hget s name len_f) in
       ceval (CListPop name) s
-            (hupd s name len_f (VZ (len - 1)))
+            (OReturn (hupd s name len_f (VZ (len - 1))))
   | E_ListSet : forall name idx_e val_e s,
       ceval (CListSet name idx_e val_e) s
-            (hupd s name (elem_f (asZ (aeval idx_e s))) (aeval val_e s))
+            (OReturn (hupd s name (elem_f (asZ (aeval idx_e s))) (aeval val_e s)))
   | E_DictSet : forall name key_e val_e s,
       let k := asZ (aeval key_e s) in
       let is_new := Z.eqb 0 (asZ (hget s name (dlen_f k))) in
       let old_count := asZ (hget s name count_f) in
       let new_count := old_count + (if is_new then 1 else 0) in
       ceval (CDictSet name key_e val_e) s
-            (hupd (hupd (hupd s name (dval_f k) (aeval val_e s))
-                        name (dlen_f k) (VZ 1))
-                  name count_f (VZ new_count))
+            (OReturn (hupd (hupd (hupd s name (dval_f k) (aeval val_e s))
+                                 name (dlen_f k) (VZ 1))
+                           name count_f (VZ new_count)))
   | E_DictGet : forall name key_e target s,
       ceval (CDictGet name key_e target) s
-            (lupd s target (hget s name (dval_f (asZ (aeval key_e s)))))
+            (OReturn (lupd s target (hget s name (dval_f (asZ (aeval key_e s))))))
   | E_DictEnsureList : forall name key_e s,
       let dk_len := dlen_f (asZ (aeval key_e s)) in
       ceval (CDictEnsureList name key_e) s
-            (if Z.eqb (asZ (hget s name dk_len)) 0
-             then hupd s name dk_len (VZ 0)
-             else s)
+            (OReturn (if Z.eqb (asZ (hget s name dk_len)) 0
+                      then hupd s name dk_len (VZ 0)
+                      else s))
   | E_DictAppend : forall name key_e val_e s,
       let k := asZ (aeval key_e s) in
       let dk_len := dlen_f k in
       let len := asZ (hget s name dk_len) in
       ceval (CDictAppend name key_e val_e) s
-            (hupd (hupd s name (elem_f len) (aeval val_e s))
-                  name dk_len (VZ (len + 1)))
+            (OReturn (hupd (hupd s name (elem_f len) (aeval val_e s))
+                           name dk_len (VZ (len + 1))))
   | E_DictAppendKv : forall name key_e val_e s,
       let k := asZ (aeval key_e s) in
       let is_new := Z.eqb 0 (asZ (hget s name (dlen_f k))) in
@@ -433,16 +457,26 @@ Inductive ceval : com -> state -> state -> Prop :=
                            name (dlen_f k) (VZ 1))
                      name (elem_f c) (aeval val_e s) in
       ceval (CDictAppendKv name key_e val_e) s
-            (hupd (hupd s1 name (elem_f c) (aeval key_e s))
-                  name count_f (VZ new_c))
+            (OReturn (hupd (hupd s1 name (elem_f c) (aeval key_e s))
+                           name count_f (VZ new_c)))
   | E_Call : forall name args pre post writes target s r,
       pre s ->
       post (lupd s target (VZ r)) ->
       ceval (CCall name args pre post writes target) s
-            (clobber (lupd s target (VZ r)) writes)
+            (OReturn (clobber (lupd s target (VZ r)) writes))
   | E_Assume : forall P s,
       P s ->
-      ceval (CAssume P) s s.
+      ceval (CAssume P) s (OReturn s)
+  | E_Raise : forall e s,
+      ceval (CRaise e) s (ORaise (aeval e s) s)
+  | E_TryReturn : forall body exc handler s s' o,
+      ceval body s (OReturn s') ->
+      ceval handler s' o ->
+      ceval (CTry body exc handler) s o
+  | E_TryCatch : forall body exc handler s e s' o,
+      ceval body s (ORaise e s') ->
+      ceval handler (lupd s' exc e) o ->
+      ceval (CTry body exc handler) s o.
 
 (** ** Notation *)
 Open Scope Z_scope.

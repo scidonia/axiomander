@@ -81,7 +81,7 @@ class TheoremIR(BaseModel):
         # Body: pre -> wp body post init (with ghost existentials)
         inner = f"  (({self.pre.to_coq()}) ->\n" \
                 f"  wp {self.name}_body\n" \
-                f"     (fun s => {self.post.to_coq()})\n" \
+                f"     (wp_normal (fun s => {self.post.to_coq()}))\n" \
                 f"     ({self.init_state}))"
         for v, init in reversed(list(self.ghost_vars.items())):
             inner = f"(exists ({v} : Z), (({v} = {init}) /\\\n  {inner}))"

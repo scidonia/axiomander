@@ -421,7 +421,7 @@ def _mk_stage1_statement_proof(
         f"Lemma {lemma_name} : forall {params_forall},\n"
         f"  {pre_coq.strip()} ->\n"
         f"  wp {seg_name}\n"
-        f"     ({qn} {params_lemma})\n"
+        f"     (wp_normal ({qn} {params_lemma}))\n"
         f"     ({init_state_ext})."
     )
 
@@ -467,7 +467,7 @@ def _mk_stage_k_statement_proof(
         lines_stmt.append(f"  {h}{sep}")
     lines_stmt.append(
         f"  wp {seg_name}\n"
-        f"     ({qn} {params_lemma})\n"
+        f"     (wp_normal ({qn} {params_lemma}))\n"
         f"     s."
     )
     statement = "\n".join(lines_stmt)
@@ -520,7 +520,7 @@ def _mk_post_obligation(
     n_hyps = len(all_conjs)
 
     params_forall = " ".join(f"({p} : Z)" for p in expanded_params)
-    post_str = "(fun s => " + post_coq + ")"
+    post_str = "(wp_normal (fun s => " + post_coq + "))"
     hyp_lines = "".join(f"  ({h}) ->\n" for h in all_conjs)
     statement = (
         f"Lemma {lemma_name} : forall {params_forall} (s : state),\n"
@@ -569,7 +569,7 @@ def _mk_composition_obligation(
     params_lemma = " ".join(params)
     expanded_params_sorted = sorted(expanded_params)
     expanded_lemma = " ".join(expanded_params_sorted)
-    post_str = "(fun s => " + post_coq + ")"
+    post_str = "(wp_normal (fun s => " + post_coq + "))"
 
     n_stages = len(ccall_segs)
 
@@ -620,7 +620,7 @@ def _mk_composition_obligation(
         stage1_lemma = f"{name}_stage_1_correct"
         post_lemma = f"{name}_post"
         lines.append(
-            f"  apply (wp_seq_decompose {seg_name} {final_com} ({q1} {proof_params}) {post_str} _)."
+            f"  apply (wp_seq_decompose_normal {seg_name} {final_com} ({q1} {proof_params}) {post_str} _)."
         )
         pre_solve = "split; assumption" if len(pre_parts) > 1 else "assumption"
         lines.append(f"  {{ apply {stage1_lemma}. {pre_solve}. }}")
@@ -635,7 +635,7 @@ def _mk_composition_obligation(
         q1 = f"Q_{name}_1"
 
         lines.append(
-            f"  apply (wp_seq_decompose {seg_names[0]} {rest_com} ({q1} {proof_params}) {post_str} _)."
+            f"  apply (wp_seq_decompose_normal {seg_names[0]} {rest_com} ({q1} {proof_params}) {post_str} _)."
         )
         pre_solve = "split; assumption" if len(pre_parts) > 1 else "assumption"
         lines.append(f"  {{ apply {name}_stage_1_correct. {pre_solve}. }}")
@@ -659,7 +659,7 @@ def _mk_composition_obligation(
             lines.append(f"    destruct Hq as {dest_pat}.")
 
             lines.append(
-                f"    apply (wp_seq_decompose {seg_names[k]} {next_com} ({qn_next} {proof_params}) {post_str} _)."
+                f"    apply (wp_seq_decompose_normal {seg_names[k]} {next_com} ({qn_next} {proof_params}) {post_str} _)."
             )
 
             # Apply stage lemma with all hypotheses
@@ -703,7 +703,7 @@ def _make_wholefn_obligation(
         inner = (
             f"  (({pre_coq}) ->\n"
             f"  wp {name}_body\n"
-            f"     (fun s => ({post_coq}))\n"
+            f"     (wp_normal (fun s => ({post_coq})))\n"
             f"     ({init_state}))"
         )
         statement = (
@@ -718,7 +718,7 @@ def _make_wholefn_obligation(
             f"Theorem {name}_correct : forall {params_forall},\n"
             f"  (({pre_coq}) ->\n"
             f"  wp {name}_body\n"
-            f"     (fun s => ({post_coq}))\n"
+            f"     (wp_normal (fun s => ({post_coq})))\n"
             f"     ({init_state}))."
         )
 

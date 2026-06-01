@@ -22,7 +22,7 @@ Definition init_state_ab (a b : Z) : state :=
 (** * Theorem 1: Unaffected property survives a black hole *)
 Theorem a_unchanged : forall (a b : Z),
   wp compute_and_havoc
-     (fun s => asZ (s "a"%string) = a)
+     (wp_normal (fun s => asZ (s "a"%string) = a))
      (init_state_ab a b).
 Proof. Admitted.
 
@@ -30,7 +30,7 @@ Proof. Admitted.
 Theorem x_lost : forall (a b : Z),
   a + b <> 0 ->
   ~ (wp compute_and_havoc
-       (fun s => asZ (s "x"%string) = a + b)
+       (wp_normal (fun s => asZ (s "x"%string) = a + b))
        (init_state_ab a b)).
 Proof. Admitted.
 
@@ -38,5 +38,5 @@ Proof. Admitted.
 Theorem recovery : forall (a b : Z),
   let body := CSeq compute_and_havoc
                     (CAss "x"%string (APlus (AVar "a"%string) (AVar "b"%string))) in
-  wp body (fun s => asZ (s "x"%string) = a + b) (init_state_ab a b).
+  wp body (wp_normal (fun s => asZ (s "x"%string) = a + b)) (init_state_ab a b).
 Proof. Admitted.

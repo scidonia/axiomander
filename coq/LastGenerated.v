@@ -16,7 +16,7 @@ Definition caller_ok_body : com :=
 Theorem caller_ok_correct : forall (n : Z), 
   (((n >= 0)) ->
   wp caller_ok_body
-     (fun s => (asZ (s "result"%string) >= 0))
+     (wp_normal (fun s => (asZ (s "result"%string) >= 0)))
      ((upd empty_state "n"%string (VZ n)))).
 Proof.
     intros.

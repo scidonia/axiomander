@@ -13,12 +13,12 @@ Definition distance_sq_body : com :=
 Theorem distance_sq_correct : forall (px py : Z),
   px >= 0 -> py >= 0 ->
   wp distance_sq_body
-  (fun s => asZ (s "result"%string)
+  (wp_normal (fun s => asZ (s "result"%string)
           = asZ (s "p.x"%string) * asZ (s "p.x"%string)
-          + asZ (s "p.y"%string) * asZ (s "p.y"%string))
+          + asZ (s "p.y"%string) * asZ (s "p.y"%string)))
      (init_point_state px py).
 Proof.
-  intros. unfold wp, distance_sq_body, init_point_state, store_field, flat_key; simpl. reflexivity.
+  intros. unfold wp, wp_normal, distance_sq_body, init_point_state, store_field, flat_key; simpl. reflexivity.
 Qed.
 
 (** * Example 2: Rectangle area *)
@@ -41,8 +41,8 @@ Definition area_body : com :=
 Theorem area_correct : forall (w h : Z),
   w > 0 -> h > 0 ->
   wp area_body
-     (fun s => asZ (s "result"%string) = asZ (s "r.w"%string) * asZ (s "r.h"%string))
+     (wp_normal (fun s => asZ (s "result"%string) = asZ (s "r.w"%string) * asZ (s "r.h"%string)))
      (init_rect_state w h).
 Proof.
-  intros. unfold wp, area_body, init_rect_state, store_field, flat_key; simpl. reflexivity.
+  intros. unfold wp, wp_normal, area_body, init_rect_state, store_field, flat_key; simpl. reflexivity.
 Qed.

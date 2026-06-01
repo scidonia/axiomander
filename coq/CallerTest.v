@@ -11,7 +11,7 @@ Definition caller_body : com :=
 
 Theorem caller_correct : forall (n : Z),
   n >= 0 ->
-  wp caller_body (fun s => asZ (s "total"%string) >= asZ (s "n"%string)) (updZ empty_state "n"%string n).
+  wp caller_body (wp_normal (fun s => asZ (s "total"%string) >= asZ (s "n"%string))) (updZ empty_state "n"%string n).
 Proof.
   intros.
   wp_prove.

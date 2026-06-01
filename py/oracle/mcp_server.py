@@ -3574,8 +3574,8 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
     final_segs = segments[last_ccall_idx + 1:]
     final_com = _compose_segs(final_segs) if final_segs else "CSkip"
 
-    # Build the postcondition as a Coq assertion
-    post_str = "(fun s => " + post_coq + ")"
+    # Build the postcondition as a Coq outcome predicate
+    post_str = "(wp_normal (fun s => " + post_coq + "))"
 
     # Build main proof body
     main_proof_lines: list[str] = []
@@ -3611,7 +3611,7 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
         stagen = name + "_stage_1_correct"
         if final_com != "CSkip":
             main_proof_lines.append(
-                "  apply (wp_seq_decompose " + seg_name + " " + final_com
+                "  apply (wp_seq_decompose_normal " + seg_name + " " + final_com
                 + " (" + qn + " " + params_call + ") " + post_str + " _)."
             )
             main_proof_lines.append(
@@ -3638,7 +3638,7 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
         q_final = post_str
 
         main_proof_lines.append(
-            "  apply (wp_seq_decompose " + seg_names[0] + " " + rest_com
+            "  apply (wp_seq_decompose_normal " + seg_names[0] + " " + rest_com
             + " (" + q1 + " " + params_call + ") " + q_final + " _)."
         )
         main_proof_lines.append(
@@ -3680,7 +3680,7 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
                                                             ccall_segs)
 
             main_proof_lines.append(
-                "    apply (wp_seq_decompose " + this_seg + " " + next_com
+                "    apply (wp_seq_decompose_normal " + this_seg + " " + next_com
                 + " (" + qn + " " + params_call + ") " + q_final + " _)."
             )
             # Apply stage lemma
@@ -4339,7 +4339,7 @@ Theorem {name}_vcg_exit : forall {vcg_params},
         # Ghost vars are already unscoped by the linter (via unbound parameter)
         inner = f"""  (({pre_coq}) ->
    wp {name}_body
-      (fun s => {post_coq})
+      (wp_normal (fun s => {post_coq}))
       ({init_state}))"""
         for v, init in reversed(list(ghost_vars.items())):
             inner = f"""(exists ({v} : Z), (({v} = {init}) /\\
@@ -4358,7 +4358,7 @@ Theorem {name}_vcg_exit : forall {vcg_params},
     else:
         ghost_wrap = f"""  (({pre_coq}) ->
   wp {name}_body
-     (fun s => {post_coq})
+     (wp_normal (fun s => {post_coq}))
      ({init_state}))"""
         ghost_proof_suffix = ""
 

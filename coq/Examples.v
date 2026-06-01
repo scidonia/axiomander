@@ -9,10 +9,10 @@ Definition add_body : com :=
 
 Theorem add_correct : forall (a b : Z),
   True ->
-  wp add_body (fun s => asZ (s "result"%string) = (a + b)%Z)
+  wp add_body (wp_normal (fun s => asZ (s "result"%string) = (a + b)%Z))
               (updZ (updZ empty_state "a"%string a) "b"%string b).
 Proof.
-  intros. unfold wp, add_body, upd. simpl. reflexivity.
+  intros. unfold wp, wp_normal, add_body, upd. simpl. reflexivity.
 Qed.
 
 (** * Example 2: abs_val(n) *)
@@ -23,11 +23,11 @@ Definition abs_val_body : com :=
 
 Theorem abs_val_correct : forall (n : Z),
   0 <= n ->
-  wp abs_val_body (fun s => 0 <= asZ (s "result"%string))
+  wp abs_val_body (wp_normal (fun s => 0 <= asZ (s "result"%string)))
                   (updZ empty_state "n"%string n).
 Proof.
   intros n Hle.
-  unfold wp, abs_val_body, upd. simpl.
+  unfold wp, wp_normal, abs_val_body, upd. simpl.
   split.
   - intro H. apply Z.leb_le in H. exact Hle.
   - intro H. apply Z.leb_gt in H. lia.
@@ -42,17 +42,17 @@ Definition max_body : com :=
 Theorem max_correct : forall (a b : Z),
   0 <= a -> 0 <= b ->
   wp max_body
-     (fun s => a <= asZ (s "result"%string) /\ b <= asZ (s "result"%string))
+     (wp_normal (fun s => a <= asZ (s "result"%string) /\ b <= asZ (s "result"%string)))
      (updZ (updZ empty_state "a"%string a) "b"%string b).
 Proof.
   intros a b Ha Hb.
-  unfold wp, max_body, upd. simpl.
+  unfold wp, wp_normal, max_body, upd. simpl.
   split.
   - intro H. apply Z.leb_le in H. split; lia.
   - intro H. apply Z.leb_gt in H. split; lia.
 Qed.
 
-(** * Example 4: sum_to(n) — loop with invariant *)
+(** * Example 4: sum_to(n) -- loop with invariant *)
 Definition sum_invariant (n : Z) (s : state) : Prop :=
   asZ (s "acc"%string) = asZ (s "i"%string) * (asZ (s "i"%string) + 1) / 2 /\ asZ (s "i"%string) <= n.
 
@@ -70,11 +70,11 @@ Definition sum_body (n : Z) : com :=
 Theorem sum_correct : forall (n : Z),
   0 <= n ->
   wp (sum_body n)
-     (fun s => s "result"%string = VZ (n * (n + 1) / 2))
+     (wp_normal (fun s => s "result"%string = VZ (n * (n + 1) / 2)))
      (updZ empty_state "n"%string n).
 Proof.
   intros n Hn.
-  unfold sum_body, wp, upd. simpl.
+  unfold sum_body, wp, wp_normal, upd. simpl.
   unfold sum_invariant. simpl.
   split.
   - reflexivity.

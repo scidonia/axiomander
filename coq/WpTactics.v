@@ -3,18 +3,18 @@ Require Import Imp Wp.
 Import ListNotations.
 Open Scope Z_scope.
 
-(** * WP Proof Automation — Level 1 (Ltac)
+(** * WP Proof Automation -- Level 1 (Ltac)
 
     Reduces WP goals to simple arithmetic forms that can be
     dispatched by [lia], [reflexivity], or sent to the SMT hammer. *)
 
-(** [wp_reduce] — unfold state, aeval, beval, asZ; simplify. *)
+(** [wp_reduce] -- unfold state, aeval, beval, asZ; simplify. *)
 Ltac wp_reduce :=
-  unfold wp, aeval, beval, asZ, asString, asFloat; cbn -[In clobber lget upd updZ lupd].
+  unfold wp, wp_normal, aeval, beval, asZ, asString, asFloat; cbn -[In clobber lget upd updZ lupd].
 
-(** [wp_cif_btrue] — collapse [CIf BTrue c1 c2] WP to just [wp c1 Q s]. *)
-Lemma wp_cif_btrue : forall c1 c2 Q s,
-  wp (CIf BTrue c1 c2) Q s <-> wp c1 Q s.
+(** [wp_cif_btrue] -- collapse [CIf BTrue c1 c2] WP to just [wp c1 Phi s]. *)
+Lemma wp_cif_btrue : forall c1 c2 Phi s,
+  wp (CIf BTrue c1 c2) Phi s <-> wp c1 Phi s.
 Proof.
   intros; split; intros H.
   - unfold wp in H; simpl in H. destruct H as [Ht _]. apply Ht; reflexivity.
@@ -107,15 +107,15 @@ Proof.
 Qed.
 
 Lemma wp_ccall_decompose : forall (name : var) (args : list aexp)
-    (pre post Q : assertion) (writes : list var) (target : var) (s : state),
+    (pre post : assertion) (Phi : outcome_pred) (writes : list var) (target : var) (s : state),
   pre s ->
   (forall r, post (lupd s target (VZ r)) ->
-     Q (clobber (lupd s target (VZ r)) writes)) ->
+     Phi (OReturn (clobber (lupd s target (VZ r)) writes))) ->
   (forall r x, ~ In x (target :: writes) ->
      lget s x = lget (clobber (lupd s target (VZ r)) writes) x) ->
-  wp (CCall name args pre post writes target) Q s.
+  wp (CCall name args pre post writes target) Phi s.
 Proof.
-  intros name args pre post Q writes target s Hpre Hpost Hframe.
+  intros name args pre post Phi writes target s Hpre Hpost Hframe.
   unfold wp; simpl. split; [exact Hpre|].
   intros r Hcallee. split.
   - apply Hpost. exact Hcallee.
@@ -134,8 +134,8 @@ Proof. intros. exact (lupd_eq s x v). Qed.
 Lemma ls_lupd_ne : forall s x y v, x <> y -> (ls (lupd s x v)) y = (ls s) y.
 Proof. intros. rewrite lupd_ne; [reflexivity | auto]. Qed.
 
-(** [ccall_simpl] — lightweight: only rewrite [clobber nil] then [cbn].
-    The more aggressive [[ls (lupd …)]] rewrites are blocked by Coq's
+(** [ccall_simpl] -- lightweight: only rewrite [clobber nil] then [cbn].
+    The more aggressive [[ls (lupd ...)]] rewrites are blocked by Coq's
     coercion normalisation in compiled Ltac (patterns lose the [ls]
     wrapper).  For CCall frame proofs we fall back to hand-written
     lemmas that are generated per-function. *)
@@ -154,7 +154,7 @@ Ltac ccall_simpl :=
   )
   else idtac.
 
-(** [wp_prove] — structural recursion over goal shape after wp_reduce.
+(** [wp_prove] -- structural recursion over goal shape after wp_reduce.
     Handles conjunctions, disjunctions, ABool, comparisons, reflexivity, lia. *)
 Ltac wp_prove :=
   wp_reduce;
@@ -189,45 +189,42 @@ Ltac wp_prove :=
   end.
 
 (** ** Decomposition lemmas for staged proofs *)
-Lemma wp_monotone : forall c (Q1 Q2 : assertion) s,
-  wp c Q1 s ->
-  (forall s', Q1 s' -> Q2 s') ->
-  wp c Q2 s.
+Lemma wp_monotone_tac : forall c (Phi1 Phi2 : outcome_pred) s,
+  wp c Phi1 s ->
+  (forall o, Phi1 o -> Phi2 o) ->
+  wp c Phi2 s.
 Proof.
-  induction c; intros QA QB s Hwp Himpl.
-  - (* CSkip *) simpl in *; auto.
-  - (* CAss *) simpl in *; auto.
-  - (* CSeq *) simpl in *.
-    eapply IHc1; [ exact Hwp | intros s' H; eapply IHc2; eassumption ].
-  - (* CIf *) simpl in *. destruct Hwp as [Ht Hf]; split.
-    + intro; eapply IHc1; eauto.
-    + intro; eapply IHc2; eauto.
-  - (* CWhile *) simpl in *; assumption.
-  - (* CHavoc *) simpl in *. intros s' H. apply Himpl. apply Hwp. auto.
-  - (* CListNew *) simpl in *; auto.
-  - (* CListAppend *) simpl in *; auto.
-  - (* CListPop *) simpl in *; auto.
-  - (* CListSet *) simpl in *; auto.
-  - (* CDictSet *) simpl in *; auto.
-  - (* CDictGet *) simpl in *; auto.
-  - (* CDictEnsureList *) simpl in *; auto.
-  - (* CDictAppend *) simpl in *; auto.
-  - (* CDictAppendKv *) simpl in *; auto.
-  - (* CCall *) simpl in *. destruct Hwp as [Hpre Hrest]; split; [assumption|].
-    intros r Hp; destruct (Hrest r Hp); split; [apply Himpl|]; assumption.
-  - (* CAssume *) simpl in *. intro; apply Himpl; apply Hwp; assumption.
+  intros c Phi1 Phi2 s Hwp Himpl.
+  eapply wp_monotone; eassumption.
 Qed.
 
-Lemma wp_seq_decompose : forall c1 c2 (Q1 Q2 : assertion) s,
-  wp c1 Q1 s ->
-  (forall s', Q1 s' -> wp c2 Q2 s') ->
-  wp (CSeq c1 c2) Q2 s.
+Lemma wp_seq_decompose : forall c1 c2 (Phi1 : outcome_pred) (Phi2 : outcome_pred) s,
+  wp c1 (fun o => match o with OReturn s' => wp c2 Phi2 s' | ORaise e s' => Phi2 (ORaise e s') end) s ->
+  wp (CSeq c1 c2) Phi2 s.
 Proof.
-  intros; unfold wp; simpl.
-  apply (wp_monotone c1 Q1 (wp c2 Q2) s H); auto.
+  intros; unfold wp; simpl. exact H.
 Qed.
 
-(** [vcg_exit] — proves the while-exit verification condition. *)
+(** [wp_seq_decompose_normal] -- convenience for the common case where c1
+    is expected to terminate normally (no exceptions).  Uses an intermediate
+    state assertion [Q1 : assertion] as a mid-point, so existing staged
+    proofs that pass [fun s' => ...] as the intermediate condition work
+    without change.  Any raise from c1 propagates unchanged through c2. *)
+Lemma wp_seq_decompose_normal : forall c1 c2 (Q1 : assertion) (Phi2 : outcome_pred) s,
+  wp c1 (wp_normal Q1) s ->
+  (forall s', Q1 s' -> wp c2 Phi2 s') ->
+  wp (CSeq c1 c2) Phi2 s.
+Proof.
+  intros c1 c2 Q1 Phi2 s H1 H2.
+  unfold wp; simpl.
+  eapply wp_monotone_tac; [exact H1|].
+  intros o Ho. unfold wp_normal in Ho.
+  destruct o as [s' | e s'].
+  - exact (H2 s' Ho).
+  - contradiction.
+Qed.
+
+(** [vcg_exit] -- proves the while-exit verification condition. *)
 Ltac vcg_exit :=
   unfold vcg_while_exit, beval, upd; simpl;
   repeat rewrite eqb_refl; simpl;
@@ -239,7 +236,7 @@ Ltac vcg_exit :=
 Theorem add_auto : forall (a b : Z),
   True ->
   wp (CAss "r"%string (APlus (AVar "a"%string) (AVar "b"%string)))
-     (fun s => asZ (s "r"%string) = (a + b)%Z)
+     (wp_normal (fun s => asZ (s "r"%string) = (a + b)%Z))
      (updZ (updZ empty_state "a"%string a) "b"%string b).
 Proof. Admitted.
 
@@ -249,7 +246,7 @@ Theorem max_auto : forall (a b : Z),
   wp (CIf (BLe (AVar "b"%string) (AVar "a"%string))
           (CAss "r"%string (AVar "a"%string))
           (CAss "r"%string (AVar "b"%string)))
-     (fun s => a <= asZ (s "r"%string) /\ b <= asZ (s "r"%string))
+     (wp_normal (fun s => a <= asZ (s "r"%string) /\ b <= asZ (s "r"%string)))
      (updZ (updZ empty_state "a"%string a) "b"%string b).
 Proof. Admitted.
 
@@ -258,6 +255,6 @@ Theorem a_unchanged_auto : forall (a b : Z),
   wp (CSeq
        (CAss "x"%string (APlus (AVar "a"%string) (AVar "b"%string)))
        (CHavoc ["x"%string]))
-     (fun s => asZ (lget s "a"%string) = a)
+     (wp_normal (fun s => asZ (lget s "a"%string) = a))
      (updZ (updZ empty_state "a"%string a) "b"%string b).
 Proof. Admitted.

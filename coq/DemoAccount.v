@@ -48,8 +48,8 @@ Theorem withdraw_correct : forall (balance overdraft amount : Z),
   balance + overdraft >= amount ->
   (* Postconditions: *)
   wp withdraw_body
-     (fun s => s "result"%string = VZ (balance - amount)
-            /\ asZ (s "result"%string) >= -overdraft)
+     (wp_normal (fun s => s "result"%string = VZ (balance - amount)
+            /\ asZ (s "result"%string) >= -overdraft))
      (init_account_state balance overdraft amount).
 Proof.
   intros balance overdraft amount Hamt Hfunds.

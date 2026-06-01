@@ -10,7 +10,7 @@ Definition add_body : com :=
 
 Theorem add_correct : forall (a b : Z),
   True ->
-  wp add_body (fun s => s "result"%string = VZ (a + b))
+  wp add_body (wp_normal (fun s => s "result"%string = VZ (a + b)))
               (updZ (updZ empty_state "a"%string a) "b"%string b).
 Proof. intros. wp_prove. Qed.
 
@@ -23,7 +23,7 @@ Definition max_body : com :=
 Theorem max_correct : forall (a b : Z),
   (0 <= a) -> (0 <= b) ->
   wp max_body
-     (fun s => a <= asZ (s "result"%string) /\ b <= asZ (s "result"%string))
+     (wp_normal (fun s => a <= asZ (s "result"%string) /\ b <= asZ (s "result"%string)))
      (updZ (updZ empty_state "a"%string a) "b"%string b).
 Proof.
   intros a b Ha Hb. wp_reduce. unfold upd, updZ; cbn.

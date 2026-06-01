@@ -1,51 +1,7 @@
 From Stdlib Require Import ZArith String List micromega.Lia. Import ListNotations. Open Scope Z_scope.
 Require Import Imp Wp Pydantic WpTactics.
 
-Lemma wp_monotone : forall c (Q1 Q2 : assertion) s,
-  wp c Q1 s ->
-  (forall s', Q1 s' -> Q2 s') ->
-  wp c Q2 s.
-Proof.
-  induction c; intros Q1 Q2 s Hwp Himpl.
-  - (* CSkip *) simpl in *; auto.
-  - (* CAss *) simpl in *; auto.
-  - (* CSeq *) simpl in *.
-    eapply IHc1.
-    + exact Hwp.
-    + intros s' H. eapply IHc2; eassumption.
-  - (* CIf *) simpl in *.
-    destruct Hwp as [Ht Hf]; split.
-    + intro H; eapply IHc1; eauto.
-    + intro H; eapply IHc2; eauto.
-  - (* CWhile *) simpl in *; assumption.
-  - (* CHavoc *) simpl in *.
-    intros s' H; apply Himpl; apply Hwp; auto.
-  - (* CListNew *) simpl in *; auto.
-  - (* CListAppend *) simpl in *; auto.
-  - (* CListPop *) simpl in *; auto.
-  - (* CListSet *) simpl in *; auto.
-  - (* CDictSet *) simpl in *; auto.
-  - (* CDictGet *) simpl in *; auto.
-  - (* CDictEnsureList *) simpl in *; auto.
-  - (* CDictAppend *) simpl in *; auto.
-  - (* CDictAppendKv *) simpl in *; auto.
-  - (* CCall *) simpl in *.
-    destruct Hwp as [Hpre Hrest]; split; [assumption|].
-    intros r Hp; destruct (Hrest r Hp); split; [apply Himpl|]; assumption.
-  - (* CAssume *) simpl in *.
-    intro; apply Himpl; apply Hwp; assumption.
-Qed.
-
-Lemma wp_seq_decompose : forall c1 c2 (Q1 Q2 : assertion) s,
-  wp c1 Q1 s ->
-  (forall s', Q1 s' -> wp c2 Q2 s') ->
-  wp (CSeq c1 c2) Q2 s.
-Proof.
-  intros; unfold wp; simpl.
-  apply (wp_monotone c1 Q1 (wp c2 Q2) s H); auto.
-Qed.
-
-(** ** Full decomposition of frame_two_calls using wp_seq_decompose *)
+(** ** Full decomposition of frame_two_calls using wp_seq_decompose_normal *)
 
 (* Each stage gets its own intermediate assertion *)
 
@@ -71,7 +27,7 @@ Definition Q_final (a b : Z) : assertion :=
         /\ (asZ (s "a"%string) = a)
         /\ (asZ (s "b"%string) = b).
 
-(* Sub-computations — each handles one logical stage *)
+(* Sub-computations -- each handles one logical stage *)
 
 Definition ghost_init : com :=
   CSeq (CAss "old_a"%string (AVar "a"%string))
@@ -94,56 +50,55 @@ Definition call_inc_b : com :=
 Definition assign_result : com :=
   CAss "result"%string (APlus (AVar "a2"%string) (AVar "b2"%string)).
 
-(** The decomposed theorem — each stage is an independent wp_prove call (~0.1s each) *)
+(** The decomposed theorem -- each stage is an independent wp_prove call (~0.1s each) *)
 
 Theorem frame_two_calls_decomposed : forall a b,
   (a >= 0)%Z -> (b >= 0)%Z ->
   wp (CSeq (CSeq (CSeq ghost_init call_inc_a) call_inc_b) assign_result)
-     (Q_final a b)
+     (wp_normal (Q_final a b))
      ((upd (upd empty_state "a"%string (VZ a)) "b"%string (VZ b))).
 Proof.
   intros a b Ha Hb.
 
-  (* Stage 1: ghost init → Q_ghost *)
-  (* Stage 1: ghost init → Q_ghost *)
-  assert (H_stage1 : wp ghost_init (Q_ghost a b)
+  (* Stage 1: ghost init -> Q_ghost *)
+  assert (H_stage1 : wp ghost_init (wp_normal (Q_ghost a b))
       ((upd (upd empty_state "a"%string (VZ a)) "b"%string (VZ b)))).
-  { wp_reduce. unfold Q_ghost. vm_compute; auto. }
-  apply (wp_seq_decompose ghost_init (CSeq (CSeq call_inc_a call_inc_b) assign_result)
-                          (Q_ghost a b) (Q_final a b) _ H_stage1).
+  { wp_reduce. unfold Q_ghost, wp_normal. vm_compute; auto. }
+  apply (wp_seq_decompose_normal ghost_init (CSeq (CSeq call_inc_a call_inc_b) assign_result)
+                          (Q_ghost a b) (wp_normal (Q_final a b)) _ H_stage1).
    intros s' [Hold_a [Hold_b [Ha_eq Hb_eq]]].
 
-    (* Stage 2: inc(a) → Q_after_inc_a *)
-    Time assert (H_stage2 : wp call_inc_a (Q_after_inc_a a b) s').
+    (* Stage 2: inc(a) -> Q_after_inc_a *)
+    Time assert (H_stage2 : wp call_inc_a (wp_normal (Q_after_inc_a a b)) s').
     { wp_reduce.
       unfold lget, upd, updZ; cbn.
       rewrite Ha_eq, Hb_eq.
       split; [split; [lia | reflexivity] | idtac].
       intro r1. intro Hr1. split.
-      { unfold Q_after_inc_a; cbn. rewrite Hr1. split; [reflexivity | split; reflexivity]. }
+      { unfold Q_after_inc_a, wp_normal; cbn. rewrite Hr1. split; [reflexivity | split; reflexivity]. }
       { apply wp_ccall_frame. simpl. intro. contradiction. } }
-    apply (wp_seq_decompose call_inc_a (CSeq call_inc_b assign_result)
-                            (Q_after_inc_a a b) (Q_final a b) _ H_stage2).
+    apply (wp_seq_decompose_normal call_inc_a (CSeq call_inc_b assign_result)
+                            (Q_after_inc_a a b) (wp_normal (Q_final a b)) _ H_stage2).
     intros s'' [H_a2_val [H_a2_pres H_b2_pres]].
 
-    (* Stage 3: inc(b) → Q_after_inc_b *)
-    Time assert (H_stage3 : wp call_inc_b (Q_after_inc_b a b) s'').
+    (* Stage 3: inc(b) -> Q_after_inc_b *)
+    Time assert (H_stage3 : wp call_inc_b (wp_normal (Q_after_inc_b a b)) s'').
     { wp_reduce.
       unfold lget, upd, updZ; cbn.
       rewrite H_b2_pres, H_a2_val, H_a2_pres.
       split; [split; [lia | reflexivity] | idtac].
       intro r2. intro Hr2. split.
-      { unfold Q_after_inc_b, Q_after_inc_a; cbn.
+      { unfold Q_after_inc_b, Q_after_inc_a, wp_normal; cbn.
         rewrite Hr2. split; [reflexivity | split; [reflexivity | split; reflexivity]]. }
       { apply wp_ccall_frame. simpl. intro. contradiction. } }
-    apply (wp_seq_decompose call_inc_b assign_result
-                            (Q_after_inc_b a b) (Q_final a b) _ H_stage3).
+    apply (wp_seq_decompose_normal call_inc_b assign_result
+                            (Q_after_inc_b a b) (wp_normal (Q_final a b)) _ H_stage3).
     intros s''' [H_b2_val [H_a2_val2 [H_a3 H_b3]]].
 
-    (* Stage 4: assign result → Q_final *)
+    (* Stage 4: assign result -> Q_final *)
     wp_reduce.
-    unfold Q_final, Q_after_inc_b, Q_after_inc_a, asZ.
+    unfold Q_final, Q_after_inc_b, Q_after_inc_a, asZ, wp_normal.
     unfold lget, upd, updZ; cbn.
     rewrite H_a2_val2, H_b2_val.
-    split; [lia | split; reflexivity]. }
-  Time Qed.
+    split; [lia | split; reflexivity].
+Qed.
