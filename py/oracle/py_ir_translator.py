@@ -72,8 +72,14 @@ class PyIRTranslator:
                 return None
             args = [self.translate_expr(a) for a in node.args]
             args = [a for a in args if a is not None]
+            keywords = {}
+            for kw in node.keywords:
+                if kw.arg and kw.value:
+                    val = self.translate_expr(kw.value)
+                    if val:
+                        keywords[kw.arg] = val
             is_method = isinstance(node.func, ast.Attribute)
-            return PyCall(func=name, args=args, is_method=is_method)
+            return PyCall(func=name, args=args, is_method=is_method, keywords=keywords)
         if isinstance(node, ast.Subscript):
             container = self.translate_expr(node.value)
             if isinstance(node.slice, ast.Slice):

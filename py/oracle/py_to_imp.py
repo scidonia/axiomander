@@ -401,7 +401,8 @@ class PyToImpLowerer:
     def _lower_store_attr(self, stmt: PyStoreAttr) -> Optional[ImpCom]:
         val = self.lower_expr(stmt.value)
         if val:
-            return ImpCAss(target=f"{stmt.obj}_{stmt.attr}", value=val)
+            from .shape_ir import _escape_field
+            return ImpCAss(target=f"{stmt.obj}_{_escape_field(stmt.attr)}", value=val)
         return None
 
     def _lower_augassign(self, stmt: PyAugAssign) -> Optional[ImpCom]:
@@ -831,15 +832,32 @@ class PyToImpLowerer:
         if name not in self._contract_map:
             return None
         callee_params, pre_s, post_s, _, callee_writes = self._contract_map[name]
-        args_list = [self.lower_expr(a) for a in expr.args]
-        args_list = [a for a in args_list if a is not None]
 
-        # Inline actual arguments into callee contracts instead of emitting
-        # synthetic assignments like `x := a` before the CCall.  Keeping those
-        # temporary assignments inside each call stage makes later frame proofs
-        # much harder: a stage must prove both parameter-temp preservation and
-        # real CCall frame preservation.  CCall already stores `args`, so the
-        # contracts should mention actual arguments directly.
+        setup_cmds: list[ImpCom] = []
+        args_list: list[ImpAExp] = []
+
+        for i, a in enumerate(expr.args):
+            # Check if this positional arg is a constructor call for a Shape
+            ctor = self._try_lower_constructor(a, setup_cmds)
+            if ctor is not None:
+                args_list.append(ctor)
+            else:
+                lowered = self.lower_expr(a)
+                if lowered is not None:
+                    args_list.append(lowered)
+
+        # Fill remaining callee params from keyword args
+        for param in callee_params[len(args_list):]:
+            kw_expr = expr.keywords.get(param)
+            if kw_expr is not None:
+                ctor = self._try_lower_constructor(kw_expr, setup_cmds)
+                if ctor is not None:
+                    args_list.append(ctor)
+                else:
+                    lowered = self.lower_expr(kw_expr)
+                    if lowered is not None:
+                        args_list.append(lowered)
+
         pre = self._scope_ccall_pre(pre_s, callee_params, args_list, name)
         post = self._subst_result(post_s, target, callee_params, args_list)
         call = ImpCCall(
@@ -847,7 +865,42 @@ class PyToImpLowerer:
             precondition=pre, postcondition=post,
             writes=callee_writes, target=target)
 
+        if setup_cmds:
+            setup_cmds.append(call)
+            return ImpCSeq(commands=setup_cmds)
         return call
+
+    def _try_lower_constructor(self, expr: PyExpr,
+                                setup_cmds: list[ImpCom]) -> Optional[ImpAVar]:
+        """If expr is a constructor call for a known Shape, emit setup commands
+        and return a fresh ImpAVar prefix reference.  Otherwise return None."""
+        if not isinstance(expr, PyCall):
+            return None
+        from .shape_ir import lookup_shape, _escape_field
+        shape = lookup_shape(expr.func)
+        if shape is None:
+            return None
+        if not hasattr(self, '_ctor_counter'):
+            self._ctor_counter = 0
+        self._ctor_counter += 1
+        prefix = f"__ctor_{self._ctor_counter}"
+        # Build positional arg map (by position, matching shape field order)
+        pos_vals: dict[str, ImpAExp] = {}
+        for f, py_arg in zip(shape.fields, expr.args):
+            lowered = self.lower_expr(py_arg)
+            if lowered is not None:
+                pos_vals[f.name] = lowered
+        # Keyword args override positional
+        kw_vals: dict[str, ImpAExp] = {}
+        for kw_name, kw_val in expr.keywords.items():
+            lowered = self.lower_expr(kw_val)
+            if lowered is not None:
+                kw_vals[kw_name] = lowered
+        for f in shape.fields:
+            val = kw_vals.get(f.name, pos_vals.get(f.name, ImpANum(value=0)))
+            flat = f"{prefix}_{_escape_field(f.name)}"
+            setup_cmds.append(ImpCAss(target=flat, value=val))
+        return ImpAVar(name=prefix)
 
     def _aexp_contract_zterm(self, aexp: ImpAExp) -> str:
         if isinstance(aexp, ImpAVar):
@@ -934,6 +987,14 @@ class PyToImpLowerer:
                 f'isVZ ({vterm})',
                 result,
             )
+            # Substitute prefixed class-field state keys in postcondition.
+            # postcondition uses underscore form (visit_Attribute now normalises).
+            if isinstance(a, ImpAVar):
+                result = re.sub(
+                    rf's "{re.escape(p)}_',
+                    f's "{a.name}_',
+                    result,
+                )
         return f"(fun s => {result})"
 
     def _lower_call(self, expr: PyCall) -> Optional[ImpAExp]:

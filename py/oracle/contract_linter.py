@@ -331,13 +331,14 @@ class ContractLinter(ast.NodeVisitor):
                 idx = IntLit(value=0)
             return IndexExpr(name=name, index=idx)
         path = self._attribute_path(node)
-        if self.context == "precondition":
-            # Replace dots with underscores, escaping field names with
-            # underscore to __ (the _escape_field convention).
-            parts = path.split(".")
-            parts[-1] = parts[-1].replace("_", "__")
-            return Var(name="_".join(parts))
-        return Var(name=path)
+        # Always normalise dots to underscores with _escape_field convention:
+        # precondition: bare var  e.g. item_value  (Coq param name)
+        # postcondition: state key  e.g. s "item_value"%string
+        # Using the same flattening in both contexts keeps contract key names
+        # consistent with what _expand_params and _lower_attribute produce.
+        parts = path.split(".")
+        parts[-1] = parts[-1].replace("_", "__")
+        return Var(name="_".join(parts))
 
     def visit_Subscript(self, node: ast.Subscript) -> Optional[Expr]:
         if isinstance(node.value, ast.Name):

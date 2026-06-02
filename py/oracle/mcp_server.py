@@ -2779,7 +2779,9 @@ def _generate_record(node) -> str:
                 py_type = stmt.annotation.id
                 type_map = {"int": "Z", "float": "Z", "bool": "bool", "str": "string"}
                 ftype = type_map.get(py_type, "Z")
-            fields.append(f"  {name.lower()}_{fname} : {ftype}")
+            # Prefix with r_ so Record projection names don't clash with
+            # theorem forall parameters which use {name}_{field} directly.
+            fields.append(f"  r_{name.lower()}_{fname} : {ftype}")
 
     if not fields:
         return f"(* Class {name} has no annotated fields *)"

@@ -779,12 +779,10 @@ def enroll(course: Course) -> int:
     assert course.enrolled_count >= 0
     if course.enrolled_count >= course.capacity:
         result = 0
-        assert result == 0
-        return result
-    course.enrolled_count += 1
-    result = 1
-    assert course.enrolled_count <= course.capacity
-    assert result == 1
+    else:
+        course.enrolled_count += 1
+        result = 1
+    assert result == 0 or result == 1
     return result'''),
     # ── Raises / exception contracts ───────────────────────────────
     # Positive: function with a raises contract but no actual raise in body

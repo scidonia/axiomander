@@ -379,14 +379,27 @@ def _build_q_defs(
         seg_names.append(seg_name)
         seg_coqs.append(seg.to_coq())
 
-        callee_params, _, callee_post, _, _ = contract_map[ccall.name]
-        val_conj = _subst_post_for_qmid(callee_post, callee_params, ccall, all_params)
+        # Use the already-substituted postcondition from the ImpCCall node.
+        # This avoids re-deriving from the raw contract map and ensures
+        # constructor arg expansions and field-prefix substitutions are correct.
+        raw_post = ccall.postcondition or "True"
+        # Strip the wrapping (fun s => ...) if present
+        if raw_post.startswith("(fun s => ") and raw_post.endswith(")"):
+            val_conj = raw_post[len("(fun s => "):-1]
+        else:
+            val_conj = raw_post
 
         conj_strs: list[str] = []
         if pre_coq != "True":
             conj_strs.append(f"({pre_coq})")
         conj_strs.append(f"({val_conj})")
         conj_strs.append(f'(isVZ (s "{ccall.target}"%string) = true)')
+
+        # Add setup-command equality facts (e.g. __ctor_1_value = x from CAss setup)
+        for setup_target, setup_src in _get_callee_param_bindings(seg):
+            conj_strs.append(
+                f'(asZ (s "{setup_target}"%string) = asZ (s "{setup_src}"%string))'
+            )
 
         # Value conjuncts from previous stages
         for pi in range(k):

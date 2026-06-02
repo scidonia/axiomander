@@ -70,9 +70,11 @@ class PyUnaryOp(PyExpr):
 class PyCall(PyExpr):
     """A function or method call: f(args), obj.method(args)."""
     kind: Literal["call"] = "call"
-    func: str           # resolved function/method name
+    func: str
     args: list[PyExpr] = Field(default_factory=list)
-    is_method: bool = False  # True if called as obj.method(...)
+    is_method: bool = False
+    # Keyword arguments, e.g. Item(value=x) -> keywords={"value": PyName("x")}
+    keywords: dict[str, PyExpr] = Field(default_factory=dict)
 
 
 class PySubscript(PyExpr):
