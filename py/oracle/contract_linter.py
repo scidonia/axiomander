@@ -332,7 +332,11 @@ class ContractLinter(ast.NodeVisitor):
             return IndexExpr(name=name, index=idx)
         path = self._attribute_path(node)
         if self.context == "precondition":
-            return Var(name=path.replace(".", "_"))
+            # Replace dots with underscores, escaping field names with
+            # underscore to __ (the _escape_field convention).
+            parts = path.split(".")
+            parts[-1] = parts[-1].replace("_", "__")
+            return Var(name="_".join(parts))
         return Var(name=path)
 
     def visit_Subscript(self, node: ast.Subscript) -> Optional[Expr]:

@@ -1170,7 +1170,8 @@ class ImpTranslator:
                                 raise ValueError(
                                     f"Field '{node.attr}' not declared on {cls_name}. "
                                     f"Declared fields: {declared}")
-                            return f"{base_name}_{node.attr}"
+                            from .shape_ir import _escape_field
+                            return f"{base_name}_{_escape_field(node.attr)}"
         return None
 
     def _attribute_path(self, node: ast.Attribute) -> str:

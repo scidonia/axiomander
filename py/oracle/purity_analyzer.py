@@ -10,6 +10,7 @@ The IMP subset is trusted — all IMP-translatable operations are pure.
 import ast
 from dataclasses import dataclass, field
 from typing import Optional
+from .shape_ir import _escape_field
 
 
 KNOWN_PURE = frozenset({
@@ -171,7 +172,7 @@ def generate_frame_conditions(
             for f in class_fields[cls]:
                 if (param, f) not in mentioned_fields and (param, f) not in mutated_fields:
                     frame_conditions.append(
-                        f'asZ (s "{param}_{f}"%string) = {param}_{f}'
+                        f'asZ (s "{param}_{_escape_field(f)}"%string) = {param}_{_escape_field(f)}'
                     )
 
     return frame_conditions

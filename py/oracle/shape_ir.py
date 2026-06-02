@@ -29,6 +29,17 @@ class Shape:
     validate_assignment: bool = False
 
 
+def _escape_field(name: str) -> str:
+    """Escape literal underscores in a field name as double underscores.
+
+    This makes the single underscore an unambiguous obj→field separator
+    in flat keys like 'account_balance'.  A user field named 'max_value'
+    becomes 'max__value' so the flat key 'account_max__value' cannot be
+    confused with a bare parameter named 'account_max_value'.
+    """
+    return name.replace("_", "__")
+
+
 _shape_registry: dict[str, Shape] = {}
 
 
@@ -58,7 +69,7 @@ def is_shape_coq(obj_prefix: str, shape: Shape, scoped: bool = False) -> str:
         return "True"
     guards = []
     for f in shape.fields:
-        flat_key = f"{obj_prefix}_{f.name}"
+        flat_key = f"{obj_prefix}_{_escape_field(f.name)}"
         guard = _type_guard(f.coq_type, flat_key, scoped=True)
         if guard:
             guards.append(guard)
@@ -68,7 +79,7 @@ def is_shape_coq(obj_prefix: str, shape: Shape, scoped: bool = False) -> str:
 def is_valid_coq(obj_prefix: str, shape: Shape, scoped: bool = False) -> str:
     parts = [is_shape_coq(obj_prefix, shape, scoped)]
     for f in shape.fields:
-        flat_key = f"{obj_prefix}_{f.name}"
+        flat_key = f"{obj_prefix}_{_escape_field(f.name)}"
         key_scoped = f's "{flat_key}"%string'
         key_bare = flat_key
         for c in f.constraints:
@@ -90,6 +101,17 @@ def _type_guard(coq_type: str, flat_key: str, scoped: bool = False) -> str:
             return f'isVString ({key_ref}) = true'
         case _:
             return f'isVZ ({key_ref}) = true'
+
+
+def _escape_field(name: str) -> str:
+    """Escape literal underscores in a field name as double underscores.
+
+    This makes the single underscore an unambiguous obj→field separator
+    in flat keys like 'account_balance'.  A user field named 'max_value'
+    becomes 'max__value' so the flat key 'account_max__value' cannot be
+    confused with a bare parameter named 'account_max_value'.
+    """
+    return name.replace("_", "__")
 
 
 def _inherits_base_model(node: ast.ClassDef) -> bool:

@@ -2153,6 +2153,7 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
     Extracts type annotations from function parameters to determine Coq types.
     Returns (expanded_params, class_fields, params_coq_str, init_state, record_section)."""
     import ast
+    from .shape_ir import _escape_field
 
     # Build a map of param name → Coq type from function annotations
     param_types: dict[str, str] = {}
@@ -2223,9 +2224,10 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
             init_state = f'(hupd {init_state} "{p}"%string len_f (VZ {len_var}))'
         elif cls_name:
             for f in class_fields[cls_name]:
-                expanded.append(f"{p}_{f}")
-                parts.append(f"({p}_{f} : Z)")
-                init_state = f'(upd {init_state} "{p}_{f}"%string (VZ {p}_{f}))'
+                safe_f = _escape_field(f)
+                expanded.append(f"{p}_{safe_f}")
+                parts.append(f"({p}_{safe_f} : Z)")
+                init_state = f'(upd {init_state} "{p}_{safe_f}"%string (VZ {p}_{safe_f}))'
         else:
             expanded.append(p)
             parts.append(f"({p} : {coq_type})")
@@ -2757,11 +2759,12 @@ def _build_contract_map(tree) -> dict[str, tuple[list[str], str, str, list[str],
 def _generate_record(node) -> str:
     """Generate a Coq Record from a Python class definition."""
     import ast
+    from .shape_ir import _escape_field
     name = node.name
     fields = []
     for stmt in node.body:
         if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-            fname = stmt.target.id
+            fname = _escape_field(stmt.target.id)
             # Map Python types to Coq types
             ftype = "Z"  # default to Z
             if stmt.annotation and isinstance(stmt.annotation, ast.Name):
@@ -4106,7 +4109,7 @@ def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: 
             implicit_pres.append(f"({arg}__count >= 0)")
 
     # Inject is_shape from Pydantic type annotations
-    from .shape_ir import lookup_shape, is_shape_coq as _is_shape_coq
+    from .shape_ir import lookup_shape, is_shape_coq as _is_shape_coq, _escape_field as _esc_f
     for arg, annot in _func_params(func_node):
         if annot and isinstance(annot, ast.Name):
             shape = lookup_shape(annot.id)
@@ -4130,7 +4133,7 @@ def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: 
                         if isinstance(node, ast.ClassDef) and node.name == cls_name:
                             for stmt in node.body:
                                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-                                    param_field_map[stmt.target.id] = f"{arg}_{stmt.target.id}"
+                                    param_field_map[stmt.target.id] = f"{arg}_{_esc_f(stmt.target.id)}"
             pydantic_pres = []
             for field_name, op, val in pydantic_fields:
                 coq_name = param_field_map.get(field_name, field_name)

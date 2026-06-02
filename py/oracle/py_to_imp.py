@@ -145,7 +145,8 @@ class PyToImpLowerer:
             for cls_name, fields in self._record_fields.items():
                 if expr.attr in fields:
                     if self._param_types.get(obj_name) == cls_name:
-                        return ImpAVar(name=f"{obj_name}_{expr.attr}")
+                        from .shape_ir import _escape_field
+                        return ImpAVar(name=f"{obj_name}_{_escape_field(expr.attr)}")
         if isinstance(expr.obj, PyName):
             return ImpAVar(name=f"{expr.obj.name}.{expr.attr}")
         return None
