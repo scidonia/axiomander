@@ -838,7 +838,7 @@ class PyToImpLowerer:
 
         for i, a in enumerate(expr.args):
             # Check if this positional arg is a constructor call for a Shape
-            ctor = self._try_lower_constructor(a, setup_cmds)
+            ctor = self._try_lower_constructor(a, setup_cmds, callee_name=name)
             if ctor is not None:
                 args_list.append(ctor)
             else:
@@ -850,7 +850,7 @@ class PyToImpLowerer:
         for param in callee_params[len(args_list):]:
             kw_expr = expr.keywords.get(param)
             if kw_expr is not None:
-                ctor = self._try_lower_constructor(kw_expr, setup_cmds)
+                ctor = self._try_lower_constructor(kw_expr, setup_cmds, callee_name=name)
                 if ctor is not None:
                     args_list.append(ctor)
                 else:
@@ -871,9 +871,14 @@ class PyToImpLowerer:
         return call
 
     def _try_lower_constructor(self, expr: PyExpr,
-                                setup_cmds: list[ImpCom]) -> Optional[ImpAVar]:
+                                setup_cmds: list[ImpCom],
+                                callee_name: str = "") -> Optional[ImpAVar]:
         """If expr is a constructor call for a known Shape, emit setup commands
-        and return a fresh ImpAVar prefix reference.  Otherwise return None."""
+        and return a fresh ImpAVar prefix reference.  Otherwise return None.
+        
+        The prefix encodes the constructor type and callee context, e.g.
+        __ctor_Item_read_item so the origin is clear in Coq output.
+        """
         if not isinstance(expr, PyCall):
             return None
         from .shape_ir import lookup_shape, _escape_field
@@ -883,7 +888,11 @@ class PyToImpLowerer:
         if not hasattr(self, '_ctor_counter'):
             self._ctor_counter = 0
         self._ctor_counter += 1
-        prefix = f"__ctor_{self._ctor_counter}"
+        # Name encodes: __ctor_<ModelType>_<callee>  e.g. __ctor_Item_read_item
+        # If multiple calls to the same callee, append counter only when needed
+        suffix = f"_{self._ctor_counter}" if self._ctor_counter > 1 else ""
+        callee_part = f"_{callee_name}" if callee_name else ""
+        prefix = f"__ctor_{expr.func}{callee_part}{suffix}"
         # Build positional arg map (by position, matching shape field order)
         pos_vals: dict[str, ImpAExp] = {}
         for f, py_arg in zip(shape.fields, expr.args):
