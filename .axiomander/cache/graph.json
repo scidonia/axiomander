@@ -289,7 +289,8 @@
       "generate_frame_conditions",
       "_extract_name",
       "_attribute_dot_path",
-      "_lower_arg"
+      "_lower_arg",
+      "_is_dataclass"
     ]
   },
   "len": {
@@ -1128,7 +1129,7 @@
     "callers": []
   },
   "is_proved": {
-    "contract_hash": "08620013da033f3cc80f588ddb4f4a77af441df30f56d8b96eec1b465efc2390",
+    "contract_hash": "c7bdd37b5992b715a92047c6461590ac1b4defb04c15d3c30c577bb176714933",
     "callees": [],
     "callers": []
   },
@@ -6824,7 +6825,9 @@
       "_python_type_name",
       "isinstance"
     ],
-    "callers": []
+    "callers": [
+      "_python_type_name"
+    ]
   },
   "_build_shape": {
     "contract_hash": "",
@@ -6845,6 +6848,7 @@
     "callees": [
       "_build_shape",
       "_inherits_base_model",
+      "_is_dataclass",
       "_shape_registry.clear",
       "ast.walk",
       "isinstance"
@@ -6869,7 +6873,7 @@
     ]
   },
   "flat_fields": {
-    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "contract_hash": "2acf1eab322bbc296f7c232d776e1cb27c05ea59287460c74259e9f60155ebf2",
     "callees": [
       "_escape_field",
       "_shape_registry.get",
@@ -6892,7 +6896,7 @@
     ]
   },
   "_type_guard": {
-    "contract_hash": "",
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [],
     "callers": [
       "is_shape_coq"
@@ -7449,5 +7453,14 @@
     "contract_hash": "25303a3a10dbbcc3a2c5c1d390c1c9fd8b3ff67b3c03ea0d636d544deca64d27",
     "callees": [],
     "callers": []
+  },
+  "_is_dataclass": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "isinstance"
+    ],
+    "callers": [
+      "build_shape_registry"
+    ]
   }
 }

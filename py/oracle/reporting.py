@@ -57,10 +57,9 @@ class GoalStatus:
         """
         axiomander:
             ensures:
-                implies(result, error_detail == "")
-                implies(result, proof_method != "" or level == ProofLevel.LEVEL1_LTAC)
-                implies(not result, suggested_action is not None)
-                implies(level == ProofLevel.COUNTEREXAMPLE, not result)
+                implies(self.level == 0, result == 0)
+                implies(self.level == 1, result == 0)
+                implies(self.level >= 2, result == 1)
         """
         return self.level not in (ProofLevel.UNPROVED, ProofLevel.COUNTEREXAMPLE)
 

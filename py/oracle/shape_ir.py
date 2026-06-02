@@ -55,7 +55,7 @@ def build_shape_registry(tree: ast.Module) -> dict[str, Shape]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.ClassDef):
             continue
-        if not _inherits_base_model(node):
+        if not _inherits_base_model(node) and not _is_dataclass(node):
             continue
         shape = _build_shape(node)
         _shape_registry[node.name] = shape
@@ -150,6 +150,16 @@ def _inherits_base_model(node: ast.ClassDef) -> bool:
         if isinstance(base, ast.Name) and base.id == "BaseModel":
             return True
         if isinstance(base, ast.Attribute) and base.attr == "BaseModel":
+            return True
+    return False
+
+
+def _is_dataclass(node: ast.ClassDef) -> bool:
+    """Check if a ClassDef has a @dataclass decorator."""
+    for dec in node.decorator_list:
+        if isinstance(dec, ast.Name) and dec.id == "dataclass":
+            return True
+        if isinstance(dec, ast.Call) and isinstance(dec.func, ast.Name) and dec.func.id == "dataclass":
             return True
     return False
 

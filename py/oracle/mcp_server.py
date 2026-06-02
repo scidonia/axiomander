@@ -2162,7 +2162,7 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
     float_params: set[str] = set()
     string_params: set[str] = set()
     if func_node:
-        for arg, annot in _func_params(func_node):
+        for arg, annot in _func_params(func_node, tree):
             coq_type = _py_type_to_coq(annot)
             param_types[arg] = coq_type
             if _is_list_param(annot):
@@ -2194,7 +2194,7 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
         cls_name = next((c for c in class_fields if c.lower() == p.lower()), None)
         # Also match by annotation type (e.g. acct: Account → Account)
         if cls_name is None and p in param_types:
-            for arg, annot in _func_params(func_node):
+            for arg, annot in _func_params(func_node, tree):
                 if arg == p and annot and isinstance(annot, ast.Name):
                     cls_name = annot.id if annot.id in class_fields else None
                     break
@@ -3137,11 +3137,14 @@ def _py_cond_to_vcg_exit(test: ast.expr) -> str:
     return "Z.leb i n = false"
 
 
-def _func_params(func_node) -> list[tuple[str, ast.expr | None]]:
+def _func_params(func_node, tree=None) -> list[tuple[str, ast.expr | None]]:
     """Extract all named parameters from a function definition.
 
     Returns list of (name, annotation) for positional-only, regular,
     keyword-only args, and *args (vararg). Skips **kwargs.
+
+    If the first parameter is named 'self' and has no annotation, and
+    tree is provided, infer its type from the enclosing ClassDef.
     """
     import ast
     params = []
@@ -3152,8 +3155,16 @@ def _func_params(func_node) -> list[tuple[str, ast.expr | None]]:
     for a in func_node.args.kwonlyargs:
         params.append((a.arg, a.annotation))
     if func_node.args.vararg:
-        # *args → expose as list parameter with _len
         params.append((func_node.args.vararg.arg, func_node.args.vararg.annotation))
+    # Infer self's type from enclosing class
+    if params and params[0][0] == 'self' and params[0][1] is None and tree is not None:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                for stmt in node.body:
+                    if stmt is func_node:
+                        # Found the enclosing class — use its name as self's type
+                        params[0] = ('self', ast.Name(id=node.name, ctx=ast.Load()))
+                        break
     return params
 
 
