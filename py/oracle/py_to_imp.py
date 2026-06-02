@@ -903,6 +903,15 @@ class PyToImpLowerer:
             result = re.sub(
                 rf'(?<![a-zA-Z0-9_"%]){re.escape(p)}(?!\s*")(?![a-zA-Z0-9_"%])',
                 zterm, result)
+            # Substitute prefixed state keys for class fields:
+            # s "calleeParam_fieldName"%string → s "callerArg_fieldName"%string
+            if isinstance(arg_map.get(p), ImpAVar):
+                caller_name = arg_map[p].name
+                result = re.sub(
+                    rf's "{re.escape(p)}_',
+                    f's "{caller_name}_',
+                    result,
+                )
         return f"(fun s => {result})"
 
     @staticmethod

@@ -2704,6 +2704,14 @@ def _build_contract_map(tree) -> dict[str, tuple[list[str], str, str, list[str],
         if type_guards:
             extra = " /\\ ".join(type_guards)
             pre_coq = f"({pre_coq} /\\ {extra})" if pre_coq != "True" else extra
+        # Inject is_shape for class-typed parameters (CCall/callee precondition).
+        # Scoped form so the caller proves type safety on its own state keys.
+        from .shape_ir import lookup_shape, is_shape_coq as _isc
+        for p_name, p_annot in _func_params(fn_node):
+            if p_annot and isinstance(p_annot, ast.Name):
+                shape = lookup_shape(p_annot.id)
+                if shape:
+                    pre_coq = f"({pre_coq} /\\ {_isc(p_name, shape, scoped=True)})"
         # Inject return-type guard into postcondition (CCall / callee's theorem)
         if fn_node.returns and isinstance(fn_node.returns, ast.Name):
             ret_type = fn_node.returns.id
