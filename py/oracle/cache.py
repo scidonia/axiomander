@@ -28,7 +28,7 @@ from typing import Optional
 from .reporting import GoalStatus, ProofLevel, Action
 
 
-TOOL_VERSION = "0.4.0"
+TOOL_VERSION = "0.5.0"
 
 
 # ─── Data structures ───────────────────────────────────────────────
