@@ -155,9 +155,15 @@ Ltac ccall_simpl :=
   else idtac.
 
 (** [wp_prove] -- structural recursion over goal shape after wp_reduce.
-    Handles conjunctions, disjunctions, ABool, comparisons, reflexivity, lia. *)
+    Handles conjunctions, disjunctions, ABool, comparisons, reflexivity, lia.
+
+    After wp_reduce, goals involving CRaise / CTry may still contain
+    [lget (upd ...)] terms inside match-on-outcome branches.  We add an
+    early normalization step [unfold lget, upd, updZ; cbn] before the
+    pattern-match dispatch so those terms reduce before we recurse. *)
 Ltac wp_prove :=
   wp_reduce;
+  try (unfold lget, upd, updZ; cbn -[Z.leb Z.eqb Z.add Z.mul Z.sub]);
   match goal with
   | [ H: false = true |- _ ] => discriminate
   | [ H: true = false |- _ ] => discriminate

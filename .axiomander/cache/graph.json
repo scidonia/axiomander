@@ -191,7 +191,8 @@
       "lint_file",
       "visit_Compare",
       "walk_body",
-      "_str_contains_expr"
+      "_str_contains_expr",
+      "try_prove_interactive"
     ]
   },
   "isinstance": {
@@ -298,7 +299,9 @@
       "analyze_file",
       "_translate_generator",
       "_str_contains_expr",
-      "_translate_compare"
+      "_translate_compare",
+      "test_focus_trivial_proof",
+      "try_prove_interactive"
     ]
   },
   "_classify_in_function": {
@@ -463,7 +466,8 @@
     "callers": [
       "_extract_tactic",
       "_scope_callee_params",
-      "_manual_scope"
+      "_manual_scope",
+      "try_prove_interactive"
     ]
   },
   "response.strip": {
@@ -805,7 +809,11 @@
       "run_langgraph_oracle",
       "_generate_proof_file",
       "test_mcp_server_starts",
-      "dump_obligations"
+      "dump_obligations",
+      "test_focus_trivial_proof",
+      "test_insert_reflexivity_proves",
+      "test_multi_step_intros_lemma",
+      "try_prove_interactive"
     ]
   },
   "test": {
@@ -851,7 +859,11 @@
     "callers": [
       "_append_text",
       "validate_proof",
-      "test_mcp_server_starts"
+      "test_mcp_server_starts",
+      "test_focus_trivial_proof",
+      "test_insert_reflexivity_proves",
+      "test_multi_step_intros_lemma",
+      "try_prove_interactive"
     ]
   },
   "open": {
@@ -982,7 +994,11 @@
   "state.is_proved": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "test_insert_reflexivity_proves",
+      "test_multi_step_intros_lemma",
+      "try_prove_interactive"
+    ]
   },
   "finish_proof": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
@@ -1221,7 +1237,8 @@
     "callees": [],
     "callers": [
       "interactive_oracle_query",
-      "oracle_query"
+      "oracle_query",
+      "test_tool_verify_function_uses_real_llm_oracle"
     ]
   },
   "range": {
@@ -1402,7 +1419,11 @@
     "callees": [],
     "callers": [
       "validate_proof",
-      "test_mcp_server_starts"
+      "test_mcp_server_starts",
+      "test_focus_trivial_proof",
+      "test_insert_reflexivity_proves",
+      "test_multi_step_intros_lemma",
+      "try_prove_interactive"
     ]
   },
   "unlink": {
@@ -1447,7 +1468,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "reset_credit_budget"
+      "reset_credit_budget",
+      "test_tool_verify_function_uses_real_llm_oracle"
     ]
   },
   "reset_credit_budget": {
@@ -1604,7 +1626,8 @@
     "callees": [],
     "callers": [
       "run_verification",
-      "_generate_proof_file"
+      "_generate_proof_file",
+      "test_level1_function_passes"
     ]
   },
   "ast.parse": {
@@ -1809,7 +1832,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "try_tactic"
+      "try_tactic",
+      "test_level1_function_passes"
     ]
   },
   "s.try_tactic": {
@@ -2257,7 +2281,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "_make_client"
+      "_make_client",
+      "try_prove_interactive"
     ]
   },
   "_tmp_v_file.exists": {
@@ -2290,14 +2315,22 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "test_mcp_server_starts"
+      "test_mcp_server_starts",
+      "test_focus_trivial_proof",
+      "test_insert_reflexivity_proves",
+      "test_multi_step_intros_lemma",
+      "try_prove_interactive"
     ]
   },
   "client.stop": {
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "test_mcp_server_starts"
+      "test_mcp_server_starts",
+      "test_focus_trivial_proof",
+      "test_insert_reflexivity_proves",
+      "test_multi_step_intros_lemma",
+      "try_prove_interactive"
     ]
   },
   "full.rfind": {
@@ -2372,7 +2405,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "run_langgraph_oracle"
+      "run_langgraph_oracle",
+      "try_prove_interactive"
     ]
   },
   "write_text": {
@@ -3005,7 +3039,10 @@
       "_find_coq_lsp"
     ],
     "callers": [
-      "test_mcp_server_starts"
+      "test_mcp_server_starts",
+      "test_focus_trivial_proof",
+      "test_insert_reflexivity_proves",
+      "test_multi_step_intros_lemma"
     ]
   },
   "rocq_workspace": {
@@ -3024,14 +3061,20 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "test_mcp_server_starts"
+      "test_mcp_server_starts",
+      "test_focus_trivial_proof",
+      "test_insert_reflexivity_proves",
+      "test_multi_step_intros_lemma"
     ]
   },
   "vpath.unlink": {
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "test_mcp_server_starts"
+      "test_mcp_server_starts",
+      "test_focus_trivial_proof",
+      "test_insert_reflexivity_proves",
+      "test_multi_step_intros_lemma"
     ]
   },
   "test_mcp_server_starts": {
@@ -4964,7 +5007,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "dump_obligations"
+      "dump_obligations",
+      "generate_coq"
     ]
   },
   "_collect_predicates": {
@@ -4985,14 +5029,16 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "dump_obligations"
+      "dump_obligations",
+      "generate_coq"
     ]
   },
   "_generate_coq": {
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "dump_obligations"
+      "dump_obligations",
+      "generate_coq"
     ]
   },
   "_infer_var_types": {
@@ -5857,6 +5903,236 @@
       "join",
       "self.post.to_coq",
       "self.raises_clauses.items"
+    ],
+    "callers": []
+  },
+  "uuid.uuid4": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_fresh_frame_two_calls_source"
+    ]
+  },
+  "_fresh_frame_two_calls_source": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "uuid.uuid4"
+    ],
+    "callers": [
+      "test_tool_verify_function_uses_real_llm_oracle"
+    ]
+  },
+  "mcp.tool_verify_function": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_tool_verify_function_uses_real_llm_oracle"
+    ]
+  },
+  "monkeypatch.setattr": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_tool_verify_function_uses_real_llm_oracle"
+    ]
+  },
+  "orig_llm": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_tool_verify_function_uses_real_llm_oracle",
+      "wrapped_llm"
+    ]
+  },
+  "pytest.mark.skipif": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_tool_verify_function_uses_real_llm_oracle"
+    ]
+  },
+  "pytest.skip": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_tool_verify_function_uses_real_llm_oracle"
+    ]
+  },
+  "test_tool_verify_function_uses_real_llm_oracle": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_fresh_frame_two_calls_source",
+      "load_config",
+      "mcp.tool_verify_function",
+      "monkeypatch.setattr",
+      "orig_llm",
+      "os.environ.get",
+      "pytest.mark.skipif",
+      "pytest.skip"
+    ],
+    "callers": []
+  },
+  "wrapped_llm": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "orig_llm"
+    ],
+    "callers": []
+  },
+  "client.focus": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_focus_trivial_proof",
+      "try_prove_interactive"
+    ]
+  },
+  "test_focus_trivial_proof": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "Path",
+      "_make_client",
+      "client.focus",
+      "client.start",
+      "client.stop",
+      "dir",
+      "f.write",
+      "len",
+      "tempfile.NamedTemporaryFile",
+      "vpath.unlink"
+    ],
+    "callers": []
+  },
+  "client.insert_tactic": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_insert_reflexivity_proves",
+      "test_multi_step_intros_lemma",
+      "try_prove_interactive"
+    ]
+  },
+  "test_insert_reflexivity_proves": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "Path",
+      "_make_client",
+      "client.insert_tactic",
+      "client.start",
+      "client.stop",
+      "dir",
+      "f.write",
+      "state.is_proved",
+      "tempfile.NamedTemporaryFile",
+      "vpath.unlink"
+    ],
+    "callers": []
+  },
+  "test_level1_function_passes": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_verify_function",
+      "result.is_proved"
+    ],
+    "callers": []
+  },
+  "test_multi_step_intros_lemma": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "Path",
+      "_make_client",
+      "client.insert_tactic",
+      "client.start",
+      "client.stop",
+      "dir",
+      "f.write",
+      "state.is_proved",
+      "tempfile.NamedTemporaryFile",
+      "vpath.unlink"
+    ],
+    "callers": []
+  },
+  "find_assertions": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "generate_coq"
+    ]
+  },
+  "translator.parse_source": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "generate_coq"
+    ]
+  },
+  "tree.find_function": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "generate_coq"
+    ]
+  },
+  "generate_coq": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_build_contract_map",
+      "_gen_imp_body",
+      "_generate_coq",
+      "find_assertions",
+      "translator.parse_source",
+      "tree.find_function"
+    ],
+    "callers": []
+  },
+  "content.replace": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "try_prove_interactive"
+    ]
+  },
+  "tac.split": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "try_prove_interactive"
+    ]
+  },
+  "theorem_name.replace": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "try_prove_interactive"
+    ]
+  },
+  "vfile.unlink": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "try_prove_interactive"
+    ]
+  },
+  "try_prove_interactive": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "Path",
+      "RocqRobotClient",
+      "client.focus",
+      "client.insert_tactic",
+      "client.start",
+      "client.stop",
+      "content.replace",
+      "enumerate",
+      "f.write",
+      "len",
+      "re.sub",
+      "state.is_proved",
+      "tac.split",
+      "tempfile.NamedTemporaryFile",
+      "theorem_name.replace",
+      "time.time",
+      "vfile.unlink"
     ],
     "callers": []
   }

@@ -787,7 +787,8 @@ def enroll(course: Course) -> int:
     assert result == 1
     return result'''),
     # ── Raises / exception contracts ───────────────────────────────
-    # Positive: if n < 0 then raise ValueError, postcondition holds on normal path
+    # Positive: function with a raises contract but no actual raise in body
+    # (raises arm is vacuously true -- the ORaise branch is never reached)
     ("raise_if_neg", """\
 def raise_if_neg(n: int) -> int:
     assert n >= 0
@@ -795,16 +796,27 @@ def raise_if_neg(n: int) -> int:
     assert result >= 0
     assert raises(ValueError, n < 0)
     return result"""),
-    # Positive: function with only raises contract (no normal postcondition violation)
-    ("raise_unconditional", """\
-def raise_unconditional(n: int) -> int:
-    assert n >= 0
+    # Positive: function that actually raises + correct raises contract
+    ("check_pos", """\
+def check_pos(n: int) -> int:
+    assert True
+    if n < 0:
+        raise ValueError
     result = n
     assert result >= 0
+    assert raises(ValueError, n < 0)
     return result"""),
-    # Negative: raises condition is vacuously false (True is not a valid exc cond here)
-    # This test proves -- the false raises branch is just unreachable, that's fine.
-    # Real negative: postcondition that's wrong, with a spurious raises clause.
+    # Negative: wrong raises condition (claims n > 0 but raise fires when n < 0)
+    ("raises_wrong_exc_cond", """\
+def raises_wrong_exc_cond(n: int) -> int:
+    assert True
+    if n < 0:
+        raise ValueError
+    result = n
+    assert result >= 0
+    assert raises(ValueError, n > 0)
+    return result"""),
+    # Negative: wrong normal postcondition with raises clause
     ("raises_wrong_post", """\
 def raises_wrong_post(n: int) -> int:
     assert n >= 0
@@ -819,7 +831,8 @@ NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "we
     # return-value info (pop returns any int, CCall frame too deep)
     "frame_stub_pop", "frame_stub_disjoint", "modifies_blocks_frame",
     # Raises contract tests
-    "raises_wrong_post",
+    "raises_wrong_exc_cond",  # wrong condition on the raises arm
+    "raises_wrong_post",      # wrong normal postcondition
 }
 
 

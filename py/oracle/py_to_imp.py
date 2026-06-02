@@ -319,6 +319,10 @@ class PyToImpLowerer:
             return self._lower_store_subscript(stmt)
         if isinstance(stmt, PySliceStore):
             return self._lower_slice_store(stmt)
+        if isinstance(stmt, PyRaise):
+            return self._lower_raise(stmt)
+        if isinstance(stmt, PyTry):
+            return self._lower_try(stmt)
         return None
 
     def _lower_assign(self, stmt: PyAssign) -> Optional[ImpCom]:
@@ -587,6 +591,34 @@ class PyToImpLowerer:
             if bexp:
                 return ImpCAss(target="result", value=ImpABool(bexp=bexp))
         return ImpCSkip()
+
+    def _lower_raise(self, stmt: PyRaise) -> ImpCom:
+        """Lower raise ExcType or raise ExcType(msg) to CRaise (AString "ExcType").
+
+        The exception value is a VString tag so outcome predicates can match
+        on the exception type by name.
+        """
+        return ImpCRaise(exc=ImpAString(value=stmt.exc_type))
+
+    def _lower_try(self, stmt: PyTry) -> ImpCom:
+        """Lower try/except to chained CTry nodes.
+
+        The body is lowered normally.  Each handler is wrapped in a CTry:
+          CTry body exc_var handler_body
+
+        Multiple handlers are nested right-to-left so the first matching
+        handler wraps outermost.  The exc_var receives the exception value
+        (a VString tag of the exception type name).
+        """
+        body = self.lower_body(stmt.body)
+        if not stmt.handlers:
+            return body
+        result = body
+        for h in stmt.handlers:
+            exc_var = h.exc_var if h.exc_var else f"__exc_{h.exc_type.lower()}__"
+            handler_body = self.lower_body(h.body)
+            result = ImpCTry(body=result, exc=exc_var, handler=handler_body)
+        return result
 
     # =================================================================
     #  Expression statements (method calls)
