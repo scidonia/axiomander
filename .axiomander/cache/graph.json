@@ -222,6 +222,7 @@
       "run_verification",
       "_add_function_to_map",
       "_aexp_to_zterm",
+      "_collect_ccalls",
       "_extract",
       "_extract_segments",
       "_get_callee_param_bindings",
@@ -288,7 +289,8 @@
       "generate_frame_conditions",
       "_extract_name",
       "_attribute_dot_path",
-      "_lower_arg"
+      "_lower_arg",
+      "_is_dataclass"
     ]
   },
   "len": {
@@ -318,6 +320,7 @@
       "_mk_post_obligation",
       "_mk_stage1_statement_proof",
       "_mk_stage_k_statement_proof",
+      "_multi_call_callees",
       "_expand_predicate",
       "_translate_pure_call",
       "_translate_quantifier",
@@ -338,7 +341,8 @@
       "_mk_composition_obligation",
       "generate_frame_conditions",
       "_parse_tactics",
-      "extract_proof"
+      "extract_proof",
+      "build_report"
     ]
   },
   "_classify_in_function": {
@@ -416,7 +420,7 @@
     ]
   },
   "_get_call_name": {
-    "contract_hash": "eb4560260798140dff697ab568a1e637b3f21e76b981da10809760cbca3d3ce2",
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
       "isinstance",
       "join",
@@ -651,7 +655,9 @@
   },
   "__init__": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
-    "callees": [],
+    "callees": [
+      "set"
+    ],
     "callers": []
   },
   "ProofState": {
@@ -1089,6 +1095,7 @@
     "callers": [
       "route",
       "run_langgraph_oracle",
+      "_collect_ccalls",
       "_invariants_to_coq",
       "_translate_concat",
       "wrap_val",
@@ -1124,7 +1131,7 @@
     "callers": []
   },
   "is_proved": {
-    "contract_hash": "b6912350929706cd05b93ded6b2dbc2d449d6da44aadbae2c334c55d5b7ffe81",
+    "contract_hash": "c7bdd37b5992b715a92047c6461590ac1b4defb04c15d3c30c577bb176714933",
     "callees": [],
     "callers": []
   },
@@ -1640,7 +1647,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "interactive_oracle_query"
+      "interactive_oracle_query",
+      "_multi_call_callees"
     ]
   },
   "bool": {
@@ -2659,7 +2667,7 @@
     ]
   },
   "classify_failure": {
-    "contract_hash": "809ef48ae4081a6bd36f8312ceb7d6ed9ada824395c1a1ef61082f434a5c32a4",
+    "contract_hash": "352493b2a7b52de170c751290a30a752011c7bfd135003d18b5eca80e35a5edf",
     "callees": [
       "error.lower"
     ],
@@ -2676,7 +2684,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "mcp_output"
+      "mcp_output",
+      "build_report"
     ]
   },
   "self.summary": {
@@ -2759,11 +2768,14 @@
       "_build_q_defs",
       "_fresh_names",
       "test_mcp_server_starts",
+      "_multi_call_callees",
       "_mk_post_obligation",
       "_mk_stage_k_statement_proof",
       "generate_obligations",
+      "get_transitive_callers",
       "update",
-      "generate_frame_conditions"
+      "generate_frame_conditions",
+      "__init__"
     ]
   },
   "to_reverify.add": {
@@ -2888,22 +2900,33 @@
     ]
   },
   "_collect_ccalls": {
-    "contract_hash": "c2175f182cf264bd7b96710e156427ab560df0b587b44078ddf998054d000430",
-    "callees": [],
+    "contract_hash": "c7f6714ad79535a5aa45957bc396785e380ff9d04bee8bbb5d4fec9a305f7c39",
+    "callees": [
+      "_collect_ccalls",
+      "ccalls.append",
+      "ccalls.extend",
+      "hasattr",
+      "isinstance"
+    ],
     "callers": [
       "_fresh_names",
+      "_collect_ccalls",
       "generate_obligations"
     ]
   },
   "ccalls.append": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "_collect_ccalls"
+    ]
   },
   "ccalls.extend": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "_collect_ccalls"
+    ]
   },
   "_compose_seg_seq": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
@@ -3812,7 +3835,8 @@
       "_translate_assign",
       "_str_contains_expr",
       "_translate_augassign",
-      "_translate_compare"
+      "_translate_compare",
+      "_attribute_path"
     ]
   },
   "self.translate_expr": {
@@ -3826,7 +3850,8 @@
       "_translate_augassign",
       "_translate_call",
       "_translate_compare",
-      "_translate_raise"
+      "_translate_raise",
+      "_attribute_path"
     ]
   },
   "_attribute_path": {
@@ -3835,7 +3860,9 @@
       "isinstance",
       "join",
       "parts.append",
-      "reversed"
+      "reversed",
+      "self._translate_target",
+      "self.translate_expr"
     ],
     "callers": []
   },
@@ -4087,6 +4114,7 @@
       "analyze_function",
       "build_proof_with_ghost",
       "_mk_composition_obligation",
+      "get_transitive_callers",
       "analyze_purity",
       "get_callees"
     ]
@@ -4400,16 +4428,26 @@
   "callee_targets.items": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "_multi_call_callees"
+    ]
   },
   "callee_targets.setdefault": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "_multi_call_callees"
+    ]
   },
   "_multi_call_callees": {
-    "contract_hash": "301cccdc64d1605d81d5e1d08faafd6ed7f73f90b9266d63454188101a2be7cd",
-    "callees": [],
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "append",
+      "callee_targets.items",
+      "callee_targets.setdefault",
+      "len",
+      "set"
+    ],
     "callers": [
       "generate_obligations"
     ]
@@ -4559,7 +4597,8 @@
     "callees": [],
     "callers": [
       "_expand_predicate",
-      "visit_Call"
+      "visit_Call",
+      "generic_visit"
     ]
   },
   "self.visit": {
@@ -4623,7 +4662,8 @@
       "visit_BinOp",
       "_mk_cmp",
       "_translate_augassign",
-      "_translate_binop"
+      "_translate_binop",
+      "generic_visit"
     ]
   },
   "_translate_compare_op": {
@@ -5120,7 +5160,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "analyze_file"
+      "analyze_file",
+      "build_report"
     ]
   },
   "analyze_file": {
@@ -6585,31 +6626,49 @@
   "self.get_callers": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "get_transitive_callers"
+    ]
   },
   "stack.append": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "get_transitive_callers"
+    ]
   },
   "stack.pop": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "get_transitive_callers"
+    ]
   },
   "visited.add": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "get_transitive_callers"
+    ]
   },
   "visited.discard": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "get_transitive_callers"
+    ]
   },
   "get_transitive_callers": {
-    "contract_hash": "ea9cb38a73668fdb894f85af3d79dc0b10da2a8819407326ec8f57d0b465edcb",
-    "callees": [],
+    "contract_hash": "2f8ae6681f2b4ce188c8a0df91198a1bd209365d70f51d97bafbb47c0c6fadfc",
+    "callees": [
+      "list",
+      "self.get_callers",
+      "set",
+      "stack.append",
+      "stack.pop",
+      "visited.add",
+      "visited.discard"
+    ],
     "callers": []
   },
   "ast.FunctionDef": {
@@ -6708,7 +6767,8 @@
     "callees": [],
     "callers": [
       "update",
-      "get_callees"
+      "get_callees",
+      "get_contract_hash"
     ]
   },
   "update": {
@@ -6774,7 +6834,9 @@
       "_python_type_name",
       "isinstance"
     ],
-    "callers": []
+    "callers": [
+      "_python_type_name"
+    ]
   },
   "_build_shape": {
     "contract_hash": "",
@@ -6795,6 +6857,7 @@
     "callees": [
       "_build_shape",
       "_inherits_base_model",
+      "_is_dataclass",
       "_shape_registry.clear",
       "ast.walk",
       "isinstance"
@@ -6819,7 +6882,7 @@
     ]
   },
   "flat_fields": {
-    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "contract_hash": "2acf1eab322bbc296f7c232d776e1cb27c05ea59287460c74259e9f60155ebf2",
     "callees": [
       "_escape_field",
       "_shape_registry.get",
@@ -6842,7 +6905,7 @@
     ]
   },
   "_type_guard": {
-    "contract_hash": "",
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [],
     "callers": [
       "is_shape_coq"
@@ -7290,16 +7353,25 @@
   "PipelineReport": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "build_report"
+    ]
   },
   "build_report": {
-    "contract_hash": "6abfa000be4929b18695e1cfa9d1b949229d65912c244e0e86abe41ec761c5cf",
-    "callees": [],
+    "contract_hash": "8873aae226e6a2bcf8d81e58bed66a76bf66d5011b249fd83a9558856baced36",
+    "callees": [
+      "PipelineReport",
+      "g.is_proved",
+      "len",
+      "sum"
+    ],
     "callers": []
   },
   "get_contract_hash": {
-    "contract_hash": "2b2ce95893dfeacf01e0f090e7e5ac444c44944915d86f41d439bd1f510f2803",
-    "callees": [],
+    "contract_hash": "73a085f95452a54bfa99ec4b3dd9f31b911a84e1bb3bdf3f065e85f22315fa7a",
+    "callees": [
+      "self.nodes.get"
+    ],
     "callers": []
   },
   "self._attribute_dot_path": {
@@ -7381,19 +7453,31 @@
       "_lower_ccall"
     ]
   },
-  "_spec_is_proved": {
-    "contract_hash": "bcf3d4520d13a5d389f0e475c5844a4ccfa76d0d4eeb6dd5fcae71684acdcacd",
-    "callees": [],
-    "callers": []
-  },
   "_spec_classify_failure": {
-    "contract_hash": "5b68564e44a269fa1059750200b19e319bd670d3abd6391b2f9a1af3038fd9be",
+    "contract_hash": "9c7e7cf960af875cab03328563e8c3e8d1d9c83120de34bc2a00f21e154f2758",
     "callees": [],
     "callers": []
   },
-  "to_coq_str": {
-    "contract_hash": "66abd21ddca73ce1b610a19f3aae647e0e7508321ed2b34a0baad60270f0cfaa",
+  "_spec_is_proved": {
+    "contract_hash": "25303a3a10dbbcc3a2c5c1d390c1c9fd8b3ff67b3c03ea0d636d544deca64d27",
     "callees": [],
+    "callers": []
+  },
+  "_is_dataclass": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "isinstance"
+    ],
+    "callers": [
+      "build_shape_registry"
+    ]
+  },
+  "generic_visit": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "self._violation",
+      "type"
+    ],
     "callers": []
   }
 }

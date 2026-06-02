@@ -288,6 +288,42 @@ class PyToImpLowerer:
             if not left or not right:
                 return None
 
+            # in / not in must be handled before the comparison fallback at the end
+            if expr.op in ("in", "not in"):
+                # Dict membership: key in dict_name → ADictLen "d" key != 0
+                if isinstance(expr.right, PyName):
+                    key = left
+                    if key:
+                        dlen = ImpADictLen(name=expr.right.name, key=key)
+                        if expr.op == "in":
+                            return ImpBLe(left=ImpANum(value=1), right=dlen)
+                        else:
+                            return ImpBEq(left=ImpANum(value=0), right=dlen)
+                # Tuple membership: x not in (a, b) → x != a and x != b
+                if isinstance(expr.right, PyTupleLiteral):
+                    elements = []
+                    for elt in expr.right.elements:
+                        right_val = self.lower_expr(elt)
+                        if right_val:
+                            eq = ImpBEq(left=left, right=right_val)
+                            if expr.op == "in":
+                                elements.append(eq)
+                            else:
+                                elements.append(ImpBNot(operand=eq))
+                    if not elements:
+                        return None
+                    if expr.op == "in":
+                        result = elements[0]
+                        for e in elements[1:]:
+                            result = ImpBOr(left=result, right=e)
+                        return result
+                    else:
+                        result = elements[0]
+                        for e in elements[1:]:
+                            result = ImpBAnd(left=result, right=e)
+                        return result
+                return None
+
             if expr.op == "==":
                 return ImpBEq(left=left, right=right)
             if expr.op == "!=":
@@ -306,17 +342,6 @@ class PyToImpLowerer:
             # strict < (or swapped >)
             return ImpBLe(left=ImpAPlus(left=left, right=ImpANum(value=1)),
                           right=right)
-
-        # in / not in
-        if expr.op in ("in", "not in"):
-            if isinstance(expr.right, PyName):
-                key = self.lower_expr(expr.left)
-                if key:
-                    dlen = ImpADictLen(name=expr.right.name, key=key)
-                    if expr.op == "in":
-                        return ImpBLe(left=ImpANum(value=1), right=dlen)
-                    else:
-                        return ImpBEq(left=ImpANum(value=0), right=dlen)
         return None
 
     def _lower_boolop(self, expr: PyBooleanOp) -> Optional[ImpBExp]:

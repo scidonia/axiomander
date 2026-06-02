@@ -82,6 +82,16 @@ def _gen_imp_body(tree, func_node, contract_map=None) -> "tuple[str, object]":
                    for a in func_node.args.args
                    if a.annotation and isinstance(a.annotation, ast.Name)}
 
+    # Infer self's type from enclosing class (same logic as _func_params)
+    args = func_node.args.args
+    if args and args[0].arg == 'self' and args[0].annotation is None:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                for stmt in node.body:
+                    if stmt is func_node:
+                        param_types['self'] = node.name
+                        break
+
     pylinter = ContractLinter(expanded, "precondition", predicates=predicates,
                                unbound=ghost_var_names)
     pylinter.var_types = var_types

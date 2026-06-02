@@ -1223,6 +1223,28 @@ class ImpTranslator:
                     return self._str_contains_expr(node, op)
             left = self.translate_expr(node.left)
             if isinstance(op, (ast.In, ast.NotIn)):
+                # Tuple membership: x in (a, b) → x == a or x == b
+                if isinstance(node.comparators[0], ast.Tuple):
+                    elements = [self.translate_expr(e) for e in node.comparators[0].elts]
+                    if not elements:
+                        return "BFalse" if isinstance(op, ast.In) else "BTrue"
+                    eqs = [f"(BEq {left} {e})" for e in elements]
+                    if isinstance(op, ast.In):
+                        if len(eqs) == 1:
+                            return eqs[0]
+                        result = eqs[0]
+                        for eq in eqs[1:]:
+                            result = f"(BOr {result} {eq})"
+                        return result
+                    else:  # NotIn: x not in (a, b) → x != a and x != b
+                        neqs = [f"(BNot {eq})" for eq in eqs]
+                        if len(neqs) == 1:
+                            return neqs[0]
+                        result = neqs[0]
+                        for neq in neqs[1:]:
+                            result = f"(BAnd {result} {neq})"
+                        return result
+                # Dict membership: key in dict_name
                 if isinstance(node.comparators[0], ast.Name):
                     right = f'\"{node.comparators[0].id}\"%string'
                 else:
