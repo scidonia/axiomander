@@ -18,7 +18,8 @@ from typing import Optional
 @dataclass
 class ShapeField:
     name: str
-    coq_type: str
+    coq_type: str                          # Coq type: "Z", "string", "bool"
+    py_type: str = ""                      # Original Python type name e.g. "int", "Address"
     constraints: list[str] = field(default_factory=list)
 
 
@@ -60,16 +61,11 @@ def lookup_shape(model_name: str) -> Optional[Shape]:
 
 
 def is_shape_coq(obj_prefix: str, shape: Shape, scoped: bool = False) -> str:
-    """Emit the Coq is_shape predicate.
-
-    scoped=False (precondition): bare Z params are already typed — return True.
-    scoped=True (postcondition): isVZ state lookups for every field.
-    """
+    """isVZ/isVString type guards for every leaf field, including nested models."""
     if not scoped:
         return "True"
     guards = []
-    for f in shape.fields:
-        flat_key = f"{obj_prefix}_{_escape_field(f.name)}"
+    for flat_key, f in flat_fields(shape, obj_prefix):
         guard = _type_guard(f.coq_type, flat_key, scoped=True)
         if guard:
             guards.append(guard)
@@ -77,9 +73,9 @@ def is_shape_coq(obj_prefix: str, shape: Shape, scoped: bool = False) -> str:
 
 
 def is_valid_coq(obj_prefix: str, shape: Shape, scoped: bool = False) -> str:
+    """is_shape + all Field constraints for every leaf field."""
     parts = [is_shape_coq(obj_prefix, shape, scoped)]
-    for f in shape.fields:
-        flat_key = f"{obj_prefix}_{_escape_field(f.name)}"
+    for flat_key, f in flat_fields(shape, obj_prefix):
         key_scoped = f's "{flat_key}"%string'
         key_bare = flat_key
         for c in f.constraints:
@@ -114,6 +110,37 @@ def _escape_field(name: str) -> str:
     return name.replace("_", "__")
 
 
+def flat_fields(
+    shape: Shape,
+    obj_prefix: str,
+    visited: frozenset[str] | None = None,
+) -> list[tuple[str, ShapeField]]:
+    """Return (flat_key, ShapeField) pairs for all leaf fields of a shape.
+
+    Nested model fields are expanded with a compound prefix, e.g.:
+      User.address: Address  →  user_address__postcode  (Address.postcode)
+
+    Cycle detection via `visited` prevents infinite recursion for types like
+      Node(left: Node, right: Node) — such fields are treated as opaque Z leaves.
+    """
+    if visited is None:
+        visited = frozenset()
+    if shape.name in visited:
+        # Cycle — treat the whole shape as an opaque Z leaf
+        return []
+    visited = visited | {shape.name}
+    result: list[tuple[str, ShapeField]] = []
+    for f in shape.fields:
+        flat_key = f"{obj_prefix}_{_escape_field(f.name)}"
+        nested = _shape_registry.get(f.py_type) if f.py_type else None
+        if nested and f.py_type not in visited:
+            # Recurse into nested model
+            result.extend(flat_fields(nested, flat_key, visited))
+        else:
+            result.append((flat_key, f))
+    return result
+
+
 def _inherits_base_model(node: ast.ClassDef) -> bool:
     for base in node.bases:
         if isinstance(base, ast.Name) and base.id == "BaseModel":
@@ -133,7 +160,11 @@ def _build_shape(node: ast.ClassDef) -> Shape:
             coq_type = _py_to_coq(py_type)
             constraints = _extract_field_constraints(stmt)
             fields.append(ShapeField(
-                name=field_name, coq_type=coq_type, constraints=constraints))
+                name=field_name,
+                coq_type=coq_type,
+                py_type=py_type,
+                constraints=constraints,
+            ))
     return Shape(name=node.name, fields=fields, validate_assignment=validate_assignment)
 
 

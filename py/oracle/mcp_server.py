@@ -4130,27 +4130,20 @@ def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: 
         extra = " /\\ ".join(implicit_pres)
         pre_coq = f"({extra})" if pre_coq == "True" else f"({pre_coq} /\\ {extra})"
 
-    # Inject Pydantic Field constraints as preconditions
+    # Inject Field constraints from Pydantic models as preconditions.
+    # At function entry the object was validly constructed (Pydantic always
+    # validates on construction), so Field constraints hold.
+    # is_valid_coq(unscoped=False) emits bare Z comparisons — exactly what
+    # the Coq theorem's forall params expect.
     if full_tree is not None:
-        pydantic_fields = _scan_pydantic_fields(func_node, full_tree)
-        if pydantic_fields:
-            # Build map from field name to expanded Coq param name
-            param_field_map: dict[str, str] = {}
-            for arg, annot in _func_params(func_node):
-                if annot and isinstance(annot, ast.Name):
-                    cls_name = annot.id
-                    for node in ast.walk(full_tree):
-                        if isinstance(node, ast.ClassDef) and node.name == cls_name:
-                            for stmt in node.body:
-                                if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-                                    param_field_map[stmt.target.id] = f"{arg}_{_esc_f(stmt.target.id)}"
-            pydantic_pres = []
-            for field_name, op, val in pydantic_fields:
-                coq_name = param_field_map.get(field_name, field_name)
-                pydantic_pres.append(f"({coq_name} {op} {val})")
-            if pydantic_pres:
-                extra = " /\\ ".join(pydantic_pres)
-                pre_coq = f"({extra})" if pre_coq == "True" else f"({pre_coq} /\\ {extra})"
+        from .shape_ir import lookup_shape, is_valid_coq as _is_valid_pre
+        for arg, annot in _func_params(func_node):
+            if annot and isinstance(annot, ast.Name):
+                shape = lookup_shape(annot.id)
+                if shape:
+                    constraint = _is_valid_pre(arg, shape, scoped=False)
+                    if constraint and constraint != "True":
+                        pre_coq = f"({pre_coq} /\\ {constraint})" if pre_coq != "True" else constraint
 
     # Inject bool return postcondition: result == 1 or result == 0
     if _is_bool_return(func_node):
