@@ -837,26 +837,17 @@ class PyToImpLowerer:
         args_list: list[ImpAExp] = []
 
         for i, a in enumerate(expr.args):
-            # Check if this positional arg is a constructor call for a Shape
-            ctor = self._try_lower_constructor(a, setup_cmds, callee_name=name)
-            if ctor is not None:
-                args_list.append(ctor)
-            else:
-                lowered = self.lower_expr(a)
-                if lowered is not None:
-                    args_list.append(lowered)
+            lowered = self._lower_arg(a, setup_cmds, callee_name=name)
+            if lowered is not None:
+                args_list.append(lowered)
 
         # Fill remaining callee params from keyword args
         for param in callee_params[len(args_list):]:
             kw_expr = expr.keywords.get(param)
             if kw_expr is not None:
-                ctor = self._try_lower_constructor(kw_expr, setup_cmds, callee_name=name)
-                if ctor is not None:
-                    args_list.append(ctor)
-                else:
-                    lowered = self.lower_expr(kw_expr)
-                    if lowered is not None:
-                        args_list.append(lowered)
+                lowered = self._lower_arg(kw_expr, setup_cmds, callee_name=name)
+                if lowered is not None:
+                    args_list.append(lowered)
 
         pre = self._scope_ccall_pre(pre_s, callee_params, args_list, name)
         post = self._subst_result(post_s, target, callee_params, args_list)
@@ -869,6 +860,39 @@ class PyToImpLowerer:
             setup_cmds.append(call)
             return ImpCSeq(commands=setup_cmds)
         return call
+
+    def _lower_arg(self, expr: PyExpr,
+                   setup_cmds: list[ImpCom],
+                   callee_name: str = "") -> Optional[ImpAExp]:
+        """SSA-style arg lowering for CCall arguments.
+
+        Handles three cases in priority order:
+          1. Constructor call (PyCall for a known Shape) — inline-expand to
+             setup CAss commands and return a fresh ImpAVar prefix.
+          2. Nested CCall (PyCall in the contract map) — materialise to a
+             temp variable via a CCall setup command and return the temp.
+          3. Plain expression — delegate to lower_expr.
+        """
+        # Case 1: Pydantic constructor
+        ctor = self._try_lower_constructor(expr, setup_cmds, callee_name=callee_name)
+        if ctor is not None:
+            return ctor
+
+        # Case 2: nested CCall — materialise to a temp
+        if isinstance(expr, PyCall) and expr.func in self._contract_map:
+            if not hasattr(self, '_ctor_counter'):
+                self._ctor_counter = 0
+            self._ctor_counter += 1
+            count_suffix = f"_{self._ctor_counter}" if self._ctor_counter > 1 else ""
+            callee_part = f"_{callee_name}" if callee_name else ""
+            tmp = f"__tmp_{expr.func}{callee_part}{count_suffix}"
+            inner_call = self._lower_ccall(tmp, expr)
+            if inner_call is not None:
+                setup_cmds.append(inner_call)
+                return ImpAVar(name=tmp)
+
+        # Case 3: plain expression
+        return self.lower_expr(expr)
 
     def _try_lower_constructor(self, expr: PyExpr,
                                 setup_cmds: list[ImpCom],
@@ -894,13 +918,8 @@ class PyToImpLowerer:
         callee_part = f"_{callee_name}" if callee_name else ""
         prefix = f"__ctor_{expr.func}{callee_part}{suffix}"
         def lower_val(py_expr: PyExpr) -> Optional[ImpAExp]:
-            """Lower a value expression, recursing through nested constructors
-            (SSA-style linearisation).  Each nested constructor emits its own
-            setup commands and returns a fresh ImpAVar reference."""
-            nested = self._try_lower_constructor(py_expr, setup_cmds, callee_name=callee_name)
-            if nested is not None:
-                return nested
-            return self.lower_expr(py_expr)
+            """SSA-style recursive lowering for field values."""
+            return self._lower_arg(py_expr, setup_cmds, callee_name=callee_name)
 
         # Build positional arg map (by position, matching shape field order)
         pos_vals: dict[str, ImpAExp] = {}
