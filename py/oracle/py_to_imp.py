@@ -140,15 +140,46 @@ class PyToImpLowerer:
         return None
 
     def _lower_attribute(self, expr: PyAttribute) -> Optional[ImpAExp]:
+        from .shape_ir import lookup_shape, flat_fields as _flat_fields, _escape_field as _esc
+
+        # Resolve the full dotted path to a flat key using the Shape IR.
+        # e.g. user.address.postcode → user_address_postcode
+        path = self._attribute_dot_path(expr)
+        if path:
+            parts = path.split(".")
+            root = parts[0]
+            # Look up the root param's type
+            root_type = self._param_types.get(root)
+            if root_type:
+                shape = lookup_shape(root_type)
+                if shape:
+                    # Build the expected flat key: root + escaped field path
+                    flat_key = root
+                    for part in parts[1:]:
+                        flat_key = f"{flat_key}_{_esc(part)}"
+                    # Verify this key exists in flat_fields
+                    known = {fk for fk, _ in _flat_fields(shape, root)}
+                    if flat_key in known:
+                        return ImpAVar(name=flat_key)
+
+        # Single-level: obj.field where obj is a known record param
         if isinstance(expr.obj, PyName):
             obj_name = expr.obj.name
             for cls_name, fields in self._record_fields.items():
                 if expr.attr in fields:
                     if self._param_types.get(obj_name) == cls_name:
-                        from .shape_ir import _escape_field
-                        return ImpAVar(name=f"{obj_name}_{_escape_field(expr.attr)}")
-        if isinstance(expr.obj, PyName):
+                        return ImpAVar(name=f"{obj_name}_{_esc(expr.attr)}")
             return ImpAVar(name=f"{expr.obj.name}.{expr.attr}")
+        return None
+
+    def _attribute_dot_path(self, expr: PyAttribute) -> Optional[str]:
+        """Resolve a nested PyAttribute to a dotted string like 'user.address.postcode'."""
+        if isinstance(expr.obj, PyName):
+            return f"{expr.obj.name}.{expr.attr}"
+        if isinstance(expr.obj, PyAttribute):
+            parent = self._attribute_dot_path(expr.obj)
+            if parent:
+                return f"{parent}.{expr.attr}"
         return None
 
     def _lower_list_literal_expr(self, expr: PyListLiteral) -> ImpAExp:

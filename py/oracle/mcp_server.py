@@ -2223,11 +2223,27 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
             parts.append(f"({len_var} : Z)")
             init_state = f'(hupd {init_state} "{p}"%string len_f (VZ {len_var}))'
         elif cls_name:
-            for f in class_fields[cls_name]:
-                safe_f = _escape_field(f)
-                expanded.append(f"{p}_{safe_f}")
-                parts.append(f"({p}_{safe_f} : Z)")
-                init_state = f'(upd {init_state} "{p}_{safe_f}"%string (VZ {p}_{safe_f}))'
+            # Use Shape IR flat_fields for nested model expansion with cycle detection.
+            # Falls back to the class_fields list if the Shape is not registered.
+            from .shape_ir import lookup_shape, flat_fields as _flat_fields
+            shape = lookup_shape(cls_name)
+            if shape:
+                for flat_key, sf in _flat_fields(shape, p):
+                    safe_coq = sf.coq_type if sf.coq_type in ("Z", "string", "bool") else "Z"
+                    expanded.append(flat_key)
+                    parts.append(f"({flat_key} : {safe_coq})")
+                    if safe_coq == "string":
+                        init_state = f'(upd {init_state} "{flat_key}"%string (VString {flat_key}))'
+                    elif safe_coq == "bool":
+                        init_state = f'(upd {init_state} "{flat_key}"%string (VZ {flat_key}))'
+                    else:
+                        init_state = f'(upd {init_state} "{flat_key}"%string (VZ {flat_key}))'
+            else:
+                for f in class_fields[cls_name]:
+                    safe_f = _escape_field(f)
+                    expanded.append(f"{p}_{safe_f}")
+                    parts.append(f"({p}_{safe_f} : Z)")
+                    init_state = f'(upd {init_state} "{p}_{safe_f}"%string (VZ {p}_{safe_f}))'
         else:
             expanded.append(p)
             parts.append(f"({p} : {coq_type})")

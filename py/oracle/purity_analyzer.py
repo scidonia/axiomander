@@ -164,16 +164,32 @@ def generate_frame_conditions(
                 if base in param_names:
                     mutated_fields.add((base, stmt.target.attr))
 
-    # Generate implicit frame conditions for unmentioned, unmutated fields
+    # Generate implicit frame conditions for unmentioned, unmutated fields.
+    # For nested models, use flat_fields to get all leaf keys.
     frame_conditions: list[str] = []
     for param in sorted(param_names):
         cls = _find_class_for_param(tree, param)
         if cls and cls in class_fields:
-            for f in class_fields[cls]:
-                if (param, f) not in mentioned_fields and (param, f) not in mutated_fields:
-                    frame_conditions.append(
-                        f'asZ (s "{param}_{_escape_field(f)}"%string) = {param}_{_escape_field(f)}'
-                    )
+            from .shape_ir import lookup_shape, flat_fields as _flat_fields
+            shape = lookup_shape(cls)
+            if shape:
+                for flat_key, sf in _flat_fields(shape, param):
+                    # Only generate frame conditions for Z-typed fields;
+                    # string/bool fields need different handling.
+                    if sf.coq_type not in ("Z",):
+                        continue
+                    shallow_field = flat_key[len(param) + 1:].split("_")[0]
+                    if (param, shallow_field) not in mentioned_fields \
+                            and (param, shallow_field) not in mutated_fields:
+                        frame_conditions.append(
+                            f'asZ (s "{flat_key}"%string) = {flat_key}'
+                        )
+            else:
+                for f in class_fields[cls]:
+                    if (param, f) not in mentioned_fields and (param, f) not in mutated_fields:
+                        frame_conditions.append(
+                            f'asZ (s "{param}_{_escape_field(f)}"%string) = {param}_{_escape_field(f)}'
+                        )
 
     return frame_conditions
 
