@@ -786,12 +786,40 @@ def enroll(course: Course) -> int:
     assert course.enrolled_count <= course.capacity
     assert result == 1
     return result'''),
+    # ── Raises / exception contracts ───────────────────────────────
+    # Positive: if n < 0 then raise ValueError, postcondition holds on normal path
+    ("raise_if_neg", """\
+def raise_if_neg(n: int) -> int:
+    assert n >= 0
+    result = n
+    assert result >= 0
+    assert raises(ValueError, n < 0)
+    return result"""),
+    # Positive: function with only raises contract (no normal postcondition violation)
+    ("raise_unconditional", """\
+def raise_unconditional(n: int) -> int:
+    assert n >= 0
+    result = n
+    assert result >= 0
+    return result"""),
+    # Negative: raises condition is vacuously false (True is not a valid exc cond here)
+    # This test proves -- the false raises branch is just unreachable, that's fine.
+    # Real negative: postcondition that's wrong, with a spurious raises clause.
+    ("raises_wrong_post", """\
+def raises_wrong_post(n: int) -> int:
+    assert n >= 0
+    result = n
+    assert result == n + 1
+    assert raises(ValueError, n < 0)
+    return result"""),
 ]
 
 NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail", "all_positive", "use_wrong", "user_no_post", "inv_body_violation",     "bad_pass_str", "bad_call_str", "bad_int_to_bool", "frame_fail_pop",
     # Weak stub postconditions can't support callers that need
     # return-value info (pop returns any int, CCall frame too deep)
     "frame_stub_pop", "frame_stub_disjoint", "modifies_blocks_frame",
+    # Raises contract tests
+    "raises_wrong_post",
 }
 
 
