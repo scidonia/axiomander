@@ -52,6 +52,17 @@ class PyToImpLowerer:
     # =================================================================
 
     def lower_expr(self, expr: PyExpr) -> Optional[ImpAExp]:
+        """Lower a PyExpr to an ImpAExp, or None if not translatable.
+
+        axiomander:
+            requires:
+                is_shape(expr, PyExpr)
+            ensures:
+                implies(isinstance(expr, PyName), result is not None)
+                implies(isinstance(expr, PyConstant), result is not None)
+                implies(isinstance(expr, PyStringLiteral), result is not None)
+                implies(result is not None, is_shape(result, ImpAExp))
+        """
         if isinstance(expr, PyConstant):
             return self._lower_constant(expr)
         if isinstance(expr, PyName):
@@ -89,6 +100,18 @@ class PyToImpLowerer:
         return None
 
     def _lower_constant(self, expr: PyConstant) -> ImpAExp:
+        """Lower a Python constant to its IMP arithmetic expression.
+
+        axiomander:
+            requires:
+                is_shape(expr, PyConstant)
+            ensures:
+                is_shape(result, ImpAExp)
+                implies(isinstance(expr.value, bool), is_shape(result, ImpANum))
+                implies(isinstance(expr.value, int) and not isinstance(expr.value, bool), is_shape(result, ImpANum))
+                implies(isinstance(expr.value, str), is_shape(result, ImpAString))
+                implies(expr.value is None, is_shape(result, ImpANone))
+        """
         v = expr.value
         if isinstance(v, bool):
             return ImpANum(value=1 if v else 0)
@@ -331,6 +354,16 @@ class PyToImpLowerer:
     # =================================================================
 
     def lower_stmt(self, stmt: PyStmt) -> Optional[ImpCom]:
+        """Lower a PyStmt to an ImpCom, or None if not translatable.
+
+        axiomander:
+            requires:
+                is_shape(stmt, PyStmt)
+            ensures:
+                implies(isinstance(stmt, PyAssert), result is not None and is_shape(result, ImpCSkip))
+                implies(isinstance(stmt, PyPass), result is not None and is_shape(result, ImpCSkip))
+                implies(result is not None, is_shape(result, ImpCom))
+        """
         if isinstance(stmt, PyAssign):
             return self._lower_assign(stmt)
         if isinstance(stmt, PyStoreAttr):

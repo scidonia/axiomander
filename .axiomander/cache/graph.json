@@ -287,7 +287,9 @@
       "_is_inside_assert",
       "analyze_purity",
       "generate_frame_conditions",
-      "_extract_name"
+      "_extract_name",
+      "_attribute_dot_path",
+      "_lower_arg"
     ]
   },
   "len": {
@@ -409,7 +411,6 @@
     "callers": [
       "_get_call_name",
       "_compose_seg_seq",
-      "_lower_ccall",
       "_attribute_path",
       "_translate_assign",
       "_flush_pending",
@@ -1094,7 +1095,8 @@
       "_collect_ccalls",
       "_invariants_to_coq",
       "_translate_concat",
-      "wrap_val"
+      "wrap_val",
+      "_lower_arg"
     ]
   },
   "hyps.append": {
@@ -3026,8 +3028,7 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "_get_callee_param_bindings",
-      "_lower_ccall"
+      "_get_callee_param_bindings"
     ]
   },
   "_get_callee_param_bindings": {
@@ -3266,8 +3267,7 @@
       "_build_for_range_with_body",
       "_lower_assign",
       "_lower_augassign",
-      "_lower_call_as_assign",
-      "_lower_ccall"
+      "_lower_call_as_assign"
     ]
   },
   "p.get": {
@@ -3297,7 +3297,7 @@
       "_lower_binop",
       "_lower_call",
       "_lower_call_as_assign",
-      "_lower_ccall"
+      "_lower_arg"
     ]
   },
   "_build_dict_literal_assign": {
@@ -3326,7 +3326,8 @@
     "callers": [
       "_build_for_range_with_body",
       "_lower_attribute",
-      "_lower_augassign"
+      "_lower_augassign",
+      "_lower_arg"
     ]
   },
   "ImpBLe": {
@@ -3556,8 +3557,15 @@
   "_lower_attribute": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
+      "ImpADictCount",
+      "ImpALen",
       "ImpAVar",
+      "_esc",
+      "_flat_fields",
       "isinstance",
+      "lookup_shape",
+      "path.split",
+      "self._attribute_dot_path",
       "self._param_types.get",
       "self._record_fields.items"
     ],
@@ -3702,7 +3710,8 @@
     "callees": [],
     "callers": [
       "_lower_call",
-      "_lower_call_as_assign"
+      "_lower_call_as_assign",
+      "_lower_attribute"
     ]
   },
   "_lower_call": {
@@ -3741,7 +3750,8 @@
     "callees": [],
     "callers": [
       "_lower_call_as_assign",
-      "_lower_call_stmt"
+      "_lower_call_stmt",
+      "_lower_arg"
     ]
   },
   "_lower_call_as_assign": {
@@ -3792,16 +3802,16 @@
   "_lower_ccall": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
-      "ImpCAss",
       "ImpCCall",
       "ImpCSeq",
-      "bindings.append",
+      "args_list.append",
       "enumerate",
+      "expr.keywords.get",
       "len",
-      "reversed",
+      "self._lower_arg",
       "self._scope_ccall_pre",
       "self._subst_result",
-      "self.lower_expr"
+      "setup_cmds.append"
     ],
     "callers": []
   },
@@ -7124,7 +7134,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "generate_frame_conditions"
+      "generate_frame_conditions",
+      "_lower_attribute"
     ]
   },
   "frame_conditions.append": {
@@ -7138,7 +7149,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "generate_frame_conditions"
+      "generate_frame_conditions",
+      "_lower_attribute"
     ]
   },
   "mentioned_fields.add": {
@@ -7211,7 +7223,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "visit_Attribute"
+      "visit_Attribute",
+      "_lower_attribute"
     ]
   },
   "replace": {
@@ -7347,5 +7360,84 @@
       "self.nodes.get"
     ],
     "callers": []
+  },
+  "self._attribute_dot_path": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_attribute_dot_path",
+      "_lower_attribute"
+    ]
+  },
+  "_attribute_dot_path": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "isinstance",
+      "self._attribute_dot_path"
+    ],
+    "callers": []
+  },
+  "self._try_lower_constructor": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_lower_arg"
+    ]
+  },
+  "setup_cmds.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_lower_arg",
+      "_lower_ccall"
+    ]
+  },
+  "_lower_arg": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "ImpAVar",
+      "hasattr",
+      "isinstance",
+      "self._lower_ccall",
+      "self._try_lower_constructor",
+      "self.lower_expr",
+      "setup_cmds.append"
+    ],
+    "callers": []
+  },
+  "ImpADictCount": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_lower_attribute"
+    ]
+  },
+  "_esc": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_lower_attribute"
+    ]
+  },
+  "args_list.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_lower_ccall"
+    ]
+  },
+  "expr.keywords.get": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_lower_ccall"
+    ]
+  },
+  "self._lower_arg": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_lower_ccall"
+    ]
   }
 }

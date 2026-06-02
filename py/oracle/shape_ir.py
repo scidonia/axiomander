@@ -117,6 +117,15 @@ def flat_fields(
 
     Cycle detection via `visited` prevents infinite recursion for types like
       Node(left: Node, right: Node) — such fields are treated as opaque Z leaves.
+
+    axiomander:
+        requires:
+            is_shape(shape, Shape)
+            len(obj_prefix) > 0
+        ensures:
+            all(key.startswith(obj_prefix + "_") for key, _ in result)
+            implies(shape.name in (visited or frozenset()), result == [])
+            all(is_shape(sf, ShapeField) for _, sf in result)
     """
     if visited is None:
         visited = frozenset()

@@ -182,6 +182,14 @@ def generate_obligations(
 # ── Collect CCalls ──────────────────────────────────────────────────
 
 def _collect_ccalls(node) -> list[ImpCCall]:
+    """Collect all ImpCCall nodes from an IMP IR tree.
+
+    axiomander:
+        ensures:
+            all(is_shape(c, ImpCCall) for c in result)
+            implies(is_shape(node, ImpCCall), node in result)
+            implies(is_shape(node, ImpCSkip), result == [])
+    """
     ccalls: list[ImpCCall] = []
     if isinstance(node, ImpCCall):
         ccalls.append(node)
@@ -197,6 +205,19 @@ def _collect_ccalls(node) -> list[ImpCCall]:
 
 
 def _multi_call_callees(ccalls: list[ImpCCall]) -> set[str]:
+    """Find callee names that appear with more than one distinct target variable.
+
+    A callee appearing twice with the same target is just two sequential calls;
+    a callee appearing with different targets (e.g. a = f(x); b = f(y)) is a
+    multi-call and needs special staged handling.
+
+    axiomander:
+        requires:
+            all(is_shape(c, ImpCCall) for c in ccalls)
+        ensures:
+            all(name in {c.name for c in ccalls} for name in result)
+            implies(len(ccalls) <= 1, result == set())
+    """
     callee_targets: dict[str, list[str]] = {}
     for c in ccalls:
         callee_targets.setdefault(c.name, []).append(c.target)
