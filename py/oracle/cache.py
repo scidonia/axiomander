@@ -252,11 +252,12 @@ class DependencyGraph:
         self.nodes[name] = node
 
     def get_contract_hash(self, name: str) -> str:
-        """Return the stored contract hash for a function, or empty string.
+        """Return the stored contract hash for a function, or empty string if unknown.
 
         axiomander:
             ensures:
-                len(result) >= 0
+                implies(name in self.nodes, result == self.nodes[name].contract_hash)
+                implies(name not in self.nodes, result == "")
         """
         node = self.nodes.get(name)
         result = node.contract_hash if node else ""
@@ -267,7 +268,8 @@ class DependencyGraph:
 
         axiomander:
             ensures:
-                len(result) >= 0
+                implies(name not in self.nodes, result == [])
+                implies(name in self.nodes, result == list(self.nodes[name].callers))
         """
         node = self.nodes.get(name)
         result = list(node.callers) if node else []
@@ -276,9 +278,13 @@ class DependencyGraph:
     def get_transitive_callers(self, name: str) -> list[str]:
         """Get all transitive callers (direct + indirect).
 
+        The result excludes the seed function itself: if A calls B calls A
+        (cycle), name will not appear in the result.
+
         axiomander:
             ensures:
-                len(result) >= 0
+                name not in result
+                implies(name not in self.nodes, result == [])
         """
         visited: set[str] = set()
         stack = [name]
@@ -299,7 +305,8 @@ class DependencyGraph:
 
         axiomander:
             ensures:
-                len(result) >= 0
+                implies(name not in self.nodes, result == [])
+                implies(name in self.nodes, result == list(self.nodes[name].callees))
         """
         node = self.nodes.get(name)
         result = list(node.callees) if node else []

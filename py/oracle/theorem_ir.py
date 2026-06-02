@@ -18,6 +18,16 @@ class CoqVar(BaseModel):
     coq_type: str = "Z"
 
     def to_coq(self) -> str:
+        """
+        axiomander:
+            requires:
+                len(name) > 0
+                len(coq_type) > 0
+            ensures:
+                result == "(" + name + " : " + coq_type + ")"
+                name in result
+                coq_type in result
+        """
         return f"({self.name} : {self.coq_type})"
 
 
@@ -54,18 +64,17 @@ class TheoremIR(BaseModel):
         """Build the Coq outcome predicate Phi.
 
         If there are no raises clauses, uses wp_normal for the ensures cond.
-        If there are raises clauses, emits a full match on outcome:
+        If there are raises clauses, emits a full match on outcome.
 
-            fun o =>
-              match o with
-              | OReturn s => <ensures>
-              | ORaise (VString "ExcType") s => <raises_cond>
-              | _ => True
-              end
+        axiomander:
+            ensures:
+                implies(len(raises_clauses) == 0, result == "(wp_normal (fun s => " + post.to_coq() + "))")
+                implies(len(raises_clauses) > 0, "ORaise" in result)
+                implies(len(raises_clauses) > 0, "OReturn" in result)
+                len(result) > 0
         """
         if not self.raises_clauses:
             return f"(wp_normal (fun s => {self.post.to_coq()}))"
-        # Full match form
         arms = [f"              | OReturn s => {self.post.to_coq()}"]
         for exc_type, cond in self.raises_clauses.items():
             arms.append(f'              | ORaise (VString "{exc_type}"%string) s => {cond.to_coq()}')
@@ -74,7 +83,19 @@ class TheoremIR(BaseModel):
         return f"(fun o =>\n              match o with\n{arms_str}\n              end)"
 
     def to_coq(self) -> str:
-        """Render the complete Coq file."""
+        """Render the complete Coq file.
+
+        axiomander:
+            requires:
+                len(name) > 0
+                len(imp_body) > 0
+            ensures:
+                name + "_body" in result
+                name + "_correct" in result
+                implies(len(raises_clauses) > 0, "ORaise" in result)
+                implies(ghost_vars != {}, "exists" in result)
+                len(result) > 0
+        """
         parts = []
         for c in self.comments:
             parts.append(f"(* {c} *)")

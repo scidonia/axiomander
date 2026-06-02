@@ -4,7 +4,8 @@
     "callees": [],
     "callers": [
       "extract_goal_from_coq",
-      "repl"
+      "repl",
+      "extract_proof"
     ]
   },
   "match.start": {
@@ -22,7 +23,8 @@
       "_parse",
       "run_langgraph_oracle",
       "_parse_docstring_contract",
-      "_mk_post_obligation"
+      "_mk_post_obligation",
+      "extract_proof"
     ]
   },
   "strip": {
@@ -35,7 +37,9 @@
       "_parse_focus_response",
       "run_langgraph_oracle",
       "_parse_docstring_contract",
-      "_subst_post_for_qmid"
+      "_subst_post_for_qmid",
+      "_parse_tactics",
+      "extract_proof"
     ]
   },
   "extract_goal_from_coq": {
@@ -117,7 +121,8 @@
       "test",
       "interactive_oracle_query",
       "oracle_query",
-      "run_langgraph_oracle"
+      "run_langgraph_oracle",
+      "call_llm"
     ]
   },
   "re.findall": {
@@ -331,7 +336,10 @@
       "_extract_segments",
       "generate_obligations",
       "_mk_composition_obligation",
-      "generate_frame_conditions"
+      "generate_frame_conditions",
+      "_parse_tactics",
+      "extract_proof",
+      "build_report"
     ]
   },
   "_classify_in_function": {
@@ -380,7 +388,8 @@
       "is_shape_coq",
       "is_valid_coq",
       "analyze_purity",
-      "generate_havoc_body"
+      "generate_havoc_body",
+      "visit_Attribute"
     ]
   },
   "parts.append": {
@@ -461,8 +470,7 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "_extract_tactic",
-      "interactive_oracle_query"
+      "_extract_tactic"
     ]
   },
   "line.lower": {
@@ -515,7 +523,8 @@
     "callees": [],
     "callers": [
       "_extract_tactic",
-      "interactive_oracle_query"
+      "interactive_oracle_query",
+      "extract_proof"
     ]
   },
   "startswith": {
@@ -614,32 +623,37 @@
   "self.proc.terminate": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "__exit__"
+    ]
   },
   "self.proc.wait": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "__exit__"
+    ]
   },
   "self.send": {
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "load_theory"
+      "load_theory",
+      "__exit__"
     ]
   },
   "__exit__": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
-      "self.close"
+      "self.proc.terminate",
+      "self.proc.wait",
+      "self.send"
     ],
     "callers": []
   },
   "__init__": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
-    "callees": [
-      "frozenset"
-    ],
+    "callees": [],
     "callers": []
   },
   "ProofState": {
@@ -871,9 +885,7 @@
   "self.close": {
     "contract_hash": "",
     "callees": [],
-    "callers": [
-      "__exit__"
-    ]
+    "callers": []
   },
   "build_dir.resolve": {
     "contract_hash": "",
@@ -1114,7 +1126,7 @@
     "callers": []
   },
   "is_proved": {
-    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "contract_hash": "08620013da033f3cc80f588ddb4f4a77af441df30f56d8b96eec1b465efc2390",
     "callees": [],
     "callers": []
   },
@@ -1223,7 +1235,7 @@
     ]
   },
   "_sha256": {
-    "contract_hash": "6631b93a774191700e2d01d3b97987f17be7c8596f03f24884408eacfd32a222",
+    "contract_hash": "c499afc35d7dfed9b5941efd884378c1ab6c3531d6e9e6a19d474464a171d87b",
     "callees": [
       "h.hexdigest",
       "h.update",
@@ -1262,8 +1274,18 @@
     ]
   },
   "call_llm": {
-    "contract_hash": "",
-    "callees": [],
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "Request",
+      "_consume_credit",
+      "decode",
+      "encode",
+      "json.dumps",
+      "json.loads",
+      "print",
+      "resp.read",
+      "urlopen"
+    ],
     "callers": [
       "interactive_oracle_query",
       "oracle_query"
@@ -1373,7 +1395,6 @@
       "join",
       "json.dumps",
       "len",
-      "line.endswith",
       "line.rstrip",
       "line.startswith",
       "line.strip",
@@ -1386,19 +1407,27 @@
       "session.finish_proof",
       "session.get_goals",
       "session.load",
+      "session.pop_tactic",
       "session.try_tactic",
       "split",
       "step_history.append",
       "str",
       "tactics_used.append",
+      "tactics_used.pop",
       "transcript_entries.append",
       "transcripts_dir.mkdir"
     ],
     "callers": []
   },
   "extract_proof": {
-    "contract_hash": "",
-    "callees": [],
+    "contract_hash": "aa50e4b305d16865dce59daa1b4ff089e54b0ee305738ed84a374c3ef5b8a257",
+    "callees": [
+      "len",
+      "match.group",
+      "re.search",
+      "response.strip",
+      "strip"
+    ],
     "callers": [
       "oracle_query"
     ]
@@ -1484,7 +1513,8 @@
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [],
     "callers": [
-      "run_langgraph_oracle"
+      "run_langgraph_oracle",
+      "call_llm"
     ]
   },
   "credit_budget_exhausted": {
@@ -1558,7 +1588,8 @@
       "_save_transcript",
       "interactive_oracle_query",
       "_request",
-      "compute_cache_key"
+      "compute_cache_key",
+      "call_llm"
     ]
   },
   "path.write_text": {
@@ -1832,7 +1863,9 @@
   "tactics.append": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "_parse_tactics"
+    ]
   },
   "tc.get": {
     "contract_hash": "",
@@ -2168,7 +2201,8 @@
     "callees": [],
     "callers": [
       "_request",
-      "get"
+      "get",
+      "call_llm"
     ]
   },
   "self._process.stdin.flush": {
@@ -2628,7 +2662,7 @@
     ]
   },
   "classify_failure": {
-    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "contract_hash": "7bb1f40b687b12443b929dcd75b39431038a8e80a3fdf0ee3da10cf96141199b",
     "callees": [
       "error.lower"
     ],
@@ -2645,7 +2679,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "mcp_output"
+      "mcp_output",
+      "build_report"
     ]
   },
   "self.summary": {
@@ -4062,7 +4097,8 @@
       "build_proof_with_ghost",
       "_mk_composition_obligation",
       "get_transitive_callers",
-      "analyze_purity"
+      "analyze_purity",
+      "get_callees"
     ]
   },
   "self._class_field_types.keys": {
@@ -4423,10 +4459,8 @@
     "callers": []
   },
   "to_coq": {
-    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
-    "callees": [
-      "frozenset"
-    ],
+    "contract_hash": "b5263907dd18c94104792099fdb64ece5e6509528b4f5810aa395e2377bf5a1d",
+    "callees": [],
     "callers": [
       "_compose_segs"
     ]
@@ -4484,9 +4518,7 @@
     "callees": [],
     "callers": [
       "dump_obligations",
-      "to_coq",
-      "flat_fields",
-      "__init__"
+      "flat_fields"
     ]
   },
   "Logical": {
@@ -4856,9 +4888,7 @@
   "path.replace": {
     "contract_hash": "",
     "callees": [],
-    "callers": [
-      "visit_Attribute"
-    ]
+    "callers": []
   },
   "self._attribute_path": {
     "contract_hash": "",
@@ -4875,7 +4905,9 @@
       "IntLit",
       "Var",
       "isinstance",
-      "path.replace",
+      "join",
+      "path.split",
+      "replace",
       "self._attribute_path",
       "self.visit"
     ],
@@ -4943,10 +4975,12 @@
     "callees": [
       "ImpliesExpr",
       "RaisesExpr",
+      "cls",
       "isinstance",
       "len",
       "name.split",
       "self._expand_predicate",
+      "self._extract_name",
       "self._get_call_name",
       "self._translate_pure_call",
       "self._violation",
@@ -5106,7 +5140,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "analyze_file"
+      "analyze_file",
+      "build_report"
     ]
   },
   "analyze_file": {
@@ -5630,7 +5665,9 @@
       "is_pure_expr",
       "isinstance"
     ],
-    "callers": []
+    "callers": [
+      "is_pure_expr"
+    ]
   },
   "inv_irs.append": {
     "contract_hash": "",
@@ -6053,7 +6090,7 @@
     ]
   },
   "_build_phi": {
-    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "contract_hash": "67ea8df2c3b0608d3cacba9e3653c6189f4f23a32a613d97de5cda2e0bc50826",
     "callees": [
       "arms.append",
       "cond.to_coq",
@@ -6602,7 +6639,7 @@
     ]
   },
   "get_transitive_callers": {
-    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "contract_hash": "2f8ae6681f2b4ce188c8a0df91198a1bd209365d70f51d97bafbb47c0c6fadfc",
     "callees": [
       "list",
       "self.get_callers",
@@ -6709,7 +6746,9 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "update"
+      "update",
+      "get_callees",
+      "get_contract_hash"
     ]
   },
   "update": {
@@ -6803,8 +6842,10 @@
     "callers": []
   },
   "_escape_field": {
-    "contract_hash": "",
-    "callees": [],
+    "contract_hash": "bd3fbab34fe6dc366fa649a1c531a6c2bb7b84b12f0d03d5fed88e8728108944",
+    "callees": [
+      "name.replace"
+    ],
     "callers": [
       "flat_fields",
       "generate_frame_conditions"
@@ -6829,7 +6870,8 @@
     ],
     "callers": [
       "is_shape_coq",
-      "is_valid_coq"
+      "is_valid_coq",
+      "flat_fields"
     ]
   },
   "result.extend": {
@@ -7162,6 +7204,147 @@
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
       "isinstance"
+    ],
+    "callers": []
+  },
+  "path.split": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "visit_Attribute"
+    ]
+  },
+  "replace": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "visit_Attribute"
+    ]
+  },
+  "cls": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "visit_Call"
+    ]
+  },
+  "self._extract_name": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "visit_Call"
+    ]
+  },
+  "current.strip": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_parse_tactics"
+    ]
+  },
+  "tactic.startswith": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_parse_tactics"
+    ]
+  },
+  "_parse_tactics": {
+    "contract_hash": "e171ed7f062c802061a3351bc778b56e19de7448602bf6d15912a2ace6d9ab62",
+    "callees": [
+      "current.strip",
+      "len",
+      "strip",
+      "tactic.startswith",
+      "tactics.append"
+    ],
+    "callers": []
+  },
+  "Request": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "call_llm"
+    ]
+  },
+  "decode": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "call_llm"
+    ]
+  },
+  "encode": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "call_llm"
+    ]
+  },
+  "resp.read": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "call_llm"
+    ]
+  },
+  "urlopen": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "call_llm"
+    ]
+  },
+  "session.pop_tactic": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "interactive_oracle_query"
+    ]
+  },
+  "tactics_used.pop": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "interactive_oracle_query"
+    ]
+  },
+  "name.replace": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_escape_field"
+    ]
+  },
+  "get_callees": {
+    "contract_hash": "dbbb8112510854e5d20fed23fc570fa2f939f9c7e7e26d6207bf3d3dd784940b",
+    "callees": [
+      "list",
+      "self.nodes.get"
+    ],
+    "callers": []
+  },
+  "PipelineReport": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "build_report"
+    ]
+  },
+  "build_report": {
+    "contract_hash": "8873aae226e6a2bcf8d81e58bed66a76bf66d5011b249fd83a9558856baced36",
+    "callees": [
+      "PipelineReport",
+      "g.is_proved",
+      "len",
+      "sum"
+    ],
+    "callers": []
+  },
+  "get_contract_hash": {
+    "contract_hash": "73a085f95452a54bfa99ec4b3dd9f31b911a84e1bb3bdf3f065e85f22315fa7a",
+    "callees": [
+      "self.nodes.get"
     ],
     "callers": []
   }

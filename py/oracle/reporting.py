@@ -54,6 +54,14 @@ class GoalStatus:
     purity_note: str = ""
 
     def is_proved(self) -> bool:
+        """
+        axiomander:
+            ensures:
+                implies(result, error_detail == "")
+                implies(result, proof_method != "" or level == ProofLevel.LEVEL1_LTAC)
+                implies(not result, suggested_action is not None)
+                implies(level == ProofLevel.COUNTEREXAMPLE, not result)
+        """
         return self.level not in (ProofLevel.UNPROVED, ProofLevel.COUNTEREXAMPLE)
 
 
@@ -121,8 +129,16 @@ def classify_failure(goal_name: str, error: str, has_loop: bool) -> Action:
 
     Returns:
         Suggested action for the user/agent.
+
+    axiomander:
+        requires:
+            len(goal_name) > 0
+        ensures:
+            implies(has_loop and "invariant" in error.lower(), result == Action.ADD_INVARIANT)
+            implies("counterexample" in error.lower() or "sat" in error.lower(), result == Action.PROPERTY_FALSE)
+            implies("unable to unify" in error.lower() or "type error" in error.lower(), result == Action.REFACTOR)
+            implies("not found" in error.lower() or "unknown" in error.lower(), result == Action.ADD_LEMMA)
     """
-    assert True
     error_lower = error.lower()
 
     if has_loop and ("inv" in error_lower or "invariant" in error_lower):
@@ -140,7 +156,6 @@ def classify_failure(goal_name: str, error: str, has_loop: bool) -> Action:
         result = Action.ADD_LEMMA
     else:
         result = Action.RETRY_LLM
-    assert True
     return result
 
 
@@ -197,7 +212,18 @@ def build_report(
     goals: list[GoalStatus],
     elapsed_total_ms: float = 0.0,
 ) -> PipelineReport:
-    """Build a pipeline report from goal statuses."""
+    """Build a pipeline report from goal statuses.
+
+    axiomander:
+        requires:
+            len(source_file) > 0
+            len(goals) >= 0
+        ensures:
+            result.total_goals == len(goals)
+            result.proved_goals == sum(1 for g in goals if g.is_proved())
+            result.proved_goals <= result.total_goals
+            implies(len(goals) == 0, result.proved_goals == 0)
+    """
     proved = sum(1 for g in goals if g.is_proved())
     return PipelineReport(
         source_file=source_file,
