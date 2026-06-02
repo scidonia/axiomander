@@ -2147,6 +2147,21 @@ def _classify_assert(func_node: ast.FunctionDef, assert_node: ast.Assert) -> str
     return "general"
 
 
+def _used_self_fields(func_node) -> set[str]:
+    """Return the set of field names accessed via self.attr in a method body.
+
+    Only collects direct attribute access (self.level, self.name).
+    Does not track accesses through aliases or intermediate variables.
+    """
+    import ast
+    used: set[str] = set()
+    for node in ast.walk(func_node):
+        if isinstance(node, ast.Attribute):
+            if isinstance(node.value, ast.Name) and node.value.id == 'self':
+                used.add(node.attr)
+    return used
+
+
 def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
     """Expand class params into flat fields for Coq theorem params.
 
@@ -2227,8 +2242,15 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
             # Falls back to the class_fields list if the Shape is not registered.
             from .shape_ir import lookup_shape, flat_fields as _flat_fields
             shape = lookup_shape(cls_name)
+            # Only expand fields actually used in the function body.
+            # A method with 11 GoalStatus fields that only uses self.level
+            # should have 1 Coq param, not 11.  Frame conditions on 10
+            # unused fields bloat the proof past what wp_prove can handle.
+            used = _used_self_fields(func_node) if func_node and p == 'self' else None
             if shape:
                 for flat_key, sf in _flat_fields(shape, p):
+                    if used is not None and sf.name not in used:
+                        continue
                     if sf.py_type in ("list",):
                         # List field: expose length as a Z param, init with hupd
                         len_var = f"{flat_key}__len"
@@ -2252,6 +2274,8 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
                         init_state = f'(upd {init_state} "{flat_key}"%string (VZ {flat_key}))'
             else:
                 for f in class_fields[cls_name]:
+                    if used is not None and f not in used:
+                        continue
                     safe_f = _escape_field(f)
                     expanded.append(f"{p}_{safe_f}")
                     parts.append(f"({p}_{safe_f} : Z)")
