@@ -252,8 +252,37 @@ class PySliceStore(PyStmt):
 
 
 class PyPass(PyStmt):
-    """pass statement — no-op."""
+    """pass statement -- no-op."""
     kind: Literal["pass"] = "pass"
+
+
+class PyRaise(PyStmt):
+    """Raise statement: raise ExcType or raise ExcType(msg).
+
+    exc_type: string name of the exception class (e.g. "ValueError").
+    message:  optional expression for the exception argument.
+    """
+    kind: Literal["raise"] = "raise"
+    exc_type: str
+    message: Optional[PyExpr] = None
+
+
+class PyExcHandler(BaseModel):
+    """A single except clause: except ExcType [as var]: body."""
+    exc_type: str        # exception class name, e.g. "ValueError"
+    exc_var: Optional[str] = None   # 'as <var>' binding, or None
+    body: list[PyStmt] = Field(default_factory=list)
+
+
+class PyTry(PyStmt):
+    """Try/except block.
+
+    Only the body and except handlers are modelled -- finally/else
+    clauses are dropped (they are not in scope for Hoare-logic contracts).
+    """
+    kind: Literal["try"] = "try"
+    body: list[PyStmt] = Field(default_factory=list)
+    handlers: list[PyExcHandler] = Field(default_factory=list)
 
 
 # ── Function ─────────────────────────────────────────────────────

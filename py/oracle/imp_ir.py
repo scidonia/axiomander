@@ -607,6 +607,37 @@ class ImpCHavoc(ImpCom):
         return f"(CHavoc [{vars_str}])"
 
 
+class ImpCRaise(ImpCom):
+    """Raise: CRaise e -- terminates with ORaise (aeval e s) s.
+
+    The exception value is typically AString "ExcTypeName" so that
+    outcome predicates can match on the exception class by name.
+    """
+
+    kind: Literal["craise"] = "craise"
+    exc: ImpAExp  # the exception value expression
+
+    def to_coq(self) -> str:
+        return f"(CRaise {self.exc.to_coq()})"
+
+
+class ImpCTry(ImpCom):
+    """Try/except: CTry body exc handler.
+
+    body   -- the command that may raise.
+    exc    -- variable name that receives the exception value on catch.
+    handler -- command executed if body raises; exc is bound in scope.
+    """
+
+    kind: Literal["ctry"] = "ctry"
+    body: "ImpCom"
+    exc: str       # variable name for the caught exception
+    handler: "ImpCom"
+
+    def to_coq(self) -> str:
+        return f'(CTry {self.body.to_coq()} "{self.exc}"%string {self.handler.to_coq()})'
+
+
 # ── Helpers ─────────────────────────────────────────────────────
 
 

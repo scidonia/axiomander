@@ -248,9 +248,10 @@ class ImpTranslator:
             return self._translate_while(stmt)
         elif isinstance(stmt, ast.For):
             return self._translate_for(stmt)
+        elif isinstance(stmt, ast.Raise):
+            return self._translate_raise(stmt)
         elif isinstance(stmt, ast.Try):
-            body_cmd = self.translate_body(stmt.body)
-            return f"(CSeq {body_cmd} (CHavoc []))"
+            return self._translate_try(stmt)
         elif isinstance(stmt, (ast.Import, ast.ImportFrom)):
             return None  # imports are metadata, not IMP code
         elif isinstance(stmt, ast.Delete):
@@ -839,6 +840,65 @@ class ImpTranslator:
             value = self.translate_expr(stmt.value)
             return f'(CAss "result"%string {value})'
         return "CSkip"
+
+    def _translate_raise(self, stmt: ast.Raise) -> str:
+        """Translate raise ExcType or raise ExcType(msg) -> CRaise (AString "ExcType").
+
+        The exception value is represented as a VString tag so that
+        outcome predicates can branch on the exception type by name.
+        """
+        if stmt.exc is None:
+            # bare re-raise: not supported in verification scope
+            return "(* untranslated: bare re-raise *)"
+        exc = stmt.exc
+        if isinstance(exc, ast.Call) and isinstance(exc.func, ast.Name):
+            exc_type = exc.func.id
+        elif isinstance(exc, ast.Name):
+            exc_type = exc.id
+        elif isinstance(exc, ast.Attribute):
+            exc_type = exc.attr
+        else:
+            exc_type = "Exception"
+        return f'(CRaise (AString "{exc_type}"%string))'
+
+    def _translate_try(self, stmt: ast.Try) -> str:
+        """Translate try/except -> CTry body exc_var handler.
+
+        Multiple except clauses are chained as nested CTry nodes.
+        The else and finally clauses are dropped (not modelled).
+        """
+        body_cmd = self.translate_body(stmt.body)
+        if not stmt.handlers:
+            # No handlers: just the body (finally/else ignored)
+            return body_cmd
+
+        # Build handler chain from last to first (right-to-left nesting)
+        # For each handler, generate: CTry inner_body exc_var handler_body
+        # Multiple handlers: chain as nested CTry catching different types.
+        # Limitation: we only model the first matching handler semantics;
+        # for simplicity, if there are multiple handlers we nest them.
+        # The outermost CTry catches the exception; if the exc_type doesn't
+        # match, the inner re-raise is modelled as the handler body doing
+        # CRaise again.
+        result = body_cmd
+        for h in stmt.handlers:
+            # Determine exception type name
+            if h.type is None:
+                exc_type = "Exception"
+            elif isinstance(h.type, ast.Name):
+                exc_type = h.type.id
+            elif isinstance(h.type, ast.Attribute):
+                exc_type = h.type.attr
+            else:
+                exc_type = "Exception"
+
+            # Variable that receives the exception value
+            exc_var = h.name if h.name else f"__exc_{exc_type.lower()}__"
+
+            handler_body = self.translate_body(h.body)
+            result = f'(CTry {result} "{exc_var}"%string {handler_body})'
+
+        return result
 
     def _translate_if(self, stmt: ast.If) -> str:
         test = self._truthify(stmt.test)

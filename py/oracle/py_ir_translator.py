@@ -169,6 +169,10 @@ class PyIRTranslator:
         if isinstance(node, ast.Return):
             val = self.translate_expr(node.value) if node.value else None
             return PyReturn(value=val)
+        if isinstance(node, ast.Raise):
+            return self._translate_raise(node)
+        if isinstance(node, ast.Try):
+            return self._translate_try(node)
         if isinstance(node, ast.Assert):
             test = self.translate_expr(node.test)
             if test:
@@ -180,6 +184,43 @@ class PyIRTranslator:
         if isinstance(node, ast.Pass):
             return PyPass()
         return None
+
+    def _translate_raise(self, node: ast.Raise) -> Optional[PyRaise]:
+        """Translate raise ExcType or raise ExcType(msg)."""
+        if node.exc is None:
+            # bare 're-raise' -- not in scope for verification; skip
+            return None
+        exc = node.exc
+        # Unwrap: raise ExcType(msg) -- call form
+        if isinstance(exc, ast.Call) and isinstance(exc.func, ast.Name):
+            exc_type = exc.func.id
+            msg = self.translate_expr(exc.args[0]) if exc.args else None
+            return PyRaise(exc_type=exc_type, message=msg)
+        # Simple: raise ExcType
+        if isinstance(exc, ast.Name):
+            return PyRaise(exc_type=exc.id)
+        # Attribute: raise module.ExcType -- use the attribute name
+        if isinstance(exc, ast.Attribute):
+            return PyRaise(exc_type=exc.attr)
+        return None
+
+    def _translate_try(self, node: ast.Try) -> Optional[PyTry]:
+        """Translate try/except -- drop finally/else."""
+        body = [s for b in node.body for s in [self.translate_stmt(b)] if s]
+        handlers: list[PyExcHandler] = []
+        for h in node.handlers:
+            exc_type = "Exception"
+            if h.type is not None:
+                if isinstance(h.type, ast.Name):
+                    exc_type = h.type.id
+                elif isinstance(h.type, ast.Attribute):
+                    exc_type = h.type.attr
+            exc_var = h.name  # str or None
+            h_body = [s for b in h.body for s in [self.translate_stmt(b)] if s]
+            handlers.append(PyExcHandler(exc_type=exc_type, exc_var=exc_var, body=h_body))
+        if not handlers:
+            return None
+        return PyTry(body=body, handlers=handlers)
 
     def translate_function(self, node: ast.FunctionDef) -> PyFunction:
         param_types = {}

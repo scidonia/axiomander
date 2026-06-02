@@ -253,7 +253,9 @@
       "_str_contains_expr",
       "_translate_boolop",
       "_translate_call",
-      "_translate_compare"
+      "_translate_compare",
+      "_translate_raise",
+      "_translate_try"
     ]
   },
   "len": {
@@ -3638,7 +3640,8 @@
       "_translate_list_comp",
       "_translate_augassign",
       "_translate_call",
-      "_translate_compare"
+      "_translate_compare",
+      "_translate_raise"
     ]
   },
   "_attribute_path": {
@@ -5502,14 +5505,16 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "_build_for_in_name"
+      "_build_for_in_name",
+      "_build_for_loop"
     ]
   },
   "self.translate_body": {
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "_build_for_in_name"
+      "_build_for_in_name",
+      "_build_for_loop"
     ]
   },
   "_build_for_in_name": {
@@ -5731,6 +5736,77 @@
     "callees": [
       "join",
       "self.is_proved"
+    ],
+    "callers": []
+  },
+  "self._default_for_invariant": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_build_for_loop"
+    ]
+  },
+  "_build_for_loop": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "self._default_for_invariant",
+      "self._invariants.get",
+      "self.translate_body"
+    ],
+    "callers": []
+  },
+  "PyRaise": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_translate_raise"
+    ]
+  },
+  "_translate_raise": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "PyRaise",
+      "isinstance",
+      "self.translate_expr"
+    ],
+    "callers": []
+  },
+  "PyExcHandler": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_translate_try"
+    ]
+  },
+  "PyTry": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_translate_try"
+    ]
+  },
+  "handlers.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_translate_try"
+    ]
+  },
+  "self.translate_stmt": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_translate_try"
+    ]
+  },
+  "_translate_try": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "PyExcHandler",
+      "PyTry",
+      "handlers.append",
+      "isinstance",
+      "self.translate_stmt"
     ],
     "callers": []
   }
