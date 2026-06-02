@@ -3981,8 +3981,10 @@ def _render_obligations_coq(func_node, lint_results, imp_body: str,
     source_notes = ""
     for r in lint_results:
         if r.lint_result.coq_translation:
-            safe = r.lint_result.coq_translation.replace("*)", "* )").replace("(*", "( *")[:80]
-            source_notes += f"(* line {r.lineno}: [{r.classification}] {safe} *)\n"
+            # Don't include Coq expression text in the comment — it can contain
+            # string literals that break Coq's (* ... *) comment syntax when
+            # truncated mid-string.  Just show the line and classification.
+            source_notes += f"(* line {r.lineno}: [{r.classification}] *)\n"
 
     contract_map = _build_contract_map(full_tree) if full_tree else {}
 
@@ -4426,8 +4428,10 @@ Theorem {name}_vcg_exit : forall {vcg_params},
     source_notes = ""
     for r in lint_results:
         if r.lint_result.coq_translation:
-            safe = r.lint_result.coq_translation.replace("*)", "* )").replace("(*", "( *")[:80]
-            source_notes += f"(* line {r.lineno}: [{r.classification}] {safe} *)\n"
+            # Don't include Coq expression text in the comment — it can contain
+            # string literals that break Coq's (* ... *) comment syntax when
+            # truncated mid-string.  Just show the line and classification.
+            source_notes += f"(* line {r.lineno}: [{r.classification}] *)\n"
 
     # Build the outcome predicate Phi (wp postcondition).
     # If there are raises clauses, emit a full outcome match; otherwise wp_normal.

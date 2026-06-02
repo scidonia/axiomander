@@ -2664,7 +2664,7 @@
     ]
   },
   "classify_failure": {
-    "contract_hash": "7bb1f40b687b12443b929dcd75b39431038a8e80a3fdf0ee3da10cf96141199b",
+    "contract_hash": "352493b2a7b52de170c751290a30a752011c7bfd135003d18b5eca80e35a5edf",
     "callees": [
       "error.lower"
     ],
@@ -2896,7 +2896,7 @@
     ]
   },
   "_collect_ccalls": {
-    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "contract_hash": "c7f6714ad79535a5aa45957bc396785e380ff9d04bee8bbb5d4fec9a305f7c39",
     "callees": [
       "_collect_ccalls",
       "ccalls.append",
@@ -7439,5 +7439,15 @@
     "callers": [
       "_lower_ccall"
     ]
+  },
+  "_spec_classify_failure": {
+    "contract_hash": "9c7e7cf960af875cab03328563e8c3e8d1d9c83120de34bc2a00f21e154f2758",
+    "callees": [],
+    "callers": []
+  },
+  "_spec_is_proved": {
+    "contract_hash": "25303a3a10dbbcc3a2c5c1d390c1c9fd8b3ff67b3c03ea0d636d544deca64d27",
+    "callees": [],
+    "callers": []
   }
 }
