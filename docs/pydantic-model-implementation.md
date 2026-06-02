@@ -64,6 +64,21 @@ unless the model opts in with `model_config = ConfigDict(validate_assignment=Tru
   - Must be re-proven after each mutation when `validate_assignment=True`
   - Can be broken by mutation in default mode; user re-asserts it
 
+## Shape/validation predicate decomposition
+
+The PDF recommends splitting structural shape from constraint
+validation.  Three layers:
+
+| Predicate | Meaning | User-visible? | Coq expansion |
+|---|---|---|---|
+| `is_shape(obj, Type)` | Fields exist with correct types. Structural. | Yes + implicit from `obj: Type` annotations | `isVZ (s "obj_f1"%string) = true /\ ...` |
+| `field_value(obj, "name") = v` | A specific field has value `v`. Structural. | Yes | `asZ (s "obj_name"%string) = v` |
+| `is_valid(obj, Type)` | `is_shape` + all `Field(...)` constraints satisfied. | Explicit for default; implicit for `validate_assignment=True` | `is_shape(obj, Type) /\ balance >= 0 /\ ...` |
+
+`is_shape` is always known for typed parameters (`account: Account` →
+`is_shape(account, Account)` is automatic).  User writes it explicitly
+only when the type is unknown (generic containers, `isinstance` guards).
+
 ---
 
 ## Current state
@@ -184,40 +199,30 @@ def shape_preconditions(shape: Shape, obj_prefix: str) -> list[str]:
 
 ### Step 2 — Contract IR predicates (`contract_ir.py`)
 
-Two new predicates:
+Three nodes.  `IsShape` and `IsValid` expand via the Shape registry:
 
 ```python
 class FieldValue(BaseModel):
-    """field_value(obj, "field_name") = value.
-
-    Always available — structural, regardless of validity.
-    Compiles to: asZ (s "obj_field"%string) = value_coq
-    """
+    """field_value(obj, "name") = value."""
     kind: Literal["field_value"] = "field_value"
     obj: str
     field_name: str
     value: Expr
 
 
-class IsValid(BaseModel):
-    """is_valid(obj, ModelType) — the object satisfies all declared constraints.
+class IsShape(BaseModel):
+    """is_shape(obj, Type) → isVZ type guards for every field."""
+    kind: Literal["is_shape"] = "is_shape"
+    obj: str
+    model_type: str
 
-    True after construction.  The verifier tracks this predicate.
-    With validate_assignment=True, must be re-proven after every mutation.
-    In default mode, can be broken by mutation; user re-asserts it.
-    
-    Compiles to the conjunction of all Field constraints for the model:
-      (asZ (s "obj_balance"%string) >= 0) /\ ...
-    """
+
+class IsValid(BaseModel):
+    """is_valid(obj, Type) → is_shape + all Field constraints."""
     kind: Literal["is_valid"] = "is_valid"
     obj: str
     model_type: str
 ```
-
-`IsValid` expansion depends on the Shape registry.  At linter time, if
-the Shape is known, expand to the constraint conjunction.  If the
-Shape is not yet in the registry (rare), emit a placeholder that is
-resolved at codegen time.
 
 ---
 
@@ -241,17 +246,18 @@ def visit_Compare(self, node: ast.Compare) -> Optional[Expr]:
     # ... existing compare logic
 ```
 
-#### 3b — `is_valid(obj, ModelType)` as a special form
+#### 3b — `is_shape(obj, Type)` and `is_valid(obj, Type)` as special forms
 
 Added to `visit_Call` alongside `implies` and `raises`:
 
 ```python
-if name == "is_valid":
+if name in ("is_shape", "is_valid"):
     if len(node.args) == 2:
         obj = self._extract_name(node.args[0])
         type_name = self._extract_name(node.args[1])
         if obj and type_name:
-            return IsValid(obj=obj, model_type=type_name)
+            cls = IsShape if name == "is_shape" else IsValid
+            return cls(obj=obj, model_type=type_name)
     return None
 ```
 
@@ -393,8 +399,8 @@ automatic constraints are sufficient.
 | File | Change |
 |---|---|
 | `py/oracle/shape_ir.py` | **New.** `Shape`, `ShapeField`. `build_shape_registry()`, `shape_preconditions()`, `lookup_shape()`. Detects `validate_assignment` from `model_config`. |
-| `py/oracle/contract_ir.py` | Add `FieldValue`, `IsValid` nodes; update `Expr` union. |
-| `py/oracle/contract_linter.py` | Recognise `field_value(obj, "name") = val` in `visit_Compare`. Recognise `is_valid(obj, Type)` in `visit_Call`. Add `_extract_name()`, `_extract_string_literal()` helpers. |
+| `py/oracle/contract_ir.py` | Add `FieldValue`, `IsShape`, `IsValid` nodes; update `Expr` union. |
+| `py/oracle/contract_linter.py` | Recognise `field_value(...)` in `visit_Compare`. Recognise `is_shape(obj, Type)`, `is_valid(obj, Type)` in `visit_Call`. Add `_extract_name()`, `_extract_string_literal()` helpers. |
 | `py/oracle/docstring_contracts.py` | No changes — both predicates are expressions inside requires/ensures lines. |
 | `py/oracle/mcp_server.py` | Call `build_shape_registry()` at verification start.  Use Shape IR for constraint injection when `is_valid` is in scope.  Generate constraint obligations on mutation for `validate_assignment=True` models. |
 | `py/tests/test_pipeline.py` | 4 tests: 2 positive (one for each mode), 2 negative. |
