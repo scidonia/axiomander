@@ -440,7 +440,7 @@ class IsShape(BaseModel):
         from .shape_ir import lookup_shape, is_shape_coq
         shape = lookup_shape(self.model_type)
         if shape:
-            return is_shape_coq(self.obj, shape)
+            return is_shape_coq(self.obj, shape, scoped=scoped)
         return "True"
 
     def to_smt(self) -> str:
@@ -462,7 +462,7 @@ class IsValid(BaseModel):
         from .shape_ir import lookup_shape, is_valid_coq
         shape = lookup_shape(self.model_type)
         if shape:
-            return is_valid_coq(self.obj, shape)
+            return is_valid_coq(self.obj, shape, scoped=scoped)
         return "True"
 
     def to_smt(self) -> str:

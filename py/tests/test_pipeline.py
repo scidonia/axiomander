@@ -874,6 +874,24 @@ def docstring_raises_wrong(n: int) -> int:
         raise ValueError
     result = n
     return result"""),
+    # ── Shape IR + is_valid ───────────────────────────────────────────
+    # Negative: is_valid claims constraint holds but body violates it
+    ("shape_broken", """\
+from pydantic import BaseModel, Field, ConfigDict
+
+class Item(BaseModel):
+    value: int = Field(ge=0)
+
+def shape_broken(item: Item) -> int:
+    \"\"\"
+    axiomander:
+        requires:
+            is_valid(item, Item)
+        ensures:
+            is_valid(item, Item)
+    \"\"\"
+    result = -1
+    return result"""),
 ]
 
 NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail", "all_positive", "use_wrong", "user_no_post", "inv_body_violation",     "bad_pass_str", "bad_call_str", "bad_int_to_bool", "frame_fail_pop",
@@ -882,8 +900,9 @@ NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "we
     "frame_stub_pop", "frame_stub_disjoint", "modifies_blocks_frame",
     # Raises contract tests
     "raises_wrong_exc_cond",    # wrong condition on the raises arm
-    "raises_wrong_post",        # wrong normal postcondition
+    "raises_wrong_post",        # wrong normal postcondition with raises
     "docstring_raises_wrong",   # wrong condition via docstring syntax
+    "shape_broken",             # is_valid violated by body
 }
 
 

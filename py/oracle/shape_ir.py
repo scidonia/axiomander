@@ -69,9 +69,15 @@ def is_valid_coq(obj_prefix: str, shape: Shape, scoped: bool = False) -> str:
     parts = [is_shape_coq(obj_prefix, shape, scoped)]
     for f in shape.fields:
         flat_key = f"{obj_prefix}_{f.name}"
-        key_ref = f's "{flat_key}"%string' if scoped else flat_key
+        key_scoped = f's "{flat_key}"%string'
+        key_bare = flat_key
         for c in f.constraints:
-            parts.append(c.format(flat_key=key_ref))
+            if scoped:
+                parts.append(c.format(key_scoped=key_scoped, key_bare=key_bare))
+            else:
+                formatted = c.format(key_scoped=key_scoped, key_bare=key_bare)
+                unscoped = formatted.replace(f"asZ ({key_scoped})", key_bare)
+                parts.append(unscoped)
     return " /\\ ".join(f"({p})" for p in parts) if parts else "True"
 
 
@@ -153,6 +159,12 @@ def _py_to_coq(py_type: str) -> str:
 
 
 def _extract_field_constraints(stmt: ast.AnnAssign) -> list[str]:
+    """Extract Field(ge=0, ...) constraints as Coq templates.
+
+    Uses {key_scoped} for scoped state lookups and {key_bare} for bare Z vars.
+    E.g. when scoped:   "0 <= asZ (s \"key\"%string)"
+         when unscoped: "0 <= key"
+    """
     constraints: list[str] = []
     if not isinstance(stmt.value, ast.Call):
         return constraints
@@ -165,13 +177,14 @@ def _extract_field_constraints(stmt: ast.AnnAssign) -> list[str]:
     if not is_field:
         return constraints
     for kw in call.keywords:
-        ref = "{flat_key}"
+        s = "{key_scoped}"
+        b = "{key_bare}"
         if kw.arg == "ge" and isinstance(kw.value, ast.Constant):
-            constraints.append(f'{kw.value.value} <= asZ (s "{ref}"%string)')
+            constraints.append(f"({kw.value.value} <= asZ ({s}))")
         elif kw.arg == "gt" and isinstance(kw.value, ast.Constant):
-            constraints.append(f'{kw.value.value} < asZ (s "{ref}"%string)')
+            constraints.append(f"({kw.value.value} < asZ ({s}))")
         elif kw.arg == "le" and isinstance(kw.value, ast.Constant):
-            constraints.append(f'asZ (s "{ref}"%string) <= {kw.value.value}')
+            constraints.append(f"(asZ ({s}) <= {kw.value.value})")
         elif kw.arg == "lt" and isinstance(kw.value, ast.Constant):
-            constraints.append(f'asZ (s "{ref}"%string) < {kw.value.value}')
+            constraints.append(f"(asZ ({s}) < {kw.value.value})")
     return constraints
