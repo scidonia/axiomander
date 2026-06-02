@@ -387,7 +387,7 @@ class SetExpr(BaseModel):
 
 
 class ImpliesExpr(BaseModel):
-    """Implication: A → B for conditional guarantees."""
+    """Implication: A -> B for conditional guarantees."""
     kind: Literal["implies"] = "implies"
     left: Expr
     right: Expr
@@ -399,4 +399,30 @@ class ImpliesExpr(BaseModel):
         return f"(=> {self.left.to_smt()} {self.right.to_smt()})"
 
 
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr]
+class RaisesExpr(BaseModel):
+    """Exception postcondition: raises(ExcType, cond).
+
+    Asserts that if the function raises an exception of type ExcType,
+    the condition cond holds over the state at the raise point.
+
+    In the outcome predicate, this becomes:
+        | ORaise (VString "ExcType") s => cond_on_s
+    """
+    kind: Literal["raises"] = "raises"
+    exc_type: str    # exception class name, e.g. "ValueError"
+    cond: Expr       # condition that holds when this exception is raised
+
+    def to_coq(self, scoped: bool = True, unbound: frozenset[str] = frozenset()) -> str:
+        """Emit the Coq expression for the condition (always scoped -- raise state is s)."""
+        return self.cond.to_coq(scoped=True, unbound=unbound)
+
+    def to_coq_arm(self, unbound: frozenset[str] = frozenset()) -> str:
+        """Emit a single match arm: | ORaise (VString \"ExcType\") s => cond."""
+        cond_coq = self.cond.to_coq(scoped=True, unbound=unbound)
+        return f'| ORaise (VString "{self.exc_type}"%string) s => {cond_coq}'
+
+    def to_smt(self) -> str:
+        return self.cond.to_smt()
+
+
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr]

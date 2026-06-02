@@ -18,7 +18,7 @@ from .contract_ir import (
     LenExpr, IndexExpr, DictLenExpr, DictCountExpr,
     AllExpr, AnyExpr, SliceLenExpr,
     MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr,
-    ImpliesExpr,
+    ImpliesExpr, RaisesExpr,
 )
 
 
@@ -193,6 +193,28 @@ class ContractLinter(ast.NodeVisitor):
                 right = self.visit(node.args[1])
                 if left and right:
                     return ImpliesExpr(left=left, right=right)
+            return None
+        if name == "raises":
+            # raises(ExcType, cond) -- exception postcondition.
+            # ExcType must be a Name node (the exception class name).
+            # cond is any pure contract expression.
+            if len(node.args) == 2:
+                exc_arg = node.args[0]
+                cond_arg = node.args[1]
+                if isinstance(exc_arg, ast.Name):
+                    exc_type = exc_arg.id
+                elif isinstance(exc_arg, ast.Attribute):
+                    exc_type = exc_arg.attr
+                else:
+                    self._violation(node, ExprKind.UNSUPPORTED,
+                                    "raises() first arg must be an exception class name")
+                    return None
+                cond = self.visit(cond_arg)
+                if cond is None:
+                    return None
+                return RaisesExpr(exc_type=exc_type, cond=cond)
+            self._violation(node, ExprKind.UNSUPPORTED,
+                            "raises() requires exactly 2 arguments: raises(ExcType, cond)")
             return None
         if name not in PURE_BUILTINS and name not in PURE_MODULE_FUNCTIONS \
            and method_name not in PURE_BUILTINS:

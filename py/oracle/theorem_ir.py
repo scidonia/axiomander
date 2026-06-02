@@ -37,6 +37,9 @@ class TheoremIR(BaseModel):
     params: list[CoqVar] = Field(default_factory=list)
     pre: CoqProp = CoqProp(text="True")
     post: CoqProp = CoqProp(text="True")
+    # Exception postconditions: exc_type -> Coq condition over raise-point state s.
+    # E.g. {"ValueError": CoqProp("asZ (s \"n\"%string) < 0")}
+    raises_clauses: dict[str, CoqProp] = Field(default_factory=dict)
     imp_body: str = "CSkip"
     init_state: str = "empty_state"
     proof: str = "  intros.\n  wp_prove."
@@ -46,6 +49,29 @@ class TheoremIR(BaseModel):
     extra_imports: list[str] = Field(default_factory=list)  # e.g. "From Hammer Require Import Hammer."
     record_section: str = ""
     bool_import: str = ""
+
+    def _build_phi(self) -> str:
+        """Build the Coq outcome predicate Phi.
+
+        If there are no raises clauses, uses wp_normal for the ensures cond.
+        If there are raises clauses, emits a full match on outcome:
+
+            fun o =>
+              match o with
+              | OReturn s => <ensures>
+              | ORaise (VString "ExcType") s => <raises_cond>
+              | _ => True
+              end
+        """
+        if not self.raises_clauses:
+            return f"(wp_normal (fun s => {self.post.to_coq()}))"
+        # Full match form
+        arms = [f"              | OReturn s => {self.post.to_coq()}"]
+        for exc_type, cond in self.raises_clauses.items():
+            arms.append(f'              | ORaise (VString "{exc_type}"%string) s => {cond.to_coq()}')
+        arms.append("              | _ => True")
+        arms_str = "\n".join(arms)
+        return f"(fun o =>\n              match o with\n{arms_str}\n              end)"
 
     def to_coq(self) -> str:
         """Render the complete Coq file."""
@@ -78,10 +104,11 @@ class TheoremIR(BaseModel):
             header += " :"
         parts.append(header)
 
-        # Body: pre -> wp body post init (with ghost existentials)
+        # Body: pre -> wp body Phi init (with ghost existentials)
+        phi = self._build_phi()
         inner = f"  (({self.pre.to_coq()}) ->\n" \
                 f"  wp {self.name}_body\n" \
-                f"     (wp_normal (fun s => {self.post.to_coq()}))\n" \
+                f"     {phi}\n" \
                 f"     ({self.init_state}))"
         for v, init in reversed(list(self.ghost_vars.items())):
             inner = f"(exists ({v} : Z), (({v} = {init}) /\\\n  {inner}))"

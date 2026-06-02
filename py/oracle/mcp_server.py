@@ -2092,8 +2092,20 @@ def _smt_prove_goal(goal_texts: list[str]) -> str | None:
     return " /\\ ".join(f"({g})" for g in proven)
 
 
+def _is_raises_call(node: ast.expr) -> bool:
+    """Return True if node is a raises(ExcType, cond) call."""
+    return (isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "raises"
+            and len(node.args) == 2)
+
+
 def _classify_assert(func_node: ast.FunctionDef, assert_node: ast.Assert) -> str:
     """Classify an assert statement within a function."""
+    # Exception postconditions are always raises(...) calls, position-independent.
+    if _is_raises_call(assert_node.test):
+        return "exception_postcondition"
+
     body = func_node.body
 
     # Check if we're inside a loop
@@ -4040,6 +4052,7 @@ def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: 
     pres = [r for r in lint_results if r.classification == "precondition"]
     posts = [r for r in lint_results if r.classification == "postcondition"]
     invs = [r for r in lint_results if r.classification == "invariant"]
+    exc_posts = [r for r in lint_results if r.classification == "exception_postcondition"]
 
     pre_coq = " /\\ ".join(
         r.lint_result.coq_translation
@@ -4049,6 +4062,21 @@ def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: 
         r.lint_result.coq_translation
         for r in posts if r.lint_result.coq_translation
     ) or "True"
+
+    # Collect raises clauses: exc_type -> Coq condition (scoped).
+    # Multiple raises(SameType, ...) for the same type are ANDed together.
+    from oracle.contract_ir import RaisesExpr
+    raises_coq: dict[str, list[str]] = {}
+    for r in exc_posts:
+        if r.lint_result.ir and isinstance(r.lint_result.ir, RaisesExpr):
+            et = r.lint_result.ir.exc_type
+            cond = r.lint_result.ir.to_coq(scoped=True)
+            raises_coq.setdefault(et, []).append(cond)
+    # Merge multiple clauses for the same type with /\
+    raises_clauses_coq: dict[str, str] = {
+        et: " /\\ ".join(f"({c})" for c in conds)
+        for et, conds in raises_coq.items()
+    }
 
     # Fix unscoped string/list parameter names in contracts
     # When 'name: str' is encoded as 'name__len: Z', bare 'name' in the
@@ -4332,6 +4360,24 @@ Theorem {name}_vcg_exit : forall {vcg_params},
             safe = r.lint_result.coq_translation.replace("*)", "* )").replace("(*", "( *")[:80]
             source_notes += f"(* line {r.lineno}: [{r.classification}] {safe} *)\n"
 
+    # Build the outcome predicate Phi (wp postcondition).
+    # If there are raises clauses, emit a full outcome match; otherwise wp_normal.
+    if raises_clauses_coq:
+        exc_arms = "\n".join(
+            f'              | ORaise (VString "{et}"%string) s => {cond}'
+            for et, cond in raises_clauses_coq.items()
+        )
+        phi_coq = (
+            f"(fun o =>\n"
+            f"              match o with\n"
+            f"              | OReturn s => {post_coq}\n"
+            f"{exc_arms}\n"
+            f"              | _ => True\n"
+            f"              end)"
+        )
+    else:
+        phi_coq = f"(wp_normal (fun s => {post_coq}))"
+
     # Wrap theorem with ghost variable existentials
     ghost_wrap = ""
     ghost_proof_prefix = ""
@@ -4339,7 +4385,7 @@ Theorem {name}_vcg_exit : forall {vcg_params},
         # Ghost vars are already unscoped by the linter (via unbound parameter)
         inner = f"""  (({pre_coq}) ->
    wp {name}_body
-      (wp_normal (fun s => {post_coq}))
+      {phi_coq}
       ({init_state}))"""
         for v, init in reversed(list(ghost_vars.items())):
             inner = f"""(exists ({v} : Z), (({v} = {init}) /\\
@@ -4358,7 +4404,7 @@ Theorem {name}_vcg_exit : forall {vcg_params},
     else:
         ghost_wrap = f"""  (({pre_coq}) ->
   wp {name}_body
-     (wp_normal (fun s => {post_coq}))
+     {phi_coq}
      ({init_state}))"""
         ghost_proof_suffix = ""
 
