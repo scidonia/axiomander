@@ -371,6 +371,13 @@ def _subst_post_for_qmid(callee_post: str, callee_params: list[str],
             r'asZ\s*\(\s*s\s+"' + re.escape(param) + r'"%string\s*\)',
             term, post,
         )
+        # Also substitute prefixed field keys: s "param_field" → s "arg_field"
+        if isinstance(arg, ImpAVar):
+            post = re.sub(
+                rf's "{re.escape(param)}_',
+                f's "{arg.name}_',
+                post,
+            )
     return post
 
 
@@ -403,15 +410,26 @@ def _build_q_defs(
         seg_names.append(seg_name)
         seg_coqs.append(seg.to_coq())
 
-        # Use the already-substituted postcondition from the ImpCCall node.
-        # This avoids re-deriving from the raw contract map and ensures
-        # constructor arg expansions and field-prefix substitutions are correct.
-        raw_post = ccall.postcondition or "True"
-        # Strip the wrapping (fun s => ...) if present
-        if raw_post.startswith("(fun s => ") and raw_post.endswith(")"):
-            val_conj = raw_post[len("(fun s => "):-1]
+        # Derive the Q value conjunct from the callee postcondition.
+        # Use _subst_post_for_qmid to convert scoped state lookups
+        # (asZ (s "param"%string)) to bare caller param terms — this is
+        # required so Q is parameterised by the Coq forall params, not
+        # the intermediate state s.  Then fall back to ccall.postcondition
+        # for the target substitution (result → a2 etc.) which was already
+        # done by _lower_ccall / _subst_result.
+        callee_params, _, callee_post_raw, _, _ = contract_map.get(
+            ccall.name, ([], None, None, [], [])
+        ) if ccall.name in contract_map else ([], None, None, [], [])
+
+        if callee_post_raw is not None:
+            val_conj = _subst_post_for_qmid(callee_post_raw, callee_params, ccall, all_params)
         else:
-            val_conj = raw_post
+            # Callee not in contract map — use the substituted postcondition
+            raw_post = ccall.postcondition or "True"
+            if raw_post.startswith("(fun s => ") and raw_post.endswith(")"):
+                val_conj = raw_post[len("(fun s => "):-1]
+            else:
+                val_conj = raw_post
 
         conj_strs: list[str] = []
         if pre_coq != "True":
@@ -519,28 +537,25 @@ def _mk_stage_k_statement_proof(
     lines_proof = [
         f"  intros {params_lemma} s " + hyp_names + ".",
         f"  unfold {seg_name}.",
-        "  apply wp_ccall_decompose.",
-        "  - repeat split; try assumption; try lia; try reflexivity.",
-        "  - intros r Hr.",
-        f"    unfold {qn}.",
-        "      repeat match goal with H : _ /\\ _ |- _ => destruct H end.",
-        "      repeat match goal with H : _ \/ _ |- _ => destruct H end.",
+        "  apply wp_ccall_decompose;",
+        "  [ (* pre *) repeat split; try assumption; try lia; try reflexivity",
+        "  | (* post *) intros r Hr; simpl in Hr;",
+        f"    unfold {qn}, wp_normal; simpl;",
+        "    repeat match goal with H : _ /\\ _ |- _ => destruct H end;",
+        "    repeat match goal with H : _ \\/ _ |- _ => destruct H end;",
     ]
     for v in frame_vars:
         lines_proof.append(
-            f'      repeat rewrite (wp_ccall_frame_lookup s "{ccall.target}"%string {writes_coq} r "{v}"%string) '
-            "by frame_notin."
+            f'    repeat rewrite (wp_ccall_frame_lookup s "{ccall.target}"%string {writes_coq} r "{v}"%string) by frame_notin;'
         )
     lines_proof.extend([
-        "      repeat rewrite clobber_nil.",
-        "      repeat rewrite ls_lupd_eq.",
-        "      repeat (rewrite ls_lupd_ne by discriminate).",
-        "      repeat rewrite ls_lupd_eq in Hr.",
-        "      repeat (rewrite ls_lupd_ne in Hr by discriminate).",
-        "      try rewrite H5 in Hr.",
-        "      try rewrite Hr.",
-        "      repeat split; try assumption; try lia; try reflexivity; try apply wp_ccall_frame.",
-        "  - intros r x Hnotin. apply wp_ccall_frame. exact Hnotin.",
+        "    repeat rewrite clobber_nil;",
+        "    repeat rewrite ls_lupd_eq;",
+        "    repeat (rewrite ls_lupd_ne by discriminate);",
+        "    repeat rewrite ls_lupd_eq in Hr;",
+        "    repeat (rewrite ls_lupd_ne in Hr by discriminate);",
+        "    repeat split; try assumption; try lia; try reflexivity; try apply wp_ccall_frame",
+        "  | (* frame *) intros r x Hnotin; apply wp_ccall_frame; exact Hnotin ].",
     ])
     proof = "\n".join(lines_proof)
     return statement, proof

@@ -21,7 +21,8 @@
       "extract_goal_from_coq",
       "_parse",
       "run_langgraph_oracle",
-      "_parse_docstring_contract"
+      "_parse_docstring_contract",
+      "_mk_post_obligation"
     ]
   },
   "strip": {
@@ -33,7 +34,8 @@
       "_parse",
       "_parse_focus_response",
       "run_langgraph_oracle",
-      "_parse_docstring_contract"
+      "_parse_docstring_contract",
+      "_subst_post_for_qmid"
     ]
   },
   "extract_goal_from_coq": {
@@ -123,7 +125,9 @@
     "callees": [],
     "callers": [
       "run_pipeline",
-      "run_langgraph_oracle"
+      "run_langgraph_oracle",
+      "_mk_post_obligation",
+      "_mk_stage_k_statement_proof"
     ]
   },
   "results.append": {
@@ -192,7 +196,9 @@
       "visit_Compare",
       "walk_body",
       "_str_contains_expr",
-      "try_prove_interactive"
+      "try_prove_interactive",
+      "_mk_post_obligation",
+      "generate_obligations"
     ]
   },
   "isinstance": {
@@ -301,7 +307,11 @@
       "_str_contains_expr",
       "_translate_compare",
       "test_focus_trivial_proof",
-      "try_prove_interactive"
+      "try_prove_interactive",
+      "_build_q_defs",
+      "_extract_segments",
+      "generate_obligations",
+      "_mk_composition_obligation"
     ]
   },
   "_classify_in_function": {
@@ -344,7 +354,9 @@
       "_writes_list_coq",
       "_templated_guidance",
       "coq_block",
-      "_build_phi"
+      "_build_phi",
+      "generate_obligations",
+      "_mk_composition_obligation"
     ]
   },
   "parts.append": {
@@ -367,7 +379,8 @@
       "_attribute_path",
       "_translate_assign",
       "_flush_pending",
-      "build_proof_with_ghost"
+      "build_proof_with_ghost",
+      "_mk_composition_obligation"
     ]
   },
   "_get_call_name": {
@@ -467,7 +480,8 @@
       "_extract_tactic",
       "_scope_callee_params",
       "_manual_scope",
-      "try_prove_interactive"
+      "try_prove_interactive",
+      "_subst_post_for_qmid"
     ]
   },
   "response.strip": {
@@ -664,7 +678,8 @@
       "_read",
       "mcp_output",
       "_mk_post_obligation",
-      "_mk_stage1_statement_proof"
+      "_mk_stage1_statement_proof",
+      "_mk_composition_obligation"
     ]
   },
   "self._parse": {
@@ -1253,7 +1268,9 @@
       "_fresh_names",
       "_mk_stage1_statement_proof",
       "_mk_stage_k_statement_proof",
-      "_translate_compare"
+      "_translate_compare",
+      "_mk_post_obligation",
+      "_mk_composition_obligation"
     ]
   },
   "session.finish_proof": {
@@ -1949,7 +1966,8 @@
       "str"
     ],
     "callers": [
-      "_aexp_to_zterm"
+      "_aexp_to_zterm",
+      "_subst_post_for_qmid"
     ]
   },
   "aexp.to_coq": {
@@ -2628,7 +2646,11 @@
     "callees": [],
     "callers": [
       "compute_cache_key",
-      "_build_q_defs"
+      "_build_q_defs",
+      "_mk_post_obligation",
+      "_mk_stage_k_statement_proof",
+      "generate_obligations",
+      "_mk_composition_obligation"
     ]
   },
   "compute_cache_key": {
@@ -2665,7 +2687,10 @@
       "_build_q_defs",
       "_fresh_names",
       "test_mcp_server_starts",
-      "_multi_call_callees"
+      "_multi_call_callees",
+      "_mk_post_obligation",
+      "_mk_stage_k_statement_proof",
+      "generate_obligations"
     ]
   },
   "to_reverify.add": {
@@ -2698,12 +2723,23 @@
       "isinstance"
     ],
     "callers": [
-      "_build_q_defs"
+      "_build_q_defs",
+      "generate_obligations"
     ]
   },
   "_subst_post_for_qmid": {
-    "contract_hash": "",
-    "callees": [],
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_aexp_to_zterm",
+      "callee_post.strip",
+      "post.endswith",
+      "post.replace",
+      "post.startswith",
+      "re.escape",
+      "re.sub",
+      "strip",
+      "zip"
+    ],
     "callers": [
       "_build_q_defs"
     ]
@@ -2755,13 +2791,18 @@
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
       "QDefData",
+      "_get_callee_param_bindings",
       "_get_ccall_from_seg",
       "_subst_post_for_qmid",
       "conj_strs.append",
+      "contract_map.get",
       "data.all_conjs.append",
       "data.value_conjs.append",
       "enumerate",
+      "len",
       "range",
+      "raw_post.endswith",
+      "raw_post.startswith",
       "seg.to_coq",
       "seg_coqs.append",
       "seg_names.append",
@@ -2769,7 +2810,9 @@
       "sorted",
       "vinit.get"
     ],
-    "callers": []
+    "callers": [
+      "generate_obligations"
+    ]
   },
   "_collect_ccalls": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
@@ -2782,7 +2825,8 @@
     ],
     "callers": [
       "_fresh_names",
-      "_collect_ccalls"
+      "_collect_ccalls",
+      "generate_obligations"
     ]
   },
   "ccalls.append": {
@@ -2804,14 +2848,18 @@
     "callees": [
       "reversed"
     ],
-    "callers": []
+    "callers": [
+      "_mk_composition_obligation"
+    ]
   },
   "_destruct_pat": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
       "range"
     ],
-    "callers": []
+    "callers": [
+      "_mk_composition_obligation"
+    ]
   },
   "_extract": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
@@ -2850,20 +2898,28 @@
   "_extract_segments": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
+      "ImpCSeq",
       "_extract",
       "_has_ccall",
+      "bundled.append",
+      "bundled.pop",
       "enumerate",
       "isinstance",
-      "segments.append"
+      "len",
+      "segments.append",
+      "setup.insert"
     ],
-    "callers": []
+    "callers": [
+      "generate_obligations"
+    ]
   },
   "ghost_vars.keys": {
     "contract_hash": "",
     "callees": [],
     "callers": [
       "_fresh_names",
-      "dump_obligations"
+      "dump_obligations",
+      "generate_obligations"
     ]
   },
   "used.add": {
@@ -2883,7 +2939,9 @@
       "set",
       "used.add"
     ],
-    "callers": []
+    "callers": [
+      "generate_obligations"
+    ]
   },
   "bindings.append": {
     "contract_hash": "",
@@ -2899,20 +2957,27 @@
       "bindings.append",
       "isinstance"
     ],
-    "callers": []
+    "callers": [
+      "_build_q_defs",
+      "generate_obligations"
+    ]
   },
   "Obligation": {
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "_make_wholefn_obligation"
+      "_make_wholefn_obligation",
+      "generate_obligations",
+      "_mk_composition_obligation"
     ]
   },
   "ProofAttempt": {
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "_make_wholefn_obligation"
+      "_make_wholefn_obligation",
+      "generate_obligations",
+      "_mk_composition_obligation"
     ]
   },
   "ghost_vars.items": {
@@ -2920,7 +2985,9 @@
     "callees": [],
     "callers": [
       "_make_wholefn_obligation",
-      "build_proof_with_ghost"
+      "build_proof_with_ghost",
+      "generate_obligations",
+      "_mk_composition_obligation"
     ]
   },
   "_make_wholefn_obligation": {
@@ -2932,7 +2999,9 @@
       "join",
       "len"
     ],
-    "callers": []
+    "callers": [
+      "generate_obligations"
+    ]
   },
   "vinit.get": {
     "contract_hash": "",
@@ -3193,7 +3262,8 @@
     "callees": [],
     "callers": [
       "_build_for_range_with_body",
-      "_lower_ccall"
+      "_lower_ccall",
+      "_extract_segments"
     ]
   },
   "ImpCWhile": {
@@ -3917,7 +3987,8 @@
     "callees": [],
     "callers": [
       "_scope_callee_params",
-      "_manual_scope"
+      "_manual_scope",
+      "_subst_post_for_qmid"
     ]
   },
   "_scope_callee_params": {
@@ -3942,7 +4013,8 @@
       "_seed_types",
       "lint_expression",
       "analyze_function",
-      "build_proof_with_ghost"
+      "build_proof_with_ghost",
+      "_mk_composition_obligation"
     ]
   },
   "self._class_field_types.keys": {
@@ -4176,17 +4248,27 @@
   "_mk_post_obligation": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
+      "enumerate",
       "join",
       "len",
-      "lines.append"
+      "lines.append",
+      "m.group",
+      "range",
+      "re.findall",
+      "re.search",
+      "set",
+      "sorted"
     ],
-    "callers": []
+    "callers": [
+      "generate_obligations"
+    ]
   },
   "pre_coq.strip": {
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "_mk_stage1_statement_proof"
+      "_mk_stage1_statement_proof",
+      "_mk_composition_obligation"
     ]
   },
   "_mk_stage1_statement_proof": {
@@ -4195,15 +4277,20 @@
       "join",
       "len",
       "lines.append",
+      "lines.extend",
       "pre_coq.strip",
       "range"
     ],
-    "callers": []
+    "callers": [
+      "generate_obligations"
+    ]
   },
   "lines_proof.append": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "_mk_stage_k_statement_proof"
+    ]
   },
   "lines_stmt.append": {
     "contract_hash": "",
@@ -4220,13 +4307,21 @@
   "_mk_stage_k_statement_proof": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
+      "_writes_list_coq",
       "enumerate",
       "join",
       "len",
+      "lines_proof.append",
+      "lines_proof.extend",
       "lines_stmt.append",
-      "range"
+      "range",
+      "re.findall",
+      "set",
+      "sorted"
     ],
-    "callers": []
+    "callers": [
+      "generate_obligations"
+    ]
   },
   "callee_targets.items": {
     "contract_hash": "",
@@ -4251,14 +4346,19 @@
       "len",
       "set"
     ],
-    "callers": []
+    "callers": [
+      "generate_obligations"
+    ]
   },
   "_writes_list_coq": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
       "join"
     ],
-    "callers": []
+    "callers": [
+      "_mk_stage_k_statement_proof",
+      "generate_obligations"
+    ]
   },
   "inc_simple": {
     "contract_hash": "e7ab664dd84e880299af31ef2ac0c12973871e86a3feee39ac92e027a222b35c",
@@ -4289,12 +4389,16 @@
       "seg.to_coq",
       "to_coq"
     ],
-    "callers": []
+    "callers": [
+      "generate_obligations"
+    ]
   },
   "_frame_lemma_name": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [],
-    "callers": []
+    "callers": [
+      "generate_obligations"
+    ]
   },
   "_fresh_var": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
@@ -4427,7 +4531,8 @@
     "callees": [],
     "callers": [
       "_expand_predicate",
-      "visit_Dict"
+      "visit_Dict",
+      "_subst_post_for_qmid"
     ]
   },
   "_expand_predicate": {
@@ -5361,7 +5466,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "parse_axiomander_docstring"
+      "parse_axiomander_docstring",
+      "_mk_post_obligation"
     ]
   },
   "m_section.group": {
@@ -6135,5 +6241,196 @@
       "vfile.unlink"
     ],
     "callers": []
+  },
+  "raw_post.endswith": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_build_q_defs"
+    ]
+  },
+  "raw_post.startswith": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_build_q_defs"
+    ]
+  },
+  "bundled.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_extract_segments"
+    ]
+  },
+  "bundled.pop": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_extract_segments"
+    ]
+  },
+  "setup.insert": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_extract_segments"
+    ]
+  },
+  "_mk_frame_proof": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [],
+    "callers": [
+      "generate_obligations"
+    ]
+  },
+  "lines.extend": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_mk_stage1_statement_proof"
+    ]
+  },
+  "lines_proof.extend": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_mk_stage_k_statement_proof"
+    ]
+  },
+  "callee_post.strip": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_subst_post_for_qmid"
+    ]
+  },
+  "post.endswith": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_subst_post_for_qmid"
+    ]
+  },
+  "post.replace": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_subst_post_for_qmid"
+    ]
+  },
+  "post.startswith": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_subst_post_for_qmid"
+    ]
+  },
+  "_mk_composition_obligation": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "Obligation",
+      "ProofAttempt",
+      "_compose_seg_seq",
+      "_destruct_pat",
+      "ghost_vars.get",
+      "ghost_vars.items",
+      "join",
+      "len",
+      "lines.append",
+      "list",
+      "pre_coq.strip",
+      "range",
+      "reversed",
+      "sorted"
+    ],
+    "callers": [
+      "generate_obligations"
+    ]
+  },
+  "_mk_frame_statement": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "generate_obligations"
+    ]
+  },
+  "obligations.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "generate_obligations"
+    ]
+  },
+  "pre_coq.split": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "generate_obligations"
+    ]
+  },
+  "seen_frame_keys.add": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "generate_obligations"
+    ]
+  },
+  "val_init.update": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "generate_obligations"
+    ]
+  },
+  "generate_obligations": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "Obligation",
+      "ProofAttempt",
+      "_build_q_defs",
+      "_collect_ccalls",
+      "_compose_segs",
+      "_extract_segments",
+      "_frame_lemma_name",
+      "_fresh_names",
+      "_get_callee_param_bindings",
+      "_get_ccall_from_seg",
+      "_make_wholefn_obligation",
+      "_mk_composition_obligation",
+      "_mk_frame_proof",
+      "_mk_frame_statement",
+      "_mk_post_obligation",
+      "_mk_stage1_statement_proof",
+      "_mk_stage_k_statement_proof",
+      "_multi_call_callees",
+      "_writes_list_coq",
+      "enumerate",
+      "ghost_vars.items",
+      "ghost_vars.keys",
+      "join",
+      "len",
+      "obligations.append",
+      "pre_coq.split",
+      "seen_frame_keys.add",
+      "set",
+      "sorted",
+      "val_init.update"
+    ],
+    "callers": []
+  },
+  "contract_map.get": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_build_q_defs"
+    ]
+  },
+  "ghost_vars.get": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_mk_composition_obligation"
+    ]
   }
 }
