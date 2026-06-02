@@ -66,18 +66,29 @@ unless the model opts in with `model_config = ConfigDict(validate_assignment=Tru
 
 ## Shape/validation predicate decomposition
 
-The PDF recommends splitting structural shape from constraint
-validation.  Three layers:
+Only two predicates.  `is_shape` is **never written by the user** — it is
+auto-generated from type annotations.  `is_valid` is the user-visible
+contract predicate.
 
-| Predicate | Meaning | User-visible? | Coq expansion |
+| Predicate | Who writes it | Where | Coq expansion |
 |---|---|---|---|
-| `is_shape(obj, Type)` | Fields exist with correct types. Structural. | Yes + implicit from `obj: Type` annotations | `isVZ (s "obj_f1"%string) = true /\ ...` |
-| `field_value(obj, "name") = v` | A specific field has value `v`. Structural. | Yes | `asZ (s "obj_name"%string) = v` |
-| `is_valid(obj, Type)` | `is_shape` + all `Field(...)` constraints satisfied. | Explicit for default; implicit for `validate_assignment=True` | `is_shape(obj, Type) /\ balance >= 0 /\ ...` |
+| `is_shape(obj, Type)` | **Verifier** (auto-injected from `obj: Type` annotation) | Every function's precondition; every CCall caller obligation | `isVZ (s "obj_f1"%string) = true /\ ...` |
+| `is_valid(obj, Type)` | **User** (contract predicate) | `assert is_valid(...)` or docstring `requires:` / `ensures:` | `is_shape(obj, Type) /\ balance >= 0 /\ ...` |
 
-`is_shape` is always known for typed parameters (`account: Account` →
-`is_shape(account, Account)` is automatic).  User writes it explicitly
-only when the type is unknown (generic containers, `isinstance` guards).
+`is_shape` serves two critical roles:
+
+1. **Soundness:** `asZ (s "obj_balance"%string)` is only safe when the
+   state key holds a `VZ`.  `is_shape` proves this.  Without it, Coq
+   silently returns 0 for non-`VZ` values — unsound.
+
+2. **CCall type contract:** when `deposit(account, 100)` appears as a
+   CCall, the caller must prove `is_shape(account, Account)`.  The
+   callee receives it in its precondition.  Type safety propagates
+   across function boundaries.
+
+Field constraints are expressed with ordinary comparisons — the existing
+`account.balance >= 0` compiles to `asZ (s "account_balance"%string) >= 0`
+via `visit_Attribute`.  No `field_value` predicate needed.
 
 ---
 
@@ -101,9 +112,10 @@ object has these fields."  Everything is ad-hoc flat state.
 ### Mode 1: `validate_assignment=True` — verifier lifts constraints automatically
 
 The verifier discovers `validate_assignment=True` from the model's
-`model_config`.  It **automatically** tracks the invariant: every
-mutation must preserve all declared constraints.  The user does not
-need to write `is_valid` — it is implicit from the shape.
+`model_config`.  It tracks `is_valid` implicitly — no user contract needed.
+
+`is_shape` is auto-injected from the `account: Account` type annotation.
+Field values use ordinary Python attribute syntax.
 
 ```python
 class Account(BaseModel):
@@ -113,32 +125,26 @@ class Account(BaseModel):
 def withdraw(account: Account, amount: int) -> int:
     """
     axiomander:
-        where:
-            b: int
         requires:
-            field_value(account, "balance") = b
+            account.balance >= amount
             amount >= 0
-            b >= amount
         modifies:
             account
         ensures:
-            field_value(account, "balance") = b - amount
-            result == b - amount
+            account.balance == old(account.balance) - amount
+            result == old(account.balance) - amount
     """
-    account.balance -= amount    # verifier proves: new_balance >= 0
+    account.balance -= amount    # verifier proves: new balance >= 0
     return account.balance
 ```
 
-No `is_valid(account, Account)` appears in the contract.  The verifier
-knows from the shape that `balance` carries `ge=0` and that
-`validate_assignment=True`, so it generates the proof obligation
-`b - amount >= 0` at the mutation point.  If `amount > b`, the proof
-fails — matching the `ValidationError` Pydantic would raise.
+Nothing new here — `account.balance >= amount` compiles via the existing
+`visit_Attribute` path.  The constraint obligation `balance - amount >= 0`
+is generated automatically from the Shape IR at the mutation point.
 
 ### Mode 2: Default (no `validate_assignment`) — conservative
 
-The verifier makes no assumptions about constraints after mutation.
-`is_valid` is an **explicit** contract predicate the user opts into:
+No auto-enforced constraints on mutation.  `is_valid` is explicit:
 
 ```python
 class Record(BaseModel):
@@ -149,17 +155,26 @@ def guarded_mutation(r: Record, n: int) -> None:
     axiomander:
         requires:
             is_valid(r, Record)
-            field_value(r, "value") = n
+            r.value == n
         ensures:
             is_valid(r, Record)
-            field_value(r, "value") = abs(n)
+            r.value == abs(n)
     """
-    r.value = abs(n)   # user must prove abs(n) >= 0 explicitly
+    r.value = abs(n)   # user must prove abs(n) >= 0
 ```
 
-Without `is_valid` in the contracts, the verifier is silent — it does
-not check constraints, because Pydantic doesn't either.  The user
-writes `is_valid` only when they want constraint reasoning.
+### CCall type contract
+
+When `deposit(account, 100)` appears as a function call:
+
+```
+Caller obligation:   prove is_shape(account, Account) at the call site
+Callee precondition: is_shape(account, Account) is auto-injected
+```
+
+This ensures `asZ (s "account_balance"%string)` is safe at the callee —
+the state key is proven to hold a `VZ`.  The user never writes `is_shape`;
+the verifier generates it from the `account: Account` annotation.
 
 ---
 
@@ -199,26 +214,27 @@ def shape_preconditions(shape: Shape, obj_prefix: str) -> list[str]:
 
 ### Step 2 — Contract IR predicates (`contract_ir.py`)
 
-Three nodes.  `IsShape` and `IsValid` expand via the Shape registry:
+Two new nodes.  Both expand via the Shape registry:
 
 ```python
-class FieldValue(BaseModel):
-    """field_value(obj, "name") = value."""
-    kind: Literal["field_value"] = "field_value"
-    obj: str
-    field_name: str
-    value: Expr
-
-
 class IsShape(BaseModel):
-    """is_shape(obj, Type) → isVZ type guards for every field."""
+    """is_shape(obj, Type) → isVZ type guards for every field.
+    
+    Auto-injected into every function's precondition from the parameter
+    type annotation.  Never written by the user.  Also generated as the
+    caller obligation for every CCall with a typed parameter.
+    """
     kind: Literal["is_shape"] = "is_shape"
     obj: str
     model_type: str
 
 
 class IsValid(BaseModel):
-    """is_valid(obj, Type) → is_shape + all Field constraints."""
+    """is_valid(obj, Type) → is_shape + all Field constraints.
+    
+    User-visible contract predicate.  Explicit in default mode;
+    auto-tracked (implicit) when validate_assignment=True.
+    """
     kind: Literal["is_valid"] = "is_valid"
     obj: str
     model_type: str
@@ -228,27 +244,7 @@ class IsValid(BaseModel):
 
 ### Step 3 — Linter (`contract_linter.py`)
 
-#### 3a — `field_value(obj, "name") = value` in comparisons
-
-`visit_Compare` recognises `field_value(...)` as the left side of `==`:
-
-```python
-def visit_Compare(self, node: ast.Compare) -> Optional[Expr]:
-    if len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq):
-        left = node.left
-        right = self.visit(node.comparators[0])
-        if isinstance(left, ast.Call) and self._get_call_name(left) == "field_value":
-            if len(left.args) == 2 and right:
-                obj = self._extract_name(left.args[0])
-                fname = self._extract_string_literal(left.args[1])
-                if obj and fname:
-                    return FieldValue(obj=obj, field_name=fname, value=right)
-    # ... existing compare logic
-```
-
-#### 3b — `is_shape(obj, Type)` and `is_valid(obj, Type)` as special forms
-
-Added to `visit_Call` alongside `implies` and `raises`:
+#### 3a — `is_shape` and `is_valid` as recognised special forms
 
 ```python
 if name in ("is_shape", "is_valid"):
@@ -261,11 +257,18 @@ if name in ("is_shape", "is_valid"):
     return None
 ```
 
-#### 3c — No `source_tree` required
+#### 3b — Field access is unchanged
 
-Both `field_value` and `is_valid` carry all information in their
-arguments.  The Shape registry is consulted at codegen time, not at
-lint time.  No change to `ContractLinter.__init__`.
+`account.balance >= 0` compiles via the existing `visit_Attribute` path
+→ `asZ (s "account_balance"%string) >= 0`.  No new expression syntax,
+no `field_value` predicate.
+
+#### 3c — `is_shape` auto-injection
+
+The linter does not auto-inject `is_shape`.  That happens at the IMP
+translation / codegen layer, where parameter type annotations are
+inspected and `is_shape` preconditions are generated.  The linter only
+validates what the user writes.
 
 ---
 
@@ -312,36 +315,28 @@ Replace with Shape-IR-driven logic.
 
 ### Step 5 — User syntax
 
-**Docstring (the only user-facing form for `field_value`):**
+Field values use ordinary Python attribute syntax — `account.balance >= 0`,
+`r.value == abs(n)`.  Already compiled by the existing `visit_Attribute`
+path in the linter.  No new expression syntax needed.
+
+`is_valid` is the only user-visible predicate:
 
 ```python
-def withdraw(account: Account, amount: int) -> int:
+def guarded_mutation(r: Record, n: int) -> None:
     """
     axiomander:
-        where:
-            b: int
         requires:
-            field_value(account, "balance") = b
-            amount >= 0
-            b >= amount
-        modifies:
-            account
+            is_valid(r, Record)
+            r.value == n
         ensures:
-            field_value(account, "balance") = b - amount
-            result == b - amount
+            is_valid(r, Record)
+            r.value == abs(n)
     """
-    account.balance -= amount
-    return account.balance
+    r.value = abs(n)
 ```
 
-The Shape IR handles the rest:
-- `balance: int → Field(ge=0)` → implicit `b >= 0` precondition
-- `overdraft_limit: int` → implicit `isVZ (s "account_overdraft_limit"%string) = true`
-- `account.balance -= amount` → state update on `"account_balance"%string`
-
-`field_value` appears only when the user needs to name a field's value
-for use in the contract.  If they don't need a named value, the shape's
-automatic constraints are sufficient.
+`is_shape` is never written by the user — the verifier injects it from
+the `r: Record` type annotation.
 
 ---
 
@@ -399,8 +394,8 @@ automatic constraints are sufficient.
 | File | Change |
 |---|---|
 | `py/oracle/shape_ir.py` | **New.** `Shape`, `ShapeField`. `build_shape_registry()`, `shape_preconditions()`, `lookup_shape()`. Detects `validate_assignment` from `model_config`. |
-| `py/oracle/contract_ir.py` | Add `FieldValue`, `IsShape`, `IsValid` nodes; update `Expr` union. |
-| `py/oracle/contract_linter.py` | Recognise `field_value(...)` in `visit_Compare`. Recognise `is_shape(obj, Type)`, `is_valid(obj, Type)` in `visit_Call`. Add `_extract_name()`, `_extract_string_literal()` helpers. |
+| `py/oracle/contract_ir.py` | Add `IsShape`, `IsValid` nodes; update `Expr` union. |
+| `py/oracle/contract_linter.py` | Recognise `is_shape(obj, Type)`, `is_valid(obj, Type)` in `visit_Call`. Add `_extract_name()` helper. |
 | `py/oracle/docstring_contracts.py` | No changes — both predicates are expressions inside requires/ensures lines. |
 | `py/oracle/mcp_server.py` | Call `build_shape_registry()` at verification start.  Use Shape IR for constraint injection when `is_valid` is in scope.  Generate constraint obligations on mutation for `validate_assignment=True` models. |
 | `py/tests/test_pipeline.py` | 4 tests: 2 positive (one for each mode), 2 negative. |
