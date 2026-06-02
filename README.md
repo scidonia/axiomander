@@ -107,6 +107,62 @@ fun o =>
   end
 ```
 
+### Dogfooding — Axiomander verifies its own decision logic
+
+Axiomander's own codebase carries contracts and verifies them. The best
+example is `classify_failure` — the function that heuristically
+classifies proof failures and suggests corrective actions. Its core
+branching logic is extracted as a verified scalar specification:
+
+```python
+def _spec_classify_failure(
+    has_loop: int,
+    has_invariant_kw: int,
+    has_counterexample_kw: int,
+) -> int:
+    """
+    axiomander:
+        requires:
+            has_loop >= 0
+            has_invariant_kw >= 0
+            has_counterexample_kw >= 0
+        ensures:
+            implies(has_loop >= 1 and has_invariant_kw >= 1,
+                    result == 0)
+            implies(has_counterexample_kw >= 1
+                    and not (has_loop >= 1 and has_invariant_kw >= 1),
+                    result == 1)
+    """
+    if has_loop >= 1 and has_invariant_kw >= 1:
+        result = 0
+    elif has_counterexample_kw >= 1:
+        result = 1
+    else:
+        result = 2
+    return result
+```
+
+This proves at Level 1 (wp_reduce + lia) — the `implies` postconditions
+exactly capture the branch priority: the counterexample branch only
+fires when the invariant branch did not. The real implementation uses
+string methods (`error.lower()`, `"invariant" in error_lower`) which
+prove at Level 3 via the LLM oracle.
+
+Other self-verified functions:
+
+| Function | Level | What it proves |
+|---|---|---|
+| `classify_failure` (real) | 3 | String methods + `in` operator + branch priority |
+| `_escape_field` | 3 | String replacement in body |
+| `GoalStatus.is_proved` (spec) | 1 | 3-way branch on enum encoding |
+| `build_report` (spec) | 1 | Counting invariant |
+| `phi_selector` | 1 | `implies` on 2-way branch |
+
+The scalar specifications prove the exact decision logic. The remaining
+gap is IMP-level support for the implementation details (string
+operations, list construction, while loops with invariants) — tracked
+in [the self-verification plan](docs/self-verification-plan.md).
+
 ### Docstring Contracts
 
 Docstring contracts are verifier-only. They do not execute at runtime and are the preferred place for ghost bindings and frame declarations.
@@ -265,7 +321,7 @@ eval $(opam env)
 PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 ```
 
-117 tests covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, docstring contracts, old-state syntax, reads/modifies frames, range quantifiers, stub integration, tuple/bytes/dict/set/None value comparisons, implication, loop-predicate contract inlining, and exception contracts (`raises` postconditions, `raise`/`try` in function bodies, wrong-condition rejection).
+124 tests covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, docstring contracts, old-state syntax, reads/modifies frames, range quantifiers, stub integration, tuple/bytes/dict/set/None value comparisons, implication, loop-predicate contract inlining, exception contracts, validate_assignment enforcement, nested Pydantic models, constructor CCalls, and collection fields.
 
 ## Dependencies
 
