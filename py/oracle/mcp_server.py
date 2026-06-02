@@ -4168,6 +4168,19 @@ def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: 
         if ret_guard:
             post_coq = f"({post_coq} /\\ {ret_guard})" if post_coq != "True" else ret_guard
 
+    # Inject is_valid postcondition for validate_assignment=True models.
+    # When Pydantic enforces constraints on every field write, the verifier
+    # must prove the constraints hold at function exit — just as Pydantic
+    # would raise ValidationError if they were violated.
+    from .shape_ir import lookup_shape, is_valid_coq as _is_valid_coq
+    for arg, annot in _func_params(func_node):
+        if annot and isinstance(annot, ast.Name):
+            shape = lookup_shape(annot.id)
+            if shape and shape.validate_assignment:
+                constraint = _is_valid_coq(arg, shape, scoped=True)
+                if constraint and constraint != "True":
+                    post_coq = f"({post_coq} /\\ {constraint})" if post_coq != "True" else constraint
+
     # Check for while/for loops and generate VCG obligations (one per loop with invariants)
     vcg_section = ""
     loops_with_invs = _loops_with_invariants(func_node, lint_results)

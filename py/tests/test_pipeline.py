@@ -930,6 +930,35 @@ def ctor_ccall(x: int) -> int:
     result = read_item(Item(value=x))
     assert result == x
     return result"""),
+    # ── validate_assignment=True enforcement ─────────────────────────
+    # Positive: safe withdrawal keeps balance >= 0
+    ("validate_assign_safe", """\
+from pydantic import BaseModel, Field, ConfigDict
+
+class Account(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+    balance: int = Field(ge=0)
+
+def validate_assign_safe(account: Account, amount: int) -> int:
+    assert account.balance >= amount
+    assert amount >= 0
+    account.balance -= amount
+    result = account.balance
+    return result"""),
+    # Negative: unsafe withdrawal violates Field(ge=0) — must be rejected
+    ("validate_assign_violation", """\
+from pydantic import BaseModel, Field, ConfigDict
+
+class Account(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+    balance: int = Field(ge=0)
+
+def validate_assign_violation(account: Account, amount: int) -> int:
+    assert account.balance >= 0
+    assert amount > account.balance
+    account.balance -= amount
+    result = account.balance
+    return result"""),
 ]
 
 NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail", "all_positive", "use_wrong", "user_no_post", "inv_body_violation",     "bad_pass_str", "bad_call_str", "bad_int_to_bool", "frame_fail_pop",
@@ -941,6 +970,7 @@ NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "we
     "raises_wrong_post",        # wrong normal postcondition with raises
     "docstring_raises_wrong",   # wrong condition via docstring syntax
     "shape_broken",             # is_valid violated by body
+    "validate_assign_violation",  # validate_assignment=True constraint violated
 }
 
 
