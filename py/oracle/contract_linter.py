@@ -18,7 +18,7 @@ from .contract_ir import (
     LenExpr, IndexExpr, DictLenExpr, DictCountExpr,
     AllExpr, AnyExpr, SliceLenExpr,
     MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr,
-    ImpliesExpr, RaisesExpr,
+    ImpliesExpr, RaisesExpr, IsShape, IsValid,
 )
 
 
@@ -195,9 +195,6 @@ class ContractLinter(ast.NodeVisitor):
                     return ImpliesExpr(left=left, right=right)
             return None
         if name == "raises":
-            # raises(ExcType, cond) -- exception postcondition.
-            # ExcType must be a Name node (the exception class name).
-            # cond is any pure contract expression.
             if len(node.args) == 2:
                 exc_arg = node.args[0]
                 cond_arg = node.args[1]
@@ -215,6 +212,14 @@ class ContractLinter(ast.NodeVisitor):
                 return RaisesExpr(exc_type=exc_type, cond=cond)
             self._violation(node, ExprKind.UNSUPPORTED,
                             "raises() requires exactly 2 arguments: raises(ExcType, cond)")
+            return None
+        if name in ("is_shape", "is_valid"):
+            if len(node.args) == 2:
+                obj = self._extract_name(node.args[0])
+                type_name = self._extract_name(node.args[1])
+                if obj and type_name:
+                    cls = IsShape if name == "is_shape" else IsValid
+                    return cls(obj=obj, model_type=type_name)
             return None
         if name not in PURE_BUILTINS and name not in PURE_MODULE_FUNCTIONS \
            and method_name not in PURE_BUILTINS:
@@ -362,6 +367,14 @@ class ContractLinter(ast.NodeVisitor):
             if isinstance(c, ast.Name):
                 parts.append(c.id)
             return ".".join(reversed(parts))
+        return None
+
+    def _extract_name(self, node: ast.expr) -> Optional[str]:
+        """Return the identifier if node is a Name, else None."""
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            return node.attr
         return None
 
     def _attribute_path(self, node: ast.Attribute) -> str:

@@ -1066,6 +1066,10 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
     params = [name for name, _ in _func_params(func_node)]
     expanded, class_fields, _, init_state, record_section = _expand_params(tree, params, func_node)
 
+    # Build the Shape registry from Pydantic models in the source
+    from .shape_ir import build_shape_registry
+    build_shape_registry(tree)
+
     old_err = _check_old_captures(func_node, params)
     if old_err:
         return GoalStatus(name=func_name, goal_statement="",
@@ -3913,6 +3917,15 @@ def _render_obligations_coq(func_node, lint_results, imp_body: str,
             implicit_pres.append(f"({arg}__len >= 0)")
         elif _is_dict_param(annot):
             implicit_pres.append(f"({arg}__count >= 0)")
+
+    # Inject is_shape from Pydantic type annotations
+    from .shape_ir import lookup_shape, is_shape_coq as _is_shape_coq2
+    for arg, annot in _func_params(func_node):
+        if annot and isinstance(annot, ast.Name):
+            shape = lookup_shape(annot.id)
+            if shape:
+                implicit_pres.append(_is_shape_coq2(arg, shape, scoped=False))
+
     if implicit_pres:
         extra = " /\\ ".join(implicit_pres)
         pre_coq = f"({extra})" if pre_coq == "True" else f"({pre_coq} /\\ {extra})"
@@ -4091,6 +4104,15 @@ def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: 
             implicit_pres.append(f"({arg}__len >= 0)")
         elif _is_dict_param(annot):
             implicit_pres.append(f"({arg}__count >= 0)")
+
+    # Inject is_shape from Pydantic type annotations
+    from .shape_ir import lookup_shape, is_shape_coq as _is_shape_coq
+    for arg, annot in _func_params(func_node):
+        if annot and isinstance(annot, ast.Name):
+            shape = lookup_shape(annot.id)
+            if shape:
+                implicit_pres.append(_is_shape_coq(arg, shape, scoped=False))
+
     if implicit_pres:
         extra = " /\\ ".join(implicit_pres)
         pre_coq = f"({extra})" if pre_coq == "True" else f"({pre_coq} /\\ {extra})"

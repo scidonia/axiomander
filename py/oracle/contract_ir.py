@@ -425,4 +425,48 @@ class RaisesExpr(BaseModel):
         return self.cond.to_smt()
 
 
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr]
+class IsShape(BaseModel):
+    """is_shape(obj, Type) — the object structurally matches the shape.
+
+    Emits isVZ/isVString type guards for every field.  Auto-injected
+    into preconditions from type annotations; also the caller obligation
+    for every CCall with a typed parameter.
+    """
+    kind: Literal["is_shape"] = "is_shape"
+    obj: str
+    model_type: str
+
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        from .shape_ir import lookup_shape, is_shape_coq
+        shape = lookup_shape(self.model_type)
+        if shape:
+            return is_shape_coq(self.obj, shape)
+        return "True"
+
+    def to_smt(self) -> str:
+        return "true"
+
+
+class IsValid(BaseModel):
+    """is_valid(obj, Type) — the object satisfies all declared constraints.
+
+    Expands to is_shape + Field(ge=0, le=100, ...) constraint conjunction.
+    For validate_assignment=True models this is auto-tracked; for default
+    mode the user writes it in contracts when constraint reasoning is needed.
+    """
+    kind: Literal["is_valid"] = "is_valid"
+    obj: str
+    model_type: str
+
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        from .shape_ir import lookup_shape, is_valid_coq
+        shape = lookup_shape(self.model_type)
+        if shape:
+            return is_valid_coq(self.obj, shape)
+        return "True"
+
+    def to_smt(self) -> str:
+        return "true"
+
+
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid]
