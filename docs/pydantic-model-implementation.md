@@ -1,264 +1,298 @@
-# Pydantic Model Predicates — Implementation Plan
+# Shape IR + Field Predicates — Implementation Plan
 
-## Goal
-
-Add two verifier-level predicates to the contract language so users can
-reason about validated objects without knowing the flat state-key
-encoding:
-
-| Predicate | Meaning |
-|---|---|
-| `pydantic_model(obj, ModelType)` | `obj` is a validated instance of `ModelType` — all fields exist with correct types |
-| `field(obj, "name", value)` | the field `obj.name` has logical value `value` |
-
-Both are **pure predicates** (no ownership, no separation logic). They
-compile to structural projections over the existing flat `obj_field` Coq
-state representation. No new Coq definitions are required.
+*Revised per review of `Axiomander Pydantic Architecture.pdf`.  Core
+principle: **split shape (compile-time structure) from validation
+(runtime predicate).  Shapes are derived automatically from Pydantic
+models and type annotations.  Contracts reason about field values,
+not about validity.***
 
 ---
 
-## Current state (pre-implementation)
+## Design Principles (from the review)
 
-Today, a class parameter `account: Account` is **structurally flattened** at
-translation time: the fields `balance: int`, `overdraft_limit: int` become
-separate Coq state keys `"account_balance"%string`, `"account_overdraft_limit"%string`.
-The init state is built by `_expand_params` (mcp_server.py:2146) and
-Pydantic `Field(ge=..., le=...)` constraints are injected as preconditions
-by `_scan_pydantic_fields` (mcp_server.py:2281).
+1. **Pydantic is the frontend, not the proof language.**  Models are
+   lowered into an Axiomander Shape IR that is independent of Pydantic.
+   The verifier reasons about the Shape IR, not Pydantic directly.
 
-Contracts reference these flat keys indirectly: `account.balance` in a
-contract compiles to `asZ (s "account_balance"%string) = ...`. The user
-must mentally map `account.balance -> account_balance`. There is no
-verifier-level concept of "this object is valid."
+2. **Split shape from validation.**  Shape = what fields exist and what
+   types they have (compile-time, structural).  Validation = whether
+   the data satisfies the shape (runtime predicate).  The verifier knows
+   shapes automatically from type annotations; contracts do not need to
+   assert them.
 
-## Target state (post-implementation)
+3. **Constraint lowering.**  Pydantic constraints (`Field(gt=0)`,
+   `Field(min_length=3)`, `Literal["a","b","c"]`) are lowered to
+   logical predicates in the Shape IR.  They become implicit
+   preconditions/postconditions — no user annotation needed.
 
-The user writes:
+4. **Shape logic as the contract language.**  The user-facing
+   predicates are `field_value(obj, "name") = v` for value reasoning.
+   `has_field` and `field_type` are structural and known to the
+   verifier automatically; they do not appear in user contracts.
+
+---
+
+## Current state
+
+Today a class parameter `account: Account` is structurally flattened:
+`balance: int, overdraft_limit: int` → Coq state keys
+`"account_balance"%string`, `"account_overdraft_limit"%string`.
+`Field(ge=0)` is injected as a precondition.  The user writes
+`account.balance` in contracts which compiles to
+`asZ (s "account_balance"%string)`, so they must know the flat key
+names implicitly.
+
+There is no Shape IR.  There is no verifier-level concept of "this
+object has these fields."  Everything is ad-hoc flat state.
+
+---
+
+## Target state
+
+### What the user writes
 
 ```python
+class Account(BaseModel):
+    balance: int = Field(ge=0)
+    overdraft_limit: int
+
 def withdraw(account: Account, amount: int) -> int:
     """
     axiomander:
         where:
             b: int
         requires:
-            pydantic_model(account, Account)
-            field(account, "balance", b)
+            field_value(account, "balance") = b
             amount >= 0
             b >= amount
         modifies:
             account
         ensures:
-            field(account, "balance", b - amount)
+            field_value(account, "balance") = b - amount
             result == b - amount
     """
     account.balance -= amount
     return account.balance
 ```
 
-The verifier compiles this to:
+No `pydantic_model(account, Account)` contract is needed.  The
+`account: Account` annotation tells the verifier the shape.
+`field_value` is the only user-visible shape predicate.
+
+### What the verifier knows automatically
+
+From `account: Account` and the Account class definition, the verifier
+derives:
+
+```
+Shape(Account):
+  field(balance, int, constraints=[ge=0])
+  field(overdraft_limit, int)
+```
+
+This Shape IR is lowered to:
 
 ```coq
-(* precondition *)
-pydantic_model:  (isVZ (s "account_balance"%string) = true /\
-                  isVZ (s "account_overdraft_limit"%string) = true)
-field:           (asZ (s "account_balance"%string) = b)
-amount >= 0:     (amount >= 0)
-b >= amount:     (b >= amount)
-
-(* postcondition *)
-field:           (asZ (s "account_balance"%string) = b - amount)
-result:          (asZ (s "result"%string) = b - amount)
+(* Implicit from the type annotation -- not written by the user *)
+(* balance >= 0  (from Field(ge=0)) *)
+(* isVZ (s "account_balance"%string) = true *)
+(* isVZ (s "account_overdraft_limit"%string) = true *)
 ```
+
+The constraints and type guards are **automatically injected** as
+preconditions, just as `_scan_pydantic_fields` does today.
+
+### What `field_value(obj, "name") = v` compiles to
+
+```coq
+asZ (s "account_balance"%string) = v
+```
+
+Exactly the same state lookup as the existing `account.balance` →
+`account_balance` flattening.  The predicate just makes the mapping
+explicit in the contract language.
 
 ---
 
 ## Implementation steps
 
-### Step 1 — Contract IR nodes (`contract_ir.py`)
+### Step 1 — Shape IR (`py/oracle/shape_ir.py`, new file)
 
-Add to the `Expr` union:
+A standalone module for the Shape IR.  This is **compiled from Pydantic
+models at verifier startup**, not written by the user.
 
 ```python
-class FieldPred(BaseModel):
-    """field(obj, "name", value) — obj.name has logical value value.
+class ShapeField(BaseModel):
+    """A single field in a shape."""
+    name: str              # e.g. "balance"
+    coq_type: str          # e.g. "Z", "string", "bool"
+    constraints: list[str] = Field(default_factory=list)  # Coq predicates, e.g. "0 <= {flat_key}"
 
-    Compiles to a state lookup on the flat key "obj_field":
-        asZ (s "account_balance"%string) = value_coq
+class Shape(BaseModel):
+    """The shape of a Pydantic model."""
+    name: str              # e.g. "Account"
+    fields: list[ShapeField]
+    flat_key_for: dict[str, str] = Field(default_factory=dict)  # "balance" → "obj_balance"
+```
+
+`flat_key_for` maps the user-visible field name to the Coq state key,
+incorporating the object prefix.  For `account: Account`:
+- `"balance"` → `"account_balance"`
+- `"overdraft_limit"` → `"account_overdraft_limit"`
+
+#### Shape registry
+
+A module-level cache mapping qualified Python class names → `Shape`:
+
+```python
+_shape_registry: dict[str, Shape] = {}
+```
+
+Populated by `_build_shape_registry()` which walks the source AST,
+finds all `ClassDef` nodes that inherit from `BaseModel`, and builds
+a `Shape` for each.
+
+#### Shape → Coq preconditions
+
+```python
+def shape_preconditions(shape: Shape, obj_prefix: str) -> list[str]:
+    """Return Coq preconditions implied by a shape.
+    
+    For Account with prefix "account":
+      - "isVZ (s \"account_balance\"%string) = true"
+      - "isVZ (s \"account_overdraft_limit\"%string) = true"
+      - "0 <= asZ (s \"account_balance\"%string)"  (from Field(ge=0))
     """
-    kind: Literal["field"] = "field"
-    obj: str          # Python variable name, e.g. "account"
+```
+
+These are injected into the pre/post just like `_scan_pydantic_fields`
+does today, but driven by the Shape IR rather than ad-hoc AST scanning.
+
+---
+
+### Step 2 — Contract IR predicate (`contract_ir.py`)
+
+Only one new predicate node: `FieldValue`.  `has_field` and
+`field_type` are handled automatically by the Shape IR and do not need
+contract-level nodes.
+
+```python
+class FieldValue(BaseModel):
+    """field_value(obj, "field_name") = value.
+
+    Compiles to a state lookup on the flat key:
+        asZ (s "obj_field"%string) = value_coq
+
+    The obj → flat_key mapping comes from the Shape registry.
+    """
+    kind: Literal["field_value"] = "field_value"
+    obj: str          # variable name, e.g. "account"
     field_name: str   # attribute name, e.g. "balance"
     value: Expr       # logical value expression
 
     def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        from .shape_ir import _shape_registry
+        # Determine the flat key.  If we have a shape for this obj's type,
+        # use its key map.  Otherwise fall back to obj_field naming.
         flat_key = f'{self.obj}_{self.field_name}'
         val_coq = self.value.to_coq(scoped, unbound)
         return f'(asZ (s "{flat_key}"%string) = {val_coq})'
 
     def to_smt(self) -> str:
         return f"(= {self.obj}_{self.field_name} {self.value.to_smt()})"
-
-
-class ObjectModelPred(BaseModel):
-    """pydantic_model(obj, ModelType) — obj is a validated instance.
-
-    Expands to the conjunction of type guards for all fields declared on
-    ModelType.  Expansion requires knowledge of the class schema, which
-    is provided at linter time (the linter looks up the class AST).
-
-    For a model with fields balance: int, overdraft_limit: int:
-        isVZ (s "obj_balance"%string) = true /\
-        isVZ (s "obj_overdraft_limit"%string) = true
-    """
-    kind: Literal["object_model"] = "object_model"
-    obj: str
-    model_type: str
-
-    def expand_to_coq(self, field_names: list[str], scoped: bool = False) -> str:
-        guards = []
-        for fname in field_names:
-            flat_key = f'{self.obj}_{fname}'
-            guards.append(f'(isVZ (s "{flat_key}"%string) = true)')
-        return " /\\ ".join(guards) if guards else "True"
-
-    def to_smt(self) -> str:
-        return "true"  # type guards are Coq-level only; SMT sees the flat vars directly
 ```
 
-#### Design decision: `ObjectModelPred` does not bind a logical data variable
-
-The Nagini doc uses `pydantic_model(user, User, U)` with `U` as a logical
-map that can be indexed (`U["id"]`, `U["name"]`). This requires:
-
-1. A map/record type in the contract IR
-2. Map indexing expressions (`MapGet(U, "id")`)
-3. Map update expressions for postconditions
-
-This is deferred. The first version treats `pydantic_model` as a **type
-guard only** — it says "the fields exist and have the right types" but
-does not bind a structured data value.
+**No `ObjectModelPred` / `pydantic_model` node.**  Shape validation is
+automatic from type annotations + the Shape registry.
 
 ---
 
-### Step 2 — Linter support (`contract_linter.py`)
+### Step 3 — Linter (`contract_linter.py`)
 
-#### 2a — Accept function call forms
+#### 3a — Recognise `field_value(obj, "name") = value`
 
-Add `field` and `pydantic_model` as recognized names alongside `implies`
-and `raises` in `visit_Call` (contract_linter.py:190):
+This is not a standalone call.  It appears inside a comparison: the
+user writes `field_value(account, "balance") = b` which the Python AST
+parses as:
 
-```python
-if name == "field":
-    # field(obj, "field_name", value)
-    if len(node.args) == 3:
-        obj = self._extract_name(node.args[0])
-        fname = self._extract_string_literal(node.args[1])
-        val = self.visit(node.args[2])
-        if obj and fname and val:
-            return FieldPred(obj=obj, field_name=fname, value=val)
-    return None
-
-if name == "pydantic_model":
-    # pydantic_model(obj, ModelType)
-    if len(node.args) == 2:
-        obj = self._extract_name(node.args[0])
-        type_name = self._extract_name(node.args[1])
-        if obj and type_name:
-            return ObjectModelPred(obj=obj, model_type=type_name)
-    return None
+```
+Compare(
+    left=Call(func=Name("field_value"), args=[Name("account"), Constant("balance")]),
+    ops=[Eq()],
+    comparators=[Name("b")]
+)
 ```
 
-Helper methods needed:
-- `_extract_name(node)` — returns `str` if node is `ast.Name`, else `None`
-- `_extract_string_literal(node)` — returns `str` if node is `ast.Constant(value=str)`, else `None`
+The linter needs to recognise `field_value(...)` as the left side of a
+comparison and extract the `value` expression from the right side.
 
-#### 2b — Linter needs access to the source tree
-
-`ObjectModelPred` requires knowing which fields a class has. The
-`ContractLinter` class already has `self.source_text` (the expanded
-source) and `self.predicates`. We need to add `self.source_tree: ast.Module |
-None` and look up `ast.ClassDef` nodes by name.
-
-When creating the linter in `mcp_server.py`, pass the full source tree:
+In `visit_Compare` (contract_linter.py):
 
 ```python
-linter = ContractLinter(expanded, "precondition",
-                         predicates=predicates,
-                         source_tree=tree)
+def visit_Compare(self, node: ast.Compare) -> Optional[Expr]:
+    if len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq):
+        left = node.left
+        right = self.visit(node.comparators[0])
+        if isinstance(left, ast.Call) and self._get_call_name(left) == "field_value":
+            if len(left.args) == 2 and right:
+                obj = self._extract_name(left.args[0])
+                fname = self._extract_string_literal(left.args[1])
+                if obj and fname:
+                    return FieldValue(obj=obj, field_name=fname, value=right)
+    # existing compare logic follows
+    ...
 ```
 
-#### 2c — Class schema lookup
+#### 3b — No new source_tree dependency
 
-In `ContractLinter`:
-
-```python
-def _get_model_fields(self, model_type: str) -> list[str]:
-    """Return field names for a Pydantic model class."""
-    if not self.source_tree:
-        return []
-    for node in ast.walk(self.source_tree):
-        if isinstance(node, ast.ClassDef) and node.name == model_type:
-            fields = []
-            for stmt in node.body:
-                if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-                    fields.append(stmt.target.id)
-            return fields
-    return []
-```
+The `visit_Compare` approach does **not** require the source tree,
+because `field_value` has all the information in its arguments.  The
+flat key mapping is handled by `FieldValue.to_coq()` consulting the
+Shape registry at codegen time.
 
 ---
 
-### Step 3 — Coq compilation of contract expressions
+### Step 4 — Automatic shape injection (`mcp_server.py`)
 
-#### `FieldPred.to_coq()`
+#### 4a — Build the Shape registry at verification time
 
-Flatten `obj.field_name` → `"obj_field_name"%string`.
+In `_verify_function`, after `tree = ast.parse(source)`:
 
-Precondition (unscoped): the value var is bare:
-```coq
-asZ (s "account_balance"%string) = b
+```python
+from oracle.shape_ir import build_shape_registry
+build_shape_registry(tree)
 ```
 
-Postcondition (scoped): the state variable `s` is used:
-```coq
-asZ (s "account_balance"%string) = asZ (s "b"%string)
+This populates the global `_shape_registry` with a `Shape` for every
+`BaseModel` subclass in the source.
+
+#### 4b — Inject shape preconditions automatically
+
+When building the precondition list, scan function parameters:
+
+```python
+for arg, annot in _func_params(func_node):
+    shape = lookup_shape(annot)  # e.g. "Account" → Shape(Account)
+    if shape:
+        prefix = arg  # e.g. "account"
+        guards = shape_preconditions(shape, prefix)
+        implicit_pres.extend(guards)
 ```
 
-The value expression's own `to_coq(scoped=...)` handles its scoping.
+This replaces the manual `_scan_pydantic_fields` call.  The Shape IR
+is the single source of truth for what a model implies.
 
-#### `ObjectModelPred` → expansion
+#### 4c — Frame conditions from shapes
 
-Because `ObjectModelPred` needs the class schema to compile, it cannot
-emit Coq directly via `to_coq()`. Instead, the `ContractLinter`
-expands it at lint time. Two approaches:
-
-**Approach A (preferred):** Expand at lint time. When the linter
-encounters `pydantic_model(account, Account)`, look up the Account
-class definition and emit a `Logical` conjunction of `FieldPred`
-guards (one per field). The IR never stores an unexpanded
-`ObjectModelPred` node.
-
-**Approach B:** Store the node unexpanded and expand at codegen time.
-
-Approach A is simpler and avoids threading the source tree through the
-entire pipeline. The `ContractLinter` already has the source tree; it
-expands `pydantic_model` into the constituent `isVZ` guards immediately.
-
-#### The `to_coq()` for `ObjectModelPred` still needs to exist
-
-For the case where `contract_ir.Expr` is used standalone (e.g., SMT
-export), `to_coq()` returns `"True"` since the guards are generated at
-linter time. This is fine because the linter never produces a raw
-`ObjectModelPred` in the output — it always expands it first.
+When analysing `modifies: account`, the Shape IR tells the verifier
+which fields are affected (`account_balance`, `account_overdraft_limit`).
+Frame lemmas for CCall can use this directly.
 
 ---
 
-### Step 4 — User syntax
+### Step 5 — User syntax
 
-Both docstring and assert forms are supported:
-
-**Docstring (preferred):**
+**Docstring (the only user-facing form for `field_value`):**
 
 ```python
 def withdraw(account: Account, amount: int) -> int:
@@ -267,70 +301,27 @@ def withdraw(account: Account, amount: int) -> int:
         where:
             b: int
         requires:
-            pydantic_model(account, Account)
-            field(account, "balance", b)
+            field_value(account, "balance") = b
             amount >= 0
             b >= amount
         modifies:
             account
         ensures:
-            field(account, "balance", b - amount)
+            field_value(account, "balance") = b - amount
             result == b - amount
     """
     account.balance -= amount
     return account.balance
 ```
 
-**Assert form (internal / backward compat):**
+The Shape IR handles the rest:
+- `balance: int → Field(ge=0)` → implicit `b >= 0` precondition
+- `overdraft_limit: int` → implicit `isVZ (s "account_overdraft_limit"%string) = true`
+- `account.balance -= amount` → state update on `"account_balance"%string`
 
-```python
-def withdraw(account: Account, amount: int) -> int:
-    assert pydantic_model(account, Account)
-    assert field(account, "balance", b)
-    assert amount >= 0
-    assert b >= amount
-    account.balance -= amount
-    assert field(account, "balance", b - amount)
-    assert result == b - amount
-    return result
-```
-
-The docstring form is the recommended path. The assert form works because
-`pydantic_model` and `field` are recognized by the linter before any
-runtime name resolution.
-
----
-
-### Step 5 — Wire through mcp_server.py
-
-#### 5a — Linter constructor
-
-Pass the source tree when creating linters:
-
-```python
-# In _verify_function (mcp_server.py ~1082)
-linter_pre = ContractLinter(expanded, "precondition",
-                             predicates=predicates,
-                             unbound=ghost_var_names,
-                             source_tree=tree)
-linter_post = ContractLinter(expanded, "postcondition",
-                              predicates=predicates,
-                              unbound=ghost_var_names,
-                              source_tree=tree)
-```
-
-#### 5b — No changes to VCG, theorem generation, or Coq
-
-Since `field` and `pydantic_model` compile to plain state predicates
-(`asZ (s "key"%string) = ...` and `isVZ (s "key"%string) = true`),
-existing `wp_reduce`, `wp_prove`, and SMT pipeline work without changes.
-The predicates are just more conjunctions in the pre/post.
-
-#### 5c — Frame conditions
-
-`field(account, "balance", b)` implies that `account.balance` is
-referenced. Frame analysis already handles this via the existing purity
-analysis and `modifies` declarations. No new frame machinery needed.
+`field_value` appears only when the user needs to name a field's value
+for use in the contract.  If they don't need a named value, the shape's
+automatic constraints are sufficient.
 
 ---
 
@@ -338,50 +329,41 @@ analysis and `modifies` declarations. No new frame machinery needed.
 
 Add to `test_pipeline.py`:
 
-#### Positive tests
+#### Positive
 
-1. **`withdraw_model`** — `pydantic_model` + `field` in requires/ensures.
-   The function mutates `account.balance`. Proves at Level 1.
+1. **`withdraw_model`** — multi-field Account model with `Field(ge=0)`,
+   `field_value` in requires/ensures.  Mutates `account.balance` via
+   flat state assignment.  Shape IR injects the `ge=0` constraint
+   automatically.  Proves at Level 1.
 
-```python
-def withdraw_model(balance: int, overdraft: int, amount: int) -> int:
-    """
-    axiomander:
-        requires:
-            balance >= 0
-            amount >= 0
-            balance >= amount
-        ensures:
-            result == balance - amount
-    """
-    result = balance - amount
-    return result
-```
+2. **`shape_implicit`** — function with `account: Account` parameter,
+   no `field_value` calls, just bare assertions.  The Shape IR
+   injects type guards and Field constraints automatically.
+   Verifier proves the function without any object-specific contracts.
 
-   (Uses bare params since class flattening in tests is complex. A
-   simpler version: just verify `field` compiles to the right state
-   lookup.)
+#### Negative
 
-2. **`check_model`** — `pydantic_model` type guard test. Uses a
-   multi-field class and verifies the type guard expands correctly.
+3. **`field_value_wrong`** — wrong value in ensures `field_value(...)`
+   relative to the body.  Rejected.
 
-#### Negative tests
-
-3. **`field_wrong`** — wrong field value in ensures. Rejected.
-4. **`model_missing_field`** — references a field not in the model. Rejected by linter.
+4. **`shape_constraint_violated`** — body violates an auto-injected
+   Field constraint (e.g. sets balance < 0 when Field(ge=0) is
+   declared).  Rejected.
 
 ---
 
-## What is NOT included (deferred)
+## What is deferred
 
 | Feature | Reason |
 |---|---|
-| `pydantic_model(obj, Type, data)` with logical data variable | Requires map/record types in the contract IR — complex. Deferred. |
-| `owns(obj)` ownership predicate | Requires separation logic framing — Phase 4 of migration plan. |
-| `acc(obj.field)` permission predicate | Requires separation logic + fractional permissions. |
-| `list_model`, `dict_model`, `set_model` | Separate shape predicates. Pure, but large scope. |
-| DB/transaction predicates | Phase 6 of migration plan — separate from object modeling. |
-| `raises ExcType as e:` with bound variable | Deferred until we have structured exception objects. |
+| `has_field`, `field_type` as user-visible predicates | Shape is compile-time; these are never written by the user |
+| `pydantic_model(obj, Type)` validation predicate | Validation is implicit from type annotations + Shape IR |
+| `field_value` as a getter (no `= value`) | Always used in equality form; getter-only is YAGNI for now |
+| Nested models (Address inside User) | Recursive shape expansion — Phase 2 of PDF plan |
+| Collection shapes (list[int], dict[str, int]) | Phase 2 of PDF plan |
+| Validator lowering | Phase 3 of PDF plan |
+| Heap regions, database regions | Phase 4 of PDF plan |
+| `raises ExcType as e:` bound variable | Deferred until structured exception objects |
 
 ---
 
@@ -389,14 +371,15 @@ def withdraw_model(balance: int, overdraft: int, amount: int) -> int:
 
 | File | Change |
 |---|---|
-| `py/oracle/contract_ir.py` | Add `FieldPred`, `ObjectModelPred` nodes; update `Expr` union |
-| `py/oracle/contract_linter.py` | Add `field()`, `pydantic_model()` special forms; add `source_tree` parameter; add `_get_model_fields()`; add `_extract_name()`, `_extract_string_literal()` helpers |
-| `py/oracle/docstring_contracts.py` | No changes needed — `field()` and `pydantic_model()` are parsed as regular function calls in expression context |
-| `py/oracle/mcp_server.py` | Pass `source_tree` to linter constructors (~2 lines) |
-| `py/tests/test_pipeline.py` | Add 4 tests (2 positive, 2 negative) |
+| `py/oracle/shape_ir.py` | **New.** Shape, ShapeField classes. `build_shape_registry()`, `shape_preconditions()`, `lookup_shape()`. |
+| `py/oracle/contract_ir.py` | Add `FieldValue` node; update `Expr` union. |
+| `py/oracle/contract_linter.py` | Recognise `field_value(obj, "name") = val` in `visit_Compare`. Add `_extract_name()`, `_extract_string_literal()` helpers. |
+| `py/oracle/docstring_contracts.py` | No changes. `field_value(...)` is an expression inside requires/ensures lines. |
+| `py/oracle/mcp_server.py` | Call `build_shape_registry()` at verification start.  Replace ad-hoc `_scan_pydantic_fields` with Shape-IR-driven precondition injection. |
+| `py/tests/test_pipeline.py` | 4 tests (2 positive, 2 negative). |
 
-No Coq files changed. No new Coq definitions. The predicates compile to
-existing state lookups.
+No Coq files changed.  Shape constraints compile to existing `isVZ`/`asZ`
+state predicates.
 
 ---
 
@@ -404,7 +387,7 @@ existing state lookups.
 
 | Risk | Mitigation |
 |---|---|
-| `ObjectModelPred` expansion depends on class AST being available at lint time | The linter already receives the source tree; fall back to "True" if class not found |
-| Field name → flat key mapping must match `_expand_params` | Use the same naming convention (`f"{obj}_{field}"`) consistently |
-| Multiple models in scope could conflict on field names | The `obj_` prefix disambiguates — same as current flat state keys |
-| `isVZ` guards add proof overhead | They are trivial linear arithmetic — `wp_prove` handles them |
+| Shape registry must be populated before linter runs | Call `build_shape_registry()` first thing in `_verify_function` |
+| `FieldValue.to_coq()` needs Shape registry for key mapping | Fall back to `f"{obj}_{field}"` convention if registry has no entry |
+| Existing `_scan_pydantic_fields` must not conflict with Shape IR injection | Replace `_scan_pydantic_fields` entirely — the Shape IR is the single source |
+| `field_value(obj, "name")` with a string literal is unusual Python | Syntactically valid; the linter intercepts it before any runtime eval |
