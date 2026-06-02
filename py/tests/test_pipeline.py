@@ -791,32 +791,50 @@ def enroll(course: Course) -> int:
     # (raises arm is vacuously true -- the ORaise branch is never reached)
     ("raise_if_neg", """\
 def raise_if_neg(n: int) -> int:
-    assert n >= 0
+    \"\"\"
+    axiomander:
+        requires:
+            n >= 0
+        ensures:
+            result >= 0
+        raises:
+            ValueError: n < 0
+    \"\"\"
     result = n
-    assert result >= 0
-    assert raises(ValueError, n < 0)
     return result"""),
     # Positive: function that actually raises + correct raises contract
     ("check_pos", """\
 def check_pos(n: int) -> int:
-    assert True
+    \"\"\"
+    axiomander:
+        requires:
+            True
+        ensures:
+            result >= 0
+        raises:
+            ValueError: n < 0
+    \"\"\"
     if n < 0:
         raise ValueError
     result = n
-    assert result >= 0
-    assert raises(ValueError, n < 0)
     return result"""),
     # Negative: wrong raises condition (claims n > 0 but raise fires when n < 0)
     ("raises_wrong_exc_cond", """\
 def raises_wrong_exc_cond(n: int) -> int:
-    assert True
+    \"\"\"
+    axiomander:
+        requires:
+            True
+        ensures:
+            result >= 0
+        raises:
+            ValueError: n > 0
+    \"\"\"
     if n < 0:
         raise ValueError
     result = n
-    assert result >= 0
-    assert raises(ValueError, n > 0)
     return result"""),
-    # Negative: wrong normal postcondition with raises clause
+    # Negative: wrong normal postcondition — internal assert raises() path
     ("raises_wrong_post", """\
 def raises_wrong_post(n: int) -> int:
     assert n >= 0

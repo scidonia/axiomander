@@ -63,22 +63,7 @@ def clamp(val: int, lo: int, hi: int) -> int:
 
 Exceptions are modelled as **outcomes** — first-class values in the WP calculus. A function produces either `OReturn(result, final_state)` or `ORaise(exception_value, raise_state)`. Exception postconditions constrain what is true at the raise point.
 
-**Assert syntax** — inline alongside normal contracts:
-
-```python
-def at(xs: list[int], i: int) -> int:
-    assert len(xs) >= 0
-    if i < 0 or i >= len(xs):
-        raise IndexError
-    result = xs[i]
-    assert True
-    assert raises(IndexError, i < 0 or i >= len(xs))
-    return result
-```
-
-`raises(ExcType, cond)` is an exception postcondition: if the function raises `ExcType`, then `cond` holds over the state at the raise point.
-
-**Docstring syntax** — preferred for complex functions:
+Use the docstring `raises:` section — it is verifier-only and does not execute at runtime:
 
 ```python
 def safe_divide(a: int, b: int) -> int:
