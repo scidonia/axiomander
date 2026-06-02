@@ -37,7 +37,8 @@ PURE_BUILTINS = frozenset({
     "abs", "round", "int", "float", "bool", "str",
     "len", "min", "max", "sum", "sorted", "all", "any",
     "isinstance", "ord", "chr", "range", "pow", "sqrt",
-    "get",  # dict.get / list.get — pure accessor
+    "get",  # dict.get / list.get -- pure accessor
+    "lower", "upper", "startswith", "endswith",
 })
 
 PURE_MODULE_FUNCTIONS = frozenset({

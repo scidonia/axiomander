@@ -655,7 +655,9 @@
   },
   "__init__": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
-    "callees": [],
+    "callees": [
+      "frozenset"
+    ],
     "callers": []
   },
   "ProofState": {
@@ -4529,7 +4531,8 @@
     "callees": [],
     "callers": [
       "dump_obligations",
-      "flat_fields"
+      "flat_fields",
+      "__init__"
     ]
   },
   "Logical": {
