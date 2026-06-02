@@ -37,6 +37,12 @@ def _escape_field(name: str) -> str:
     in flat keys like 'account_balance'.  A user field named 'max_value'
     becomes 'max__value' so the flat key 'account_max__value' cannot be
     confused with a bare parameter named 'account_max_value'.
+
+    axiomander:
+        requires:
+            len(name) >= 0
+        ensures:
+            len(result) >= len(name)
     """
     return name.replace("_", "__")
 
@@ -97,17 +103,6 @@ def _type_guard(coq_type: str, flat_key: str, scoped: bool = False) -> str:
             return f'isVString ({key_ref}) = true'
         case _:
             return f'isVZ ({key_ref}) = true'
-
-
-def _escape_field(name: str) -> str:
-    """Escape literal underscores in a field name as double underscores.
-
-    This makes the single underscore an unambiguous obj→field separator
-    in flat keys like 'account_balance'.  A user field named 'max_value'
-    becomes 'max__value' so the flat key 'account_max__value' cannot be
-    confused with a bare parameter named 'account_max_value'.
-    """
-    return name.replace("_", "__")
 
 
 def flat_fields(

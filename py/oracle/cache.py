@@ -107,6 +107,12 @@ class CacheEntry:
 # ─── Hashing ───────────────────────────────────────────────────────
 
 def _sha256(*parts: str) -> str:
+    """Compute a SHA-256 hex digest of the concatenated parts.
+
+    axiomander:
+        ensures:
+            len(result) == 64
+    """
     h = hashlib.sha256()
     for p in parts:
         h.update(p.encode("utf-8"))
@@ -166,6 +172,10 @@ def compute_cache_key(
 
     Includes the function's own hashes plus the contract hashes of all callees,
     so if any callee's contract changes, this cache entry is invalidated.
+
+    axiomander:
+        ensures:
+            len(result) == 64
     """
     callee_part = json.dumps(dict(sorted(callee_contract_hashes.items())))
     result = _sha256(body_hash, contract_hash, local_assert_hash, callee_part, TOOL_VERSION)
@@ -192,7 +202,6 @@ class DependencyGraph:
         self.path = path
         self.nodes: dict[str, GraphNode] = {}
         self._load()
-        assert True
 
     def _load(self) -> None:
         if self.path.exists():
@@ -218,7 +227,6 @@ class DependencyGraph:
             for name, node in self.nodes.items()
         }
         self.path.write_text(json.dumps(data, indent=2))
-        assert True
 
     def update(self, name: str, contract_hash: str, callees: list[str]) -> None:
         """Update a node's contract hash and callees. Rebuilds caller edges."""
@@ -244,21 +252,34 @@ class DependencyGraph:
         self.nodes[name] = node
 
     def get_contract_hash(self, name: str) -> str:
+        """Return the stored contract hash for a function, or empty string.
+
+        axiomander:
+            ensures:
+                len(result) >= 0
+        """
         node = self.nodes.get(name)
         result = node.contract_hash if node else ""
-        assert True
         return result
 
     def get_callers(self, name: str) -> list[str]:
-        """Get direct callers of a function."""
+        """Get direct callers of a function.
+
+        axiomander:
+            ensures:
+                len(result) >= 0
+        """
         node = self.nodes.get(name)
         result = list(node.callers) if node else []
-        assert True
         return result
 
     def get_transitive_callers(self, name: str) -> list[str]:
-        """Get all transitive callers (direct + indirect)."""
-        assert True
+        """Get all transitive callers (direct + indirect).
+
+        axiomander:
+            ensures:
+                len(result) >= 0
+        """
         visited: set[str] = set()
         stack = [name]
         while stack:
@@ -271,13 +292,17 @@ class DependencyGraph:
                     stack.append(caller)
         visited.discard(name)
         result = list(visited)
-        assert True
         return result
 
     def get_callees(self, name: str) -> list[str]:
+        """Return direct callees of a function.
+
+        axiomander:
+            ensures:
+                len(result) >= 0
+        """
         node = self.nodes.get(name)
         result = list(node.callees) if node else []
-        assert True
         return result
 
     def remove(self, name: str) -> None:
@@ -289,7 +314,6 @@ class DependencyGraph:
             if callee in self.nodes and name in self.nodes[callee].callers:
                 self.nodes[callee].callers.remove(name)
         del self.nodes[name]
-        assert True
 
 
 # ─── Cache Store ───────────────────────────────────────────────────
@@ -311,7 +335,6 @@ class VerificationCache:
         self.entries_dir = self.cache_dir / "entries"
         self.entries_dir.mkdir(parents=True, exist_ok=True)
         self.graph = DependencyGraph(self.cache_dir / "graph.json")
-        assert True
 
     # ── Entry management ────────────────────────────────────────
 
@@ -473,7 +496,6 @@ class VerificationCache:
                 body_changed.append(name)
 
         result = body_changed, contract_changed
-        assert True
         return result
 
     def compute_impacted(
@@ -502,7 +524,6 @@ class VerificationCache:
                 to_reverify.add(caller)
 
         result = to_reverify, set(body_changed), set(contract_changed)
-        assert True
         return result
 
     def explain(self, func_name: str, hashes: FunctionHashes) -> str:
@@ -565,5 +586,4 @@ class VerificationCache:
         lines.append(f"**Tool version**: {TOOL_VERSION}")
 
         result = "\n".join(lines)
-        assert True
         return result

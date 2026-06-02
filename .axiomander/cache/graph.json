@@ -180,7 +180,12 @@
       "_seed_types",
       "analyze_file",
       "analyze_function",
-      "dump_obligations"
+      "dump_obligations",
+      "build_shape_registry",
+      "_find_class_by_annotation",
+      "_is_inside_assert",
+      "analyze_purity",
+      "generate_frame_conditions"
     ]
   },
   "enumerate": {
@@ -198,7 +203,8 @@
       "_str_contains_expr",
       "try_prove_interactive",
       "_mk_post_obligation",
-      "generate_obligations"
+      "generate_obligations",
+      "_propagate_writes"
     ]
   },
   "isinstance": {
@@ -263,7 +269,20 @@
       "_translate_compare",
       "_translate_raise",
       "_translate_try",
-      "visit_Call"
+      "visit_Call",
+      "normalize_body",
+      "_detect_validate_assignment",
+      "_extract_field_constraints",
+      "_inherits_base_model",
+      "_python_type_name",
+      "build_shape_registry",
+      "_caller_arg_names",
+      "_find_class_by_annotation",
+      "_get_attribute_base",
+      "_is_inside_assert",
+      "analyze_purity",
+      "generate_frame_conditions",
+      "_extract_name"
     ]
   },
   "len": {
@@ -311,7 +330,8 @@
       "_build_q_defs",
       "_extract_segments",
       "generate_obligations",
-      "_mk_composition_obligation"
+      "_mk_composition_obligation",
+      "generate_frame_conditions"
     ]
   },
   "_classify_in_function": {
@@ -356,7 +376,11 @@
       "coq_block",
       "_build_phi",
       "generate_obligations",
-      "_mk_composition_obligation"
+      "_mk_composition_obligation",
+      "is_shape_coq",
+      "is_valid_coq",
+      "analyze_purity",
+      "generate_havoc_body"
     ]
   },
   "parts.append": {
@@ -366,7 +390,8 @@
       "_get_call_name",
       "_invariants_to_coq",
       "_attribute_path",
-      "_templated_guidance"
+      "_templated_guidance",
+      "is_valid_coq"
     ]
   },
   "reversed": {
@@ -392,7 +417,8 @@
       "reversed"
     ],
     "callers": [
-      "analyze_function"
+      "analyze_function",
+      "analyze_purity"
     ]
   },
   "AdornmentAdvice": {
@@ -611,7 +637,9 @@
   },
   "__init__": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
-    "callees": [],
+    "callees": [
+      "frozenset"
+    ],
     "callers": []
   },
   "ProofState": {
@@ -929,7 +957,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "_estimate_last_line"
+      "_estimate_last_line",
+      "summary"
     ]
   },
   "self._text.split": {
@@ -1305,7 +1334,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "interactive_oracle_query"
+      "interactive_oracle_query",
+      "generate_frame_conditions"
     ]
   },
   "step_history.append": {
@@ -1589,7 +1619,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "interactive_oracle_query"
+      "interactive_oracle_query",
+      "_detect_validate_assignment"
     ]
   },
   "transcript_entries.append": {
@@ -1766,8 +1797,15 @@
     ]
   },
   "get": {
-    "contract_hash": "",
-    "callees": [],
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "CacheEntry",
+      "data.get",
+      "json.loads",
+      "path.exists",
+      "path.read_text",
+      "self._entry_path"
+    ],
     "callers": [
       "start"
     ]
@@ -2129,7 +2167,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "_request"
+      "_request",
+      "get"
     ]
   },
   "self._process.stdin.flush": {
@@ -2650,7 +2689,9 @@
       "_mk_post_obligation",
       "_mk_stage_k_statement_proof",
       "generate_obligations",
-      "_mk_composition_obligation"
+      "_mk_composition_obligation",
+      "generate_frame_conditions",
+      "generate_havoc_body"
     ]
   },
   "compute_cache_key": {
@@ -2690,7 +2731,10 @@
       "_multi_call_callees",
       "_mk_post_obligation",
       "_mk_stage_k_statement_proof",
-      "generate_obligations"
+      "generate_obligations",
+      "get_transitive_callers",
+      "update",
+      "generate_frame_conditions"
     ]
   },
   "to_reverify.add": {
@@ -3836,7 +3880,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "_desugar_break_continue"
+      "_desugar_break_continue",
+      "flat_fields"
     ]
   },
   "self._desugar_break_continue": {
@@ -3891,7 +3936,8 @@
     "callers": [
       "_extract_dict_value_type",
       "_seed_types",
-      "analyze_function"
+      "analyze_function",
+      "normalize_body"
     ]
   },
   "_extract_dict_value_type": {
@@ -4014,7 +4060,9 @@
       "lint_expression",
       "analyze_function",
       "build_proof_with_ghost",
-      "_mk_composition_obligation"
+      "_mk_composition_obligation",
+      "get_transitive_callers",
+      "analyze_purity"
     ]
   },
   "self._class_field_types.keys": {
@@ -4436,7 +4484,9 @@
     "callees": [],
     "callers": [
       "dump_obligations",
-      "to_coq"
+      "to_coq",
+      "flat_fields",
+      "__init__"
     ]
   },
   "Logical": {
@@ -5098,7 +5148,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "analyze_function"
+      "analyze_function",
+      "analyze_purity"
     ]
   },
   "fields.append": {
@@ -6423,7 +6474,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "_build_q_defs"
+      "_build_q_defs",
+      "analyze_purity"
     ]
   },
   "ghost_vars.get": {
@@ -6432,5 +6484,685 @@
     "callers": [
       "_mk_composition_obligation"
     ]
+  },
+  "body_changed.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "find_changed"
+    ]
+  },
+  "contract_changed.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "find_changed"
+    ]
+  },
+  "current_hashes.items": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "find_changed"
+    ]
+  },
+  "self.graph.nodes.get": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "find_changed"
+    ]
+  },
+  "self.lookup": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "find_changed"
+    ]
+  },
+  "find_changed": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "body_changed.append",
+      "contract_changed.append",
+      "current_hashes.items",
+      "self.graph.nodes.get",
+      "self.lookup"
+    ],
+    "callers": []
+  },
+  "CacheEntry": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "get"
+    ]
+  },
+  "data.get": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "get"
+    ]
+  },
+  "path.exists": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "get"
+    ]
+  },
+  "path.read_text": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "get"
+    ]
+  },
+  "self._entry_path": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "get"
+    ]
+  },
+  "self.get_callers": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "get_transitive_callers"
+    ]
+  },
+  "stack.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "get_transitive_callers"
+    ]
+  },
+  "stack.pop": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "get_transitive_callers"
+    ]
+  },
+  "visited.add": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "get_transitive_callers"
+    ]
+  },
+  "visited.discard": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "get_transitive_callers"
+    ]
+  },
+  "get_transitive_callers": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "list",
+      "self.get_callers",
+      "set",
+      "stack.append",
+      "stack.pop",
+      "visited.add",
+      "visited.discard"
+    ],
+    "callers": []
+  },
+  "ast.FunctionDef": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "normalize_body"
+    ]
+  },
+  "body_stmts.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "normalize_body"
+    ]
+  },
+  "normalize_body": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "ast.FunctionDef",
+      "ast.unparse",
+      "body_stmts.append",
+      "isinstance"
+    ],
+    "callers": []
+  },
+  "callers.remove": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "remove",
+      "update"
+    ]
+  },
+  "remove": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "callers.remove"
+    ],
+    "callers": []
+  },
+  "Action": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "to_goal_status"
+    ]
+  },
+  "GoalStatus": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "to_goal_status"
+    ]
+  },
+  "ProofLevel": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "to_goal_status"
+    ]
+  },
+  "r.get": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "to_goal_status"
+    ]
+  },
+  "to_goal_status": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "Action",
+      "GoalStatus",
+      "ProofLevel",
+      "r.get"
+    ],
+    "callers": []
+  },
+  "GraphNode": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "update"
+    ]
+  },
+  "callers.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "update"
+    ]
+  },
+  "self.nodes.get": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "update"
+    ]
+  },
+  "update": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "GraphNode",
+      "callers.append",
+      "callers.remove",
+      "self.nodes.get",
+      "set"
+    ],
+    "callers": []
+  },
+  "_detect_validate_assignment": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "bool",
+      "isinstance"
+    ],
+    "callers": []
+  },
+  "constraints.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_extract_field_constraints"
+    ]
+  },
+  "_extract_field_constraints": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "constraints.append",
+      "isinstance"
+    ],
+    "callers": []
+  },
+  "_inherits_base_model": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "isinstance"
+    ],
+    "callers": [
+      "build_shape_registry"
+    ]
+  },
+  "mapping.get": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_py_to_coq"
+    ]
+  },
+  "_py_to_coq": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "mapping.get"
+    ],
+    "callers": []
+  },
+  "_python_type_name": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_python_type_name",
+      "isinstance"
+    ],
+    "callers": []
+  },
+  "_build_shape": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "build_shape_registry"
+    ]
+  },
+  "_shape_registry.clear": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "build_shape_registry"
+    ]
+  },
+  "build_shape_registry": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_build_shape",
+      "_inherits_base_model",
+      "_shape_registry.clear",
+      "ast.walk",
+      "isinstance"
+    ],
+    "callers": []
+  },
+  "_escape_field": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "flat_fields",
+      "generate_frame_conditions"
+    ]
+  },
+  "_shape_registry.get": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "flat_fields"
+    ]
+  },
+  "flat_fields": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_escape_field",
+      "_shape_registry.get",
+      "flat_fields",
+      "frozenset",
+      "result.append",
+      "result.extend"
+    ],
+    "callers": [
+      "is_shape_coq",
+      "is_valid_coq"
+    ]
+  },
+  "result.extend": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "flat_fields"
+    ]
+  },
+  "_type_guard": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "is_shape_coq"
+    ]
+  },
+  "guards.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "is_shape_coq"
+    ]
+  },
+  "is_shape_coq": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_type_guard",
+      "flat_fields",
+      "guards.append",
+      "join"
+    ],
+    "callers": [
+      "is_valid_coq"
+    ]
+  },
+  "c.format": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "is_valid_coq"
+    ]
+  },
+  "formatted.replace": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "is_valid_coq"
+    ]
+  },
+  "is_valid_coq": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "c.format",
+      "flat_fields",
+      "formatted.replace",
+      "is_shape_coq",
+      "join",
+      "parts.append"
+    ],
+    "callers": []
+  },
+  "guidance.get": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "action_guidance"
+    ]
+  },
+  "action_guidance": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "guidance.get"
+    ],
+    "callers": []
+  },
+  "summary": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "max"
+    ],
+    "callers": []
+  },
+  "_get_attribute_base": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_get_attribute_base",
+      "isinstance"
+    ],
+    "callers": [
+      "_caller_arg_names",
+      "_get_attribute_base",
+      "analyze_purity",
+      "generate_frame_conditions"
+    ]
+  },
+  "names.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_caller_arg_names"
+    ]
+  },
+  "_caller_arg_names": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_get_attribute_base",
+      "isinstance",
+      "names.append"
+    ],
+    "callers": [
+      "_propagate_writes"
+    ]
+  },
+  "_find_class_by_annotation": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "ast.walk",
+      "isinstance"
+    ],
+    "callers": [
+      "_propagate_writes"
+    ]
+  },
+  "_is_inside_assert": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "ast.walk",
+      "isinstance"
+    ],
+    "callers": [
+      "analyze_purity"
+    ]
+  },
+  "_find_class_for_param": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_propagate_writes",
+      "analyze_purity",
+      "generate_frame_conditions"
+    ]
+  },
+  "report.mutated_fields.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_propagate_writes",
+      "analyze_purity"
+    ]
+  },
+  "report.mutated_params.add": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_propagate_writes",
+      "analyze_purity"
+    ]
+  },
+  "_propagate_writes": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_caller_arg_names",
+      "_find_class_by_annotation",
+      "_find_class_for_param",
+      "enumerate",
+      "report.mutated_fields.append",
+      "report.mutated_params.add"
+    ],
+    "callers": [
+      "analyze_purity"
+    ]
+  },
+  "PurityReport": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "analyze_purity"
+    ]
+  },
+  "call_name.split": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "analyze_purity"
+    ]
+  },
+  "get_stub_loader": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "analyze_purity"
+    ]
+  },
+  "has_contract": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "analyze_purity"
+    ]
+  },
+  "param_names.add": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "analyze_purity",
+      "generate_frame_conditions"
+    ]
+  },
+  "report.impure_calls.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "analyze_purity"
+    ]
+  },
+  "report.impure_lines.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "analyze_purity"
+    ]
+  },
+  "analyze_purity": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "PurityReport",
+      "_find_class_for_param",
+      "_get_attribute_base",
+      "_get_call_name",
+      "_is_inside_assert",
+      "_propagate_writes",
+      "ast.walk",
+      "call_name.split",
+      "contract_map.get",
+      "dict.fromkeys",
+      "get_stub_loader",
+      "has_contract",
+      "isinstance",
+      "join",
+      "list",
+      "param_names.add",
+      "report.impure_calls.append",
+      "report.impure_lines.append",
+      "report.mutated_fields.append",
+      "report.mutated_params.add"
+    ],
+    "callers": []
+  },
+  "_flat_fields": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "generate_frame_conditions"
+    ]
+  },
+  "frame_conditions.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "generate_frame_conditions"
+    ]
+  },
+  "lookup_shape": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "generate_frame_conditions"
+    ]
+  },
+  "mentioned_fields.add": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "generate_frame_conditions"
+    ]
+  },
+  "mutated_fields.add": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "generate_frame_conditions"
+    ]
+  },
+  "node.id.endswith": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "generate_frame_conditions"
+    ]
+  },
+  "generate_frame_conditions": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_escape_field",
+      "_find_class_for_param",
+      "_flat_fields",
+      "_get_attribute_base",
+      "ast.walk",
+      "frame_conditions.append",
+      "isinstance",
+      "len",
+      "lookup_shape",
+      "mentioned_fields.add",
+      "mutated_fields.add",
+      "node.id.endswith",
+      "param_names.add",
+      "set",
+      "sorted",
+      "split"
+    ],
+    "callers": []
+  },
+  "havoc_vars.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "generate_havoc_body"
+    ]
+  },
+  "generate_havoc_body": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "havoc_vars.append",
+      "join",
+      "sorted"
+    ],
+    "callers": []
+  },
+  "_extract_name": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "isinstance"
+    ],
+    "callers": []
   }
 }
