@@ -824,6 +824,38 @@ def raises_wrong_post(n: int) -> int:
     assert result == n + 1
     assert raises(ValueError, n < 0)
     return result"""),
+    # Positive: docstring raises: section (same semantics as assert form)
+    ("docstring_raises", """\
+def docstring_raises(n: int) -> int:
+    \"\"\"
+    axiomander:
+        requires:
+            True
+        ensures:
+            result >= 0
+        raises:
+            ValueError: n < 0
+    \"\"\"
+    if n < 0:
+        raise ValueError
+    result = n
+    return result"""),
+    # Negative: docstring raises with wrong condition
+    ("docstring_raises_wrong", """\
+def docstring_raises_wrong(n: int) -> int:
+    \"\"\"
+    axiomander:
+        requires:
+            True
+        ensures:
+            result >= 0
+        raises:
+            ValueError: n > 0
+    \"\"\"
+    if n < 0:
+        raise ValueError
+    result = n
+    return result"""),
 ]
 
 NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail", "all_positive", "use_wrong", "user_no_post", "inv_body_violation",     "bad_pass_str", "bad_call_str", "bad_int_to_bool", "frame_fail_pop",
@@ -831,8 +863,9 @@ NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "we
     # return-value info (pop returns any int, CCall frame too deep)
     "frame_stub_pop", "frame_stub_disjoint", "modifies_blocks_frame",
     # Raises contract tests
-    "raises_wrong_exc_cond",  # wrong condition on the raises arm
-    "raises_wrong_post",      # wrong normal postcondition
+    "raises_wrong_exc_cond",    # wrong condition on the raises arm
+    "raises_wrong_post",        # wrong normal postcondition
+    "docstring_raises_wrong",   # wrong condition via docstring syntax
 }
 
 

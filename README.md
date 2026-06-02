@@ -59,6 +59,69 @@ def clamp(val: int, lo: int, hi: int) -> int:
     return result
 ```
 
+### Exception Contracts
+
+Exceptions are modelled as **outcomes** — first-class values in the WP calculus. A function produces either `OReturn(result, final_state)` or `ORaise(exception_value, raise_state)`. Exception postconditions constrain what is true at the raise point.
+
+**Assert syntax** — inline alongside normal contracts:
+
+```python
+def at(xs: list[int], i: int) -> int:
+    assert len(xs) >= 0
+    if i < 0 or i >= len(xs):
+        raise IndexError
+    result = xs[i]
+    assert True
+    assert raises(IndexError, i < 0 or i >= len(xs))
+    return result
+```
+
+`raises(ExcType, cond)` is an exception postcondition: if the function raises `ExcType`, then `cond` holds over the state at the raise point.
+
+**Docstring syntax** — preferred for complex functions:
+
+```python
+def safe_divide(a: int, b: int) -> int:
+    """
+    axiomander:
+        requires:
+            a >= 0
+            b >= 0
+        ensures:
+            result >= 0
+        raises:
+            ValueError: b == 0
+    """
+    if b == 0:
+        raise ValueError
+    result = a // b
+    return result
+```
+
+The `raises:` section lists `ExcType: condition` pairs. Multiple exception types are each on their own line:
+
+```text
+axiomander:
+    requires:
+        n >= 0
+    ensures:
+        result >= 0
+    raises:
+        ValueError: n < 0
+        OverflowError: n > 1000000
+```
+
+Internally, the postcondition becomes an outcome predicate:
+
+```coq
+fun o =>
+  match o with
+  | OReturn s => (* ensures condition *)
+  | ORaise (VString "ValueError"%string) s => (* raises condition *)
+  | _ => True
+  end
+```
+
 ### Docstring Contracts
 
 Docstring contracts are verifier-only. They do not execute at runtime and are the preferred place for ghost bindings and frame declarations.
@@ -78,7 +141,7 @@ def inc(x: int) -> int:
     return result
 ```
 
-Supported first slice:
+Supported sections:
 
 ```text
 axiomander:
@@ -92,6 +155,8 @@ axiomander:
         none
     ensures:
         result == old_a
+    raises:
+        ValueError: a < 0
 ```
 
 `old(x)` is shorthand for a logical pre-state binding:
@@ -215,7 +280,7 @@ eval $(opam env)
 PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 ```
 
-111 tests covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, docstring contracts, old-state syntax, reads/modifies frames, range quantifiers, stub integration, tuple/bytes/dict/set/None value comparisons, implication, and loop-predicate contract inlining.
+117 tests covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, docstring contracts, old-state syntax, reads/modifies frames, range quantifiers, stub integration, tuple/bytes/dict/set/None value comparisons, implication, loop-predicate contract inlining, and exception contracts (`raises` postconditions, `raise`/`try` in function bodies, wrong-condition rejection).
 
 ## Dependencies
 

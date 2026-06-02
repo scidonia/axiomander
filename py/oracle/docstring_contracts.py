@@ -1,8 +1,8 @@
 """Parser for Axiomander docstring contracts.
 
 This is intentionally small: it implements the first usable slice of the
-Nagini-lifted syntax (`where`, `requires`, `ensures`, `reads`, `modifies`) and
-leaves ownership, raises, predicates, etc. for later phases.
+Nagini-lifted syntax (`where`, `requires`, `ensures`, `reads`, `modifies`,
+`raises`) and leaves ownership, predicates, etc. for later phases.
 """
 
 from __future__ import annotations
@@ -20,10 +20,14 @@ class DocstringContracts:
     ensures: list[str] = field(default_factory=list)
     reads: list[str] = field(default_factory=list)
     modifies: list[str] = field(default_factory=list)
+    # raises: list of (exc_type, condition_expr) pairs
+    # e.g. [("ValueError", "n < 0"), ("KeyError", "key not in mapping")]
+    raises: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def has_contracts(self) -> bool:
-        return bool(self.where or self.requires or self.ensures or self.reads or self.modifies)
+        return bool(self.where or self.requires or self.ensures
+                    or self.reads or self.modifies or self.raises)
 
 
 def parse_axiomander_docstring(func_node: ast.FunctionDef) -> DocstringContracts:
@@ -94,6 +98,16 @@ def parse_axiomander_docstring(func_node: ast.FunctionDef) -> DocstringContracts
             result.modifies.extend(_parse_name_list(stripped))
             continue
 
+        if section == "raises":
+            # Format: ExcType: condition_expression
+            # e.g.  ValueError: n < 0
+            m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*):\s*(.+)$", stripped)
+            if m:
+                exc_type = m.group(1)
+                cond = _rewrite_old_refs(m.group(2).strip(), result.where)
+                result.raises.append((exc_type, cond))
+            continue
+
     return result
 
 
@@ -119,9 +133,15 @@ def _parse_name_list(line: str) -> list[str]:
 
 
 def docstring_assert_nodes(func_node: ast.FunctionDef) -> list[tuple[ast.Assert, str]]:
-    """Return docstring requires/ensures as synthetic ast.Assert nodes."""
+    """Return docstring requires/ensures/raises as synthetic ast.Assert nodes.
+
+    raises: clauses become assert raises(ExcType, cond) nodes classified as
+    'exception_postcondition', which the contract linter already handles.
+    """
     parsed = parse_axiomander_docstring(func_node)
     out: list[tuple[ast.Assert, str]] = []
+
+    # requires -> precondition, ensures -> postcondition
     for expr_text, cls in [(e, "precondition") for e in parsed.requires] + [
         (e, "postcondition") for e in parsed.ensures
     ]:
@@ -134,4 +154,23 @@ def docstring_assert_nodes(func_node: ast.FunctionDef) -> list[tuple[ast.Assert,
         node.col_offset = 0
         ast.fix_missing_locations(node)
         out.append((node, cls))
+
+    # raises -> exception_postcondition via raises(ExcType, cond) synthetic call
+    for exc_type, cond_text in parsed.raises:
+        try:
+            cond_expr = ast.parse(cond_text, mode="eval").body
+        except SyntaxError:
+            continue
+        # Build: raises(ExcType, cond_expr)  as an AST Call node
+        call = ast.Call(
+            func=ast.Name(id="raises", ctx=ast.Load()),
+            args=[ast.Name(id=exc_type, ctx=ast.Load()), cond_expr],
+            keywords=[],
+        )
+        node = ast.Assert(test=call, msg=None)
+        node.lineno = getattr(func_node, "lineno", 1)
+        node.col_offset = 0
+        ast.fix_missing_locations(node)
+        out.append((node, "exception_postcondition"))
+
     return out
