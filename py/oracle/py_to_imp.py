@@ -148,18 +148,22 @@ class PyToImpLowerer:
         if path:
             parts = path.split(".")
             root = parts[0]
-            # Look up the root param's type
             root_type = self._param_types.get(root)
             if root_type:
                 shape = lookup_shape(root_type)
                 if shape:
-                    # Build the expected flat key: root + escaped field path
                     flat_key = root
                     for part in parts[1:]:
                         flat_key = f"{flat_key}_{_esc(part)}"
-                    # Verify this key exists in flat_fields
-                    known = {fk for fk, _ in _flat_fields(shape, root)}
-                    if flat_key in known:
+                    known_map = {fk: sf for fk, sf in _flat_fields(shape, root)}
+                    if flat_key in known_map:
+                        sf = known_map[flat_key]
+                        if sf.py_type in ("list",):
+                            from .imp_ir import ImpALen
+                            return ImpALen(name=flat_key)
+                        elif sf.py_type in ("dict",):
+                            from .imp_ir import ImpADictCount
+                            return ImpADictCount(name=flat_key)
                         return ImpAVar(name=flat_key)
 
         # Single-level: obj.field where obj is a known record param

@@ -174,9 +174,10 @@ def generate_frame_conditions(
             shape = lookup_shape(cls)
             if shape:
                 for flat_key, sf in _flat_fields(shape, param):
-                    # Only generate frame conditions for Z-typed fields;
-                    # string/bool fields need different handling.
-                    if sf.coq_type not in ("Z",):
+                    # Only generate asZ frame conditions for Z-typed scalar fields.
+                    # List/dict fields use the heap (hupd/hget) and are handled separately.
+                    # String/bool fields need different frame condition forms (not yet supported).
+                    if sf.coq_type not in ("Z",) or sf.py_type in ("list", "dict"):
                         continue
                     shallow_field = flat_key[len(param) + 1:].split("_")[0]
                     if (param, shallow_field) not in mentioned_fields \

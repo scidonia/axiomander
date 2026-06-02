@@ -2229,14 +2229,26 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
             shape = lookup_shape(cls_name)
             if shape:
                 for flat_key, sf in _flat_fields(shape, p):
-                    safe_coq = sf.coq_type if sf.coq_type in ("Z", "string", "bool") else "Z"
-                    expanded.append(flat_key)
-                    parts.append(f"({flat_key} : {safe_coq})")
-                    if safe_coq == "string":
+                    if sf.py_type in ("list",):
+                        # List field: expose length as a Z param, init with hupd
+                        len_var = f"{flat_key}__len"
+                        expanded.append(len_var)
+                        parts.append(f"({len_var} : Z)")
+                        init_state = f'(hupd {init_state} "{flat_key}"%string len_f (VZ {len_var}))'
+                    elif sf.py_type in ("dict",):
+                        # Dict field: expose key count as a Z param, init with hupd
+                        count_var = f"{flat_key}__count"
+                        expanded.append(count_var)
+                        parts.append(f"({count_var} : Z)")
+                        init_state = f'(hupd {init_state} "{flat_key}"%string count_f (VZ {count_var}))'
+                    elif sf.coq_type == "string":
+                        expanded.append(flat_key)
+                        parts.append(f"({flat_key} : string)")
                         init_state = f'(upd {init_state} "{flat_key}"%string (VString {flat_key}))'
-                    elif safe_coq == "bool":
-                        init_state = f'(upd {init_state} "{flat_key}"%string (VZ {flat_key}))'
                     else:
+                        # Z (int, bool, unknown)
+                        expanded.append(flat_key)
+                        parts.append(f"({flat_key} : Z)")
                         init_state = f'(upd {init_state} "{flat_key}"%string (VZ {flat_key}))'
             else:
                 for f in class_fields[cls_name]:

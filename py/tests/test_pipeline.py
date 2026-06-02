@@ -979,6 +979,26 @@ def nested_model(user: User) -> int:
     \"\"\"
     result = user.address.postcode
     return result"""),
+    # ── Collection fields in Pydantic models ──────────────────────────
+    # Positive: list field accessed via len() — expands to order_items__len
+    ("collection_field", """\
+from pydantic import BaseModel, Field
+
+class Basket(BaseModel):
+    items: list[int]
+    discount: int = Field(ge=0, le=100)
+
+def collection_field(basket: Basket) -> int:
+    \"\"\"
+    axiomander:
+        requires:
+            len(basket.items) >= 0
+            basket.discount >= 0
+        ensures:
+            result >= 0
+    \"\"\"
+    result = len(basket.items)
+    return result"""),
 ]
 
 NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail", "all_positive", "use_wrong", "user_no_post", "inv_body_violation",     "bad_pass_str", "bad_call_str", "bad_int_to_bool", "frame_fail_pop",
