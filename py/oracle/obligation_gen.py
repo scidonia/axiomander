@@ -281,8 +281,32 @@ def _extract_segments(imp_ir) -> "tuple[list, list[tuple[int, object]]]":
 
     _extract(imp_ir)
 
-    ccall_segs = [(i, seg) for i, seg in enumerate(segments)
+    # Bundle any consecutive setup commands (ImpCAss) immediately before a
+    # CCall segment into a single ImpCSeq so _get_callee_param_bindings can
+    # extract the bindings.  This is needed for constructor args like
+    #   CAss "__ctor_Item_read_item_value" (AVar "x")
+    #   CCall "read_item" ...
+    # which _lower_ccall emits as a CSeq that _extract splits into two.
+    bundled: list = []
+    i = 0
+    while i < len(segments):
+        seg = segments[i]
+        if _has_ccall(seg) and not isinstance(seg, ImpCIf):
+            # Collect immediately preceding ImpCAss commands as setup
+            setup = []
+            while bundled and isinstance(bundled[-1], ImpCAss):
+                setup.insert(0, bundled.pop())
+            if setup:
+                bundled.append(ImpCSeq(commands=setup + [seg]))
+            else:
+                bundled.append(seg)
+        else:
+            bundled.append(seg)
+        i += 1
+
+    ccall_segs = [(i, seg) for i, seg in enumerate(bundled)
                   if _has_ccall(seg) and not isinstance(seg, ImpCIf)]
+    return bundled, ccall_segs
     return segments, ccall_segs
 
 

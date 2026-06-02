@@ -908,6 +908,28 @@ def shape_broken(item: Item) -> int:
     item.value = -1
     result = 0
     return result"""),
+    # ── Constructor at CCall site (Gap 3) ─────────────────────────────
+    # Positive: Pydantic constructor call used directly as CCall argument
+    ("ctor_ccall", """\
+from pydantic import BaseModel, Field
+
+class Item(BaseModel):
+    value: int = Field(ge=0)
+
+def read_item(item: Item) -> int:
+    \"\"\"
+    axiomander:
+        ensures:
+            result == item.value
+    \"\"\"
+    result = item.value
+    return result
+
+def ctor_ccall(x: int) -> int:
+    assert x >= 0
+    result = read_item(Item(value=x))
+    assert result == x
+    return result"""),
 ]
 
 NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail", "all_positive", "use_wrong", "user_no_post", "inv_body_violation",     "bad_pass_str", "bad_call_str", "bad_int_to_bool", "frame_fail_pop",

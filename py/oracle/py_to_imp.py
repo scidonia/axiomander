@@ -893,16 +893,25 @@ class PyToImpLowerer:
         suffix = f"_{self._ctor_counter}" if self._ctor_counter > 1 else ""
         callee_part = f"_{callee_name}" if callee_name else ""
         prefix = f"__ctor_{expr.func}{callee_part}{suffix}"
+        def lower_val(py_expr: PyExpr) -> Optional[ImpAExp]:
+            """Lower a value expression, recursing through nested constructors
+            (SSA-style linearisation).  Each nested constructor emits its own
+            setup commands and returns a fresh ImpAVar reference."""
+            nested = self._try_lower_constructor(py_expr, setup_cmds, callee_name=callee_name)
+            if nested is not None:
+                return nested
+            return self.lower_expr(py_expr)
+
         # Build positional arg map (by position, matching shape field order)
         pos_vals: dict[str, ImpAExp] = {}
         for f, py_arg in zip(shape.fields, expr.args):
-            lowered = self.lower_expr(py_arg)
+            lowered = lower_val(py_arg)
             if lowered is not None:
                 pos_vals[f.name] = lowered
         # Keyword args override positional
         kw_vals: dict[str, ImpAExp] = {}
         for kw_name, kw_val in expr.keywords.items():
-            lowered = self.lower_expr(kw_val)
+            lowered = lower_val(kw_val)
             if lowered is not None:
                 kw_vals[kw_name] = lowered
         for f in shape.fields:
