@@ -875,6 +875,23 @@ def docstring_raises_wrong(n: int) -> int:
     result = n
     return result"""),
     # ── Shape IR + is_valid ───────────────────────────────────────────
+    # Positive: is_shape auto-injected + is_valid constraint proves
+    ("shape_auto", """\
+from pydantic import BaseModel, Field, ConfigDict
+
+class Item(BaseModel):
+    value: int = Field(ge=0)
+
+def shape_auto(item: Item) -> int:
+    \"\"\"
+    axiomander:
+        requires:
+            is_valid(item, Item)
+        ensures:
+            result >= 0
+    \"\"\"
+    result = 0
+    return result"""),
     # Negative: is_valid claims constraint holds but body violates it
     ("shape_broken", """\
 from pydantic import BaseModel, Field, ConfigDict
@@ -890,7 +907,8 @@ def shape_broken(item: Item) -> int:
         ensures:
             is_valid(item, Item)
     \"\"\"
-    result = -1
+    item.value = -1
+    result = 0
     return result"""),
 ]
 
