@@ -135,6 +135,12 @@ class ContractLinter(ast.NodeVisitor):
                         return BinOp(op="=", left=DictLenExpr(name=dname, key=left), right=IntLit(value=0))
                 return BinOp(op="=", left=IntLit(value=1), right=IntLit(value=0))
             if left and right:
+                # Convert BoolLit to IntLit in comparison context so
+                # result == True compiles to asZ result = 1 (not = True)
+                if isinstance(left, BoolLit):
+                    left = IntLit(value=1 if left.value else 0)
+                if isinstance(right, BoolLit):
+                    right = IntLit(value=1 if right.value else 0)
                 return BinOp(op=op, left=left, right=right)
             return None
         # Chained: a < b < c → (a < b) /\ (b < c)

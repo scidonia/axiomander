@@ -40,7 +40,8 @@
       "_subst_post_for_qmid",
       "_parse_tactics",
       "extract_proof",
-      "parse_axiomander_docstring"
+      "parse_axiomander_docstring",
+      "_rewrite_implies_syntax"
     ]
   },
   "extract_goal_from_coq": {
@@ -345,7 +346,9 @@
       "generate_frame_conditions",
       "_parse_tactics",
       "extract_proof",
-      "build_report"
+      "build_report",
+      "_find_arrow",
+      "_rewrite_implies_syntax"
     ]
   },
   "_classify_in_function": {
@@ -423,7 +426,7 @@
     ]
   },
   "_get_call_name": {
-    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "contract_hash": "eb4560260798140dff697ab568a1e637b3f21e76b981da10809760cbca3d3ce2",
     "callees": [
       "isinstance",
       "join",
@@ -659,7 +662,7 @@
   "__init__": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
-      "set"
+      "frozenset"
     ],
     "callers": []
   },
@@ -1134,7 +1137,7 @@
     "callers": []
   },
   "is_proved": {
-    "contract_hash": "dbe9d76c3a86758d1272c4322e023385db1a7bb137c4a1e333d578ccb88d9f98",
+    "contract_hash": "2de55011c17faa6d706b44d7cf2280739ab9c316edf046f07051bd02d3151a87",
     "callees": [],
     "callers": []
   },
@@ -2779,8 +2782,7 @@
       "generate_obligations",
       "get_transitive_callers",
       "update",
-      "generate_frame_conditions",
-      "__init__"
+      "generate_frame_conditions"
     ]
   },
   "to_reverify.add": {
@@ -3843,8 +3845,7 @@
       "_translate_assign",
       "_str_contains_expr",
       "_translate_augassign",
-      "_translate_compare",
-      "_attribute_path"
+      "_translate_compare"
     ]
   },
   "self.translate_expr": {
@@ -3858,8 +3859,7 @@
       "_translate_augassign",
       "_translate_call",
       "_translate_compare",
-      "_translate_raise",
-      "_attribute_path"
+      "_translate_raise"
     ]
   },
   "_attribute_path": {
@@ -3868,9 +3868,7 @@
       "isinstance",
       "join",
       "parts.append",
-      "reversed",
-      "self._translate_target",
-      "self.translate_expr"
+      "reversed"
     ],
     "callers": []
   },
@@ -4486,8 +4484,10 @@
     "callers": []
   },
   "to_coq": {
-    "contract_hash": "b5263907dd18c94104792099fdb64ece5e6509528b4f5810aa395e2377bf5a1d",
-    "callees": [],
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "frozenset"
+    ],
     "callers": [
       "_compose_segs"
     ]
@@ -4545,7 +4545,10 @@
     "callees": [],
     "callers": [
       "dump_obligations",
-      "flat_fields"
+      "flat_fields",
+      "to_coq",
+      "to_coq_arm",
+      "__init__"
     ]
   },
   "Logical": {
@@ -5527,6 +5530,7 @@
     "callees": [
       "DocstringContracts",
       "_parse_name_list",
+      "_rewrite_implies_syntax",
       "_rewrite_old_refs",
       "ast.get_docstring",
       "inspect.cleandoc",
@@ -7572,6 +7576,41 @@
     "callees": [
       "ast.parse",
       "groups.append"
+    ],
+    "callers": []
+  },
+  "_rewrite_implies_syntax": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_find_arrow",
+      "len",
+      "strip"
+    ],
+    "callers": [
+      "parse_axiomander_docstring"
+    ]
+  },
+  "_find_arrow": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "len"
+    ],
+    "callers": [
+      "_rewrite_implies_syntax"
+    ]
+  },
+  "self.cond.to_coq": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "to_coq_arm"
+    ]
+  },
+  "to_coq_arm": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "frozenset",
+      "self.cond.to_coq"
     ],
     "callers": []
   }
