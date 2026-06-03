@@ -107,61 +107,46 @@ fun o =>
   end
 ```
 
-### Dogfooding — Axiomander verifies its own decision logic
+### Dogfooding — Axiomander verifies its own code
 
-Axiomander's own codebase carries contracts and verifies them. The best
-example is `classify_failure` — the function that heuristically
-classifies proof failures and suggests corrective actions. Its core
-branching logic is extracted as a verified scalar specification:
+Axiomander carries contracts on its own logic and verifies them. The
+best example is `GoalStatus.is_proved` — the function that tells the
+pipeline whether a verification goal passed:
 
 ```python
-def _spec_classify_failure(
-    has_loop: int,
-    has_invariant_kw: int,
-    has_counterexample_kw: int,
-) -> int:
-    """
-    axiomander:
-        requires:
-            has_loop >= 0
-            has_invariant_kw >= 0
-            has_counterexample_kw >= 0
-        ensures:
-            implies(has_loop >= 1 and has_invariant_kw >= 1,
-                    result == 0)
-            implies(has_counterexample_kw >= 1
-                    and not (has_loop >= 1 and has_invariant_kw >= 1),
-                    result == 1)
-    """
-    if has_loop >= 1 and has_invariant_kw >= 1:
-        result = 0
-    elif has_counterexample_kw >= 1:
-        result = 1
-    else:
-        result = 2
-    return result
+class GoalStatus:
+    level: ProofLevel
+
+    def is_proved(self) -> bool:
+        """
+        axiomander:
+            ensures:
+                implies(self.level == ProofLevel.UNPROVED,
+                        result == 0)
+                implies(self.level == ProofLevel.COUNTEREXAMPLE,
+                        result == 0)
+                implies(self.level != ProofLevel.UNPROVED
+                        and self.level != ProofLevel.COUNTEREXAMPLE,
+                        result == 1)
+        """
+        return self.level not in (
+            ProofLevel.UNPROVED, ProofLevel.COUNTEREXAMPLE)
 ```
 
-This proves at Level 1 (wp_reduce + lia) — the `implies` postconditions
-exactly capture the branch priority: the counterexample branch only
-fires when the invariant branch did not. The real implementation uses
-string methods (`error.lower()`, `"invariant" in error_lower`) which
-prove at Level 3 via the LLM oracle.
+This proves at Level 1 (wp_reduce + lia).  The contract uses real enum
+names (`ProofLevel.UNPROVED` — Axiomander resolves them to integer
+encodings from the AST), `implies()` for each conditional case, and
+`self.level` attribute access (auto-flattened to `self_level: Z`).
 
 Other self-verified functions:
 
 | Function | Level | What it proves |
 |---|---|---|
+| `GoalStatus.is_proved` (real) | 1 | Enum resolution + implies + `not in` tuple body |
 | `classify_failure` (real) | 3 | String methods + `in` operator + branch priority |
 | `_escape_field` | 3 | String replacement in body |
-| `GoalStatus.is_proved` (spec) | 1 | 3-way branch on enum encoding |
-| `build_report` (spec) | 1 | Counting invariant |
-| `phi_selector` | 1 | `implies` on 2-way branch |
 
-The scalar specifications prove the exact decision logic. The remaining
-gap is IMP-level support for the implementation details (string
-operations, list construction, while loops with invariants) — tracked
-in [the self-verification plan](docs/self-verification-plan.md).
+Remaining gaps are tracked in [the self-verification plan](docs/self-verification-plan.md).
 
 ### Docstring Contracts
 
