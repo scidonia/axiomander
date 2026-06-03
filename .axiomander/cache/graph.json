@@ -43,7 +43,8 @@
       "parse_axiomander_docstring",
       "_rewrite_implies_syntax",
       "_coq_int_to_smt",
-      "_coq_string_to_smt"
+      "_coq_string_to_smt",
+      "_smt_check"
     ]
   },
   "extract_goal_from_coq": {
@@ -355,7 +356,17 @@
       "build_report",
       "_find_arrow",
       "_rewrite_implies_syntax",
-      "trust_email"
+      "trust_email",
+      "test_axiom_has_hash_and_solver",
+      "test_contains_counterexample_without_hyp",
+      "test_contains_proved_with_concat_hyp",
+      "test_counterexample_has_typed_values",
+      "test_iso_date_regex",
+      "test_prefix_counterexample",
+      "test_prefix_proved",
+      "test_regex_counterexample_wrong_start",
+      "test_regex_implies_nonempty",
+      "test_unknown_for_unencodable_goal"
     ]
   },
   "_classify_in_function": {
@@ -478,7 +489,8 @@
     "callers": [
       "_extract_tactic",
       "_has_ccall",
-      "binary_search"
+      "binary_search",
+      "test_contains_counterexample_without_hyp"
     ]
   },
   "line.endswith": {
@@ -940,7 +952,8 @@
       "test_focus_trivial_proof",
       "test_insert_reflexivity_proves",
       "test_multi_step_intros_lemma",
-      "try_prove_interactive"
+      "try_prove_interactive",
+      "_smt_check"
     ]
   },
   "open": {
@@ -1408,7 +1421,8 @@
     "callees": [],
     "callers": [
       "interactive_oracle_query",
-      "generate_frame_conditions"
+      "generate_frame_conditions",
+      "_smt_check"
     ]
   },
   "step_history.append": {
@@ -1538,7 +1552,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "validate_proof"
+      "validate_proof",
+      "_smt_check"
     ]
   },
   "tempfile.NamedTemporaryFile": {
@@ -1550,7 +1565,8 @@
       "test_focus_trivial_proof",
       "test_insert_reflexivity_proves",
       "test_multi_step_intros_lemma",
-      "try_prove_interactive"
+      "try_prove_interactive",
+      "_smt_check"
     ]
   },
   "unlink": {
@@ -2674,7 +2690,15 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "test_verification_passes"
+      "test_verification_passes",
+      "test_string_contains_postcondition",
+      "test_string_prefix_postcondition",
+      "test_wrong_contract_produces_counterexample",
+      "test_string_length_postcondition",
+      "test_string_result_equality",
+      "test_wrong_string_contract_detected",
+      "test_string_length_known_literal",
+      "test_string_equality_literal"
     ]
   },
   "pytest.mark.parametrize": {
@@ -8096,5 +8120,394 @@
     "callers": [
       "close"
     ]
+  },
+  "_smt_check": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "f.write",
+      "os.unlink",
+      "r.stdout.strip",
+      "split",
+      "strip",
+      "subprocess.run",
+      "tempfile.NamedTemporaryFile"
+    ],
+    "callers": [
+      "_re_sat"
+    ]
+  },
+  "_re_sat": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_smt_check"
+    ],
+    "callers": [
+      "test_alternation",
+      "test_anchors_are_transparent",
+      "test_any_does_not_match_empty",
+      "test_any_matches_single_char",
+      "test_category_word",
+      "test_literal_matches",
+      "test_range_repeat"
+    ]
+  },
+  "os.unlink": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_smt_check"
+    ]
+  },
+  "r.stdout.strip": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_smt_check"
+    ]
+  },
+  "_python_re_to_smt": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_alternation",
+      "test_anchors_are_transparent",
+      "test_any_does_not_match_empty",
+      "test_any_matches_single_char",
+      "test_backreference_returns_none",
+      "test_category_word",
+      "test_literal_matches",
+      "test_range_repeat",
+      "test_literal_quote_in_string"
+    ]
+  },
+  "test_alternation": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_python_re_to_smt",
+      "_re_sat"
+    ],
+    "callers": []
+  },
+  "test_anchors_are_transparent": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_python_re_to_smt",
+      "_re_sat"
+    ],
+    "callers": []
+  },
+  "test_any_does_not_match_empty": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_python_re_to_smt",
+      "_re_sat"
+    ],
+    "callers": []
+  },
+  "test_any_matches_single_char": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_python_re_to_smt",
+      "_re_sat"
+    ],
+    "callers": []
+  },
+  "ax.axiom_name.startswith": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_axiom_has_hash_and_solver"
+    ]
+  },
+  "ax.to_coq": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_axiom_has_hash_and_solver"
+    ]
+  },
+  "self._dispatch": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_axiom_has_hash_and_solver",
+      "test_contains_counterexample_without_hyp",
+      "test_contains_proved_with_concat_hyp",
+      "test_counterexample_has_typed_values",
+      "test_iso_date_regex",
+      "test_prefix_counterexample",
+      "test_prefix_proved",
+      "test_regex_counterexample_wrong_start",
+      "test_regex_implies_nonempty",
+      "test_unknown_for_unencodable_goal"
+    ]
+  },
+  "test_axiom_has_hash_and_solver": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "ax.axiom_name.startswith",
+      "ax.to_coq",
+      "len",
+      "self._dispatch"
+    ],
+    "callers": []
+  },
+  "test_backreference_returns_none": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_python_re_to_smt"
+    ],
+    "callers": []
+  },
+  "test_category_word": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_python_re_to_smt",
+      "_re_sat"
+    ],
+    "callers": []
+  },
+  "classify_goal": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_classify_float_goal",
+      "test_classify_string_goal"
+    ]
+  },
+  "test_classify_float_goal": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "classify_goal"
+    ],
+    "callers": []
+  },
+  "test_classify_string_goal": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "classify_goal"
+    ],
+    "callers": []
+  },
+  "ce.assignments.values": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_contains_counterexample_without_hyp"
+    ]
+  },
+  "test_contains_counterexample_without_hyp": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "any",
+      "ce.assignments.values",
+      "len",
+      "self._dispatch"
+    ],
+    "callers": []
+  },
+  "test_contains_proved_with_concat_hyp": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "len",
+      "self._dispatch"
+    ],
+    "callers": []
+  },
+  "ce.assignments.get": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_counterexample_has_typed_values",
+      "test_regex_counterexample_wrong_start"
+    ]
+  },
+  "ce.format_report": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_counterexample_has_typed_values"
+    ]
+  },
+  "result_val.python.startswith": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_counterexample_has_typed_values"
+    ]
+  },
+  "test_counterexample_has_typed_values": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "ce.assignments.get",
+      "ce.format_report",
+      "len",
+      "result_val.python.startswith",
+      "self._dispatch"
+    ],
+    "callers": []
+  },
+  "test_iso_date_regex": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "len",
+      "self._dispatch"
+    ],
+    "callers": []
+  },
+  "_re_unsat_neg": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": []
+  },
+  "test_literal_matches": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_python_re_to_smt",
+      "_re_not_member",
+      "_re_sat"
+    ],
+    "callers": []
+  },
+  "test_prefix_counterexample": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "len",
+      "self._dispatch"
+    ],
+    "callers": []
+  },
+  "test_prefix_proved": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "len",
+      "self._dispatch"
+    ],
+    "callers": []
+  },
+  "test_range_repeat": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_python_re_to_smt",
+      "_re_sat"
+    ],
+    "callers": []
+  },
+  "test_regex_counterexample_wrong_start": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "ce.assignments.get",
+      "len",
+      "self._dispatch"
+    ],
+    "callers": []
+  },
+  "test_regex_implies_nonempty": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "len",
+      "self._dispatch"
+    ],
+    "callers": []
+  },
+  "self._verify": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_string_contains_postcondition",
+      "test_string_prefix_postcondition",
+      "test_wrong_contract_produces_counterexample",
+      "test_string_length_postcondition",
+      "test_string_result_equality",
+      "test_wrong_string_contract_detected",
+      "test_string_length_known_literal",
+      "test_string_equality_literal"
+    ]
+  },
+  "test_string_contains_postcondition": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "goal.is_proved",
+      "self._verify"
+    ],
+    "callers": []
+  },
+  "test_string_prefix_postcondition": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "goal.is_proved",
+      "self._verify"
+    ],
+    "callers": []
+  },
+  "test_unknown_for_unencodable_goal": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "len",
+      "self._dispatch"
+    ],
+    "callers": []
+  },
+  "test_wrong_contract_produces_counterexample": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "goal.is_proved",
+      "self._verify"
+    ],
+    "callers": []
+  },
+  "_re_not_member": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_literal_matches"
+    ]
+  },
+  "test_literal_quote_in_string": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_python_re_to_smt"
+    ],
+    "callers": []
+  },
+  "test_string_length_postcondition": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "goal.is_proved",
+      "self._verify"
+    ],
+    "callers": []
+  },
+  "test_string_result_equality": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "goal.is_proved",
+      "self._verify"
+    ],
+    "callers": []
+  },
+  "test_wrong_string_contract_detected": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "goal.is_proved",
+      "self._verify"
+    ],
+    "callers": []
+  },
+  "test_string_length_known_literal": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "goal.is_proved",
+      "self._verify"
+    ],
+    "callers": []
+  },
+  "test_string_equality_literal": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "goal.is_proved",
+      "self._verify"
+    ],
+    "callers": []
   }
 }
