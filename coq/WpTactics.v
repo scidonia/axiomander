@@ -171,8 +171,11 @@ Ltac wp_prove :=
   | [ H: Z.leb ?a ?b = false |- _ ] => apply Z.leb_gt in H; wp_prove
   | [ H: Z.eqb ?a ?b = true |- _ ] => apply Z.eqb_eq in H; subst; wp_prove
   | [ H: Z.eqb ?a ?b = false |- _ ] => apply Z.eqb_neq in H; wp_prove
-  | |- _ /\ _ => split; wp_prove
+  | |- _ /\ _ => repeat split; wp_prove
   | |- _ -> _ => intro; try subst; simpl; wp_prove
+  | [ H: _ /\ _ |- _ ] => destruct H; wp_prove
+  | [ H: ?x <> ?y |- context[?x =? ?y] ] =>
+      apply Z.eqb_neq in H; rewrite H; wp_prove
   | |- (true -> _) /\ _ => split; [intros; wp_prove | intros; exfalso; auto]
   | |- context[wp (CIf BTrue _ _) _ _] => rewrite wp_cif_btrue; wp_prove
   | |- forall _, ~ In _ (_ :: _) -> lget _ _ = lget (clobber (lupd _ _ (VZ _)) _) _ => apply wp_ccall_frame
