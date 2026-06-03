@@ -295,7 +295,8 @@
       "_is_dataclass",
       "_build_enum_values",
       "_is_enum",
-      "_subst_post_for_qmid"
+      "_subst_post_for_qmid",
+      "generate_obligations"
     ]
   },
   "len": {
@@ -6534,6 +6535,7 @@
       "enumerate",
       "ghost_vars.items",
       "ghost_vars.keys",
+      "isinstance",
       "join",
       "len",
       "obligations.append",

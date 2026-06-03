@@ -128,9 +128,11 @@ def generate_obligations(
         lemma_name = f"{name}_stage_{k + 1}_correct"
 
         if k == 0:
+            is_bare = isinstance(ccall_segs[0][1], ImpCCall)
             stmt, proof = _mk_stage1_statement_proof(
                 lemma_name, expanded_params, pre_coq, pre_parts,
                 seg_name, qn, init_state_ext, ccall,
+                is_bare_ccall=is_bare,
             )
         else:
             bindings = _get_callee_param_bindings(seg)
@@ -489,6 +491,7 @@ def _mk_stage1_statement_proof(
     lemma_name: str, expanded_params: list[str], pre_coq: str,
     pre_parts: list[str], seg_name: str, qn: str,
     init_state_ext: str, ccall: ImpCCall,
+    is_bare_ccall: bool = True,
 ) -> "tuple[str, str]":
     params_forall = " ".join(f"({p} : Z)" for p in expanded_params)
     params_lemma = " ".join(expanded_params)
@@ -505,14 +508,31 @@ def _mk_stage1_statement_proof(
     if len(pre_parts) > 1:
         pre_hyps = " ".join(f"H{i}" for i in range(len(pre_parts)))
         lines.append(f"  destruct Hpre as [{pre_hyps}].")
-    lines.extend([
-        "  wp_reduce.",
-        "  repeat rewrite upd_eq.",
-        "  repeat (rewrite upd_ne by discriminate).",
-        "  repeat rewrite ls_lupd_eq.",
-        "  repeat (rewrite ls_lupd_ne by discriminate).",
-        "  solve [sauto | repeat split; try assumption; try lia; try reflexivity; try apply wp_ccall_frame].",
-    ])
+
+    if is_bare_ccall:
+        lines.extend([
+            f"  unfold {seg_name}.",
+            "  apply wp_ccall_decompose.",
+            "  - repeat split; solve [lia | reflexivity | assumption | apply wp_ccall_frame].",
+            "  - intros r Hr. simpl in Hr.",
+            "    repeat rewrite clobber_nil.",
+            "    repeat rewrite ls_lupd_eq.",
+            "    repeat (rewrite ls_lupd_ne by discriminate).",
+            "    repeat rewrite ls_lupd_eq in Hr.",
+            "    repeat (rewrite ls_lupd_ne in Hr by discriminate).",
+            f"    unfold {qn}, wp_normal. simpl.",
+            "    repeat split; solve [lia | reflexivity | assumption | apply wp_ccall_frame | sauto].",
+            "  - intros r x Hnotin. apply wp_ccall_frame. exact Hnotin.",
+        ])
+    else:
+        lines.extend([
+            "  wp_reduce.",
+            "  repeat rewrite upd_eq.",
+            "  repeat (rewrite upd_ne by discriminate).",
+            "  repeat rewrite ls_lupd_eq.",
+            "  repeat (rewrite ls_lupd_ne by discriminate).",
+            "  solve [sauto | repeat split; try assumption; try lia; try reflexivity; try apply wp_ccall_frame].",
+        ])
     proof = "\n".join(lines)
     return statement, proof
 
