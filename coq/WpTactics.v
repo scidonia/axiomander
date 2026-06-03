@@ -106,6 +106,29 @@ Proof.
   destruct v; simpl; intros H; try discriminate; reflexivity.
 Qed.
 
+(** Constant-pattern lemmas — used by the stage lemma proof tactic
+    to simplify goals like [isVZ (VZ n) = true] without unfolding
+    arbitrary definitions. *)
+Lemma isVZ_VZ : forall n, isVZ (VZ n) = true.
+Proof. intros. reflexivity. Qed.
+
+Lemma isVString_VString : forall s, isVString (VString s) = true.
+Proof. intros. reflexivity. Qed.
+
+Lemma isVFloat_VFloat : forall f, isVFloat (VFloat f) = true.
+Proof. intros. reflexivity. Qed.
+
+Lemma asZ_VZ : forall n, asZ (VZ n) = n.
+Proof. intros. reflexivity. Qed.
+
+(** [wp_ccall_pre_simpl] — constant folding for CCall precondition goals.
+    Rewrites common constant patterns like [isVZ (VZ 5)] and [asZ (VZ n)]
+    before splitting conjunctions. *)
+Ltac wp_ccall_pre_simpl :=
+  repeat (rewrite isVZ_VZ || rewrite isVString_VString || rewrite isVFloat_VFloat
+       || rewrite asZ_VZ);
+  repeat split; try assumption; try lia; try reflexivity; try apply wp_ccall_frame.
+
 Lemma wp_ccall_decompose : forall (name : var) (args : list aexp)
     (pre post : assertion) (Phi : outcome_pred) (writes : list var) (target : var) (s : state),
   pre s ->

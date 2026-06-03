@@ -294,7 +294,8 @@
       "_lower_arg",
       "_is_dataclass",
       "_build_enum_values",
-      "_is_enum"
+      "_is_enum",
+      "_subst_post_for_qmid"
     ]
   },
   "len": {
@@ -2824,6 +2825,7 @@
     "callees": [
       "_aexp_to_zterm",
       "callee_post.strip",
+      "isinstance",
       "post.endswith",
       "post.replace",
       "post.startswith",
