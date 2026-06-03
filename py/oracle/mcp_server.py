@@ -1135,6 +1135,7 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
             name=func_name,
             goal_statement="",
             level=ProofLevel.COUNTEREXAMPLE,
+            proof_method="dim_check",
             error_detail=dim_report,
             suggested_action=Action.REFACTOR,
             suggestion_text=dim_report,
@@ -1496,6 +1497,10 @@ def _verify_function_full(source: str, func_name: str, hint: str | None = None) 
     This helper is the structured entrypoint the public tools should call.
     """
     goal = _verify_function(source, func_name, hint)
+    # Dimension errors (COUNTEREXAMPLE from the dim check pre-pass) are final --
+    # don't attempt coq-lsp or LLM repair since the contract itself is wrong.
+    if goal and goal.level == ProofLevel.COUNTEREXAMPLE and goal.proof_method == "dim_check":
+        return goal
     if goal and not goal.is_proved():
         # Per-obligation CCall files are often too heavy for the coq-lsp ladder
         # and are better handed directly to the LLM with the generated stage/post

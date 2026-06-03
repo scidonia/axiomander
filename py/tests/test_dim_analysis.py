@@ -491,13 +491,14 @@ def wrong(a: float, b: float) -> float:
     # ── Integration: check-function path ─────────────────────────
 
     def test_check_function_with_units_violation(self):
-        """End-to-end: check-function returns COUNTEREXAMPLE for dim error."""
+        """End-to-end: _verify_function_full returns COUNTEREXAMPLE for dim error
+        and does NOT pass the result to coq-lsp or LLM oracles."""
         import os
         os.environ.setdefault(
             "AXIOMANDER_ROOT",
             str(Path(__file__).resolve().parent.parent.parent)
         )
-        from oracle.mcp_server import _verify_function
+        from oracle.mcp_server import _verify_function_full
         from oracle.reporting import ProofLevel
 
         source = '''
@@ -508,16 +509,20 @@ def wrong_add(revenue: float, headcount: int) -> float:
             revenue: [USD]
             headcount: [person]
             result: [USD]
+        requires:
+            True
         ensures:
             result >= 0
     """
     result = revenue + headcount
     return result
 '''
-        goal = _verify_function(source, "wrong_add", None)
+        goal = _verify_function_full(source, "wrong_add", None)
         assert goal is not None
         assert goal.level == ProofLevel.COUNTEREXAMPLE
-        assert "USD" in goal.error_detail or "person" in goal.error_detail
+        assert goal.proof_method == "dim_check"
+        assert "USD" in goal.error_detail
+        assert "person" in goal.error_detail
 
     def test_check_function_consistent_units_passes(self):
         """End-to-end: consistent units don't block verification."""
@@ -526,7 +531,8 @@ def wrong_add(revenue: float, headcount: int) -> float:
             "AXIOMANDER_ROOT",
             str(Path(__file__).resolve().parent.parent.parent)
         )
-        from oracle.mcp_server import _verify_function
+        from oracle.mcp_server import _verify_function_full
+        from oracle.reporting import ProofLevel
 
         source = '''
 def revenue_per_user(revenue: float, users: int) -> float:
@@ -546,9 +552,8 @@ def revenue_per_user(revenue: float, users: int) -> float:
     assert result >= 0
     return result
 '''
-        goal = _verify_function(source, "revenue_per_user", None)
+        goal = _verify_function_full(source, "revenue_per_user", None)
         assert goal is not None
-        # Dimensionally consistent -- should reach WP verification
-        # (may or may not prove depending on WP, but not rejected for dim error)
-        from oracle.reporting import ProofLevel
-        assert goal.level != ProofLevel.COUNTEREXAMPLE or "dimension" not in goal.error_detail.lower()
+        # Dimensionally consistent -- dim_check does not block, WP runs
+        assert goal.proof_method != "dim_check"
+        assert goal.is_proved()
