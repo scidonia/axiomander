@@ -27,4 +27,9 @@ From Stdlib Require Import String Bool.
     interesting properties from SMT-verified axioms.
 *)
 
-Definition re_match (s : string) (pattern : string) : bool := true.
+(** [re_match s pattern] is a Prop, not a bool.
+    As a Prop it composes naturally with /\ and -> in WP assertions
+    without requiring [= true] boilerplate.  The placeholder is
+    trivially true so every oracle-backed axiom can prove it from
+    the specific hypothesis the SMT solver verified. *)
+Definition re_match (s : string) (pattern : string) : Prop := True.

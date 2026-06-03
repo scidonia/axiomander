@@ -883,11 +883,12 @@ class StringTheoryEncoder:
         pattern = after_subject[1:pat_end]
         suffix = after_subject[pat_end+1:].strip()
 
-        # Optional polarity: = true / = false
-        polarity = "true"
-        pm = re.match(r'=\s*(true|false)', suffix)
-        if pm:
-            polarity = pm.group(1)
+        # re_match is now a Prop -- no = true / = false suffix.
+        # Negation is expressed as ~ re_match ... in Coq, which appears
+        # in the goal text as (not (re_match ...)) after wp_reduce.
+        # We encode the positive form; the ~ case is handled by the
+        # outer ~ / not handling in _encode_expr.
+        negate = suffix.strip().startswith("= false")
 
         # Encode
         s_smt = self._coq_string_to_smt(subject, coq_sorts)
@@ -895,7 +896,7 @@ class StringTheoryEncoder:
         if not re_smt:
             return None
         membership = f"(str.in_re {s_smt} {re_smt})"
-        return membership if polarity == "true" else f"(not {membership})"
+        return f"(not {membership})" if negate else membership
 
     def _consume_one_arg(self, s: str) -> "tuple[str | None, str]":
         """Consume one argument from the start of s.

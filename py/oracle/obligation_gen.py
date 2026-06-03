@@ -15,6 +15,24 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+
+def _coq_type_of_param(p: str) -> str:
+    """Infer the Coq type of an expanded parameter from its name convention.
+
+    _expand_params names string params as '<name>_str' (type: string) and
+    all other expanded params as '<name>__len', '<name>__count' etc. (type: Z).
+    This lets obligation_gen emit correctly-typed forall binders without
+    needing to thread the full params_coq string through every call site.
+    """
+    if p.endswith("_str"):
+        return "string"
+    return "Z"
+
+
+def _params_forall(expanded_params: list[str]) -> str:
+    """Build a Coq 'forall' binder string with correct types for each param."""
+    return " ".join(f"({p} : {_coq_type_of_param(p)})" for p in expanded_params)
+
 from .obligations import (
     Obligation, ObligationKind, ObligationStatus,
     ProofAttempt, ResidualGoal,
@@ -38,6 +56,8 @@ def generate_obligations(
     pre_coq: str,
     post_coq: str,
     name: str,
+    expanded_params_override: "list[str] | None" = None,
+    params_coq_override: "str | None" = None,
 ) -> list[Obligation]:
     """Generate all obligations for a function.
 
@@ -95,9 +115,12 @@ def generate_obligations(
         return [_make_wholefn_obligation(name, params, ghost_vars,
                                           init_state, pre_coq, post_coq)]
 
-    # Q definitions
-    expanded_params = params + sorted(ghost_vars.keys())
-    val_init: dict[str, str] = {p: p for p in params}
+    # Q definitions — use caller-provided expanded params when available.
+    # For str/list/dict params, the caller has already expanded e.g.
+    # ['raw'] -> ['raw__len', 'raw_str'] via _expand_params.
+    base_params = expanded_params_override if expanded_params_override is not None else params
+    expanded_params = base_params + sorted(ghost_vars.keys())
+    val_init: dict[str, str] = {p: p for p in base_params}
     if ghost_vars:
         val_init.update(ghost_vars)
     q_def_data, seg_names, seg_coqs = _build_q_defs(
@@ -473,8 +496,12 @@ def _build_q_defs(
             conj_strs.append(f"({prev_val})")
             conj_strs.append(f'(isVZ (s "{prev_target}"%string) = true)')
 
-        # Frame conditions for all params
+        # Frame conditions for all params.
+        # _str params (string Coq type) are opaque -- skip asZ/isVZ frame
+        # conditions for them; they're tracked by the isVString type guard.
         for p in sorted(fv):
+            if _coq_type_of_param(p) == "string":
+                continue  # string params have no integer frame conditions
             init_val = vinit.get(p, p)
             conj_strs.append(f'(asZ (s "{p}"%string) = {init_val})')
             conj_strs.append(f'(isVZ (s "{p}"%string) = true)')
@@ -493,7 +520,7 @@ def _mk_stage1_statement_proof(
     init_state_ext: str, ccall: ImpCCall,
     is_bare_ccall: bool = True,
 ) -> "tuple[str, str]":
-    params_forall = " ".join(f"({p} : Z)" for p in expanded_params)
+    params_forall = _params_forall(expanded_params)
     params_lemma = " ".join(expanded_params)
 
     statement = (
@@ -545,7 +572,7 @@ def _mk_stage_k_statement_proof(
     bindings: list[tuple[str, str]], q_def_data: QDefData,
     ccall_segs, pre_parts: list[str],
 ) -> "tuple[str, str]":
-    params_forall = " ".join(f"({p} : Z)" for p in expanded_params)
+    params_forall = _params_forall(expanded_params)
     params_lemma = " ".join(expanded_params)
     prev_conjs = q_def_data.all_conjs[k - 1]
 
@@ -579,7 +606,8 @@ def _mk_stage_k_statement_proof(
         f"  intros {params_lemma} s " + hyp_names + ".",
         f"  unfold {seg_name}.",
         "  apply wp_ccall_decompose;",
-        "  [ (* pre *) repeat split; try assumption; try lia; try reflexivity",
+        "  [ (* pre *) repeat match goal with H : _ /\\ _ |- _ => destruct H end;",
+        "    repeat split; try assumption; try lia; try reflexivity",
         "  | (* post *) intros r Hr; simpl in Hr;",
         f"    unfold {qn}, wp_normal; simpl;",
         "    repeat match goal with H : _ /\\ _ |- _ => destruct H end;",
@@ -612,7 +640,7 @@ def _mk_post_obligation(
     all_conjs = q_def_data.all_conjs[n_stages - 1]
     n_hyps = len(all_conjs)
 
-    params_forall = " ".join(f"({p} : Z)" for p in expanded_params)
+    params_forall = _params_forall(expanded_params)
     post_str = "(wp_normal (fun s => " + post_coq + "))"
     hyp_lines = "".join(f"  ({h}) ->\n" for h in all_conjs)
     statement = (
@@ -658,10 +686,14 @@ def _mk_composition_obligation(
     final_com: str, q_def_data: QDefData,
     multi_call_callees: set[str], obligations: list[Obligation],
 ) -> Obligation:
-    params_forall = " ".join(f"({p} : Z)" for p in params)
-    params_lemma = " ".join(params)
+    # Use expanded_params for forall binders and Q applications.
+    # expanded_params has the correct flat names (e.g. raw__len, raw_str)
+    # while params has the original names (e.g. raw). We need the expanded
+    # form throughout so the types and Q-definition arguments match.
     expanded_params_sorted = sorted(expanded_params)
-    expanded_lemma = " ".join(expanded_params_sorted)
+    params_forall = _params_forall(expanded_params_sorted)
+    params_lemma = " ".join(expanded_params_sorted)
+    expanded_lemma = params_lemma
     post_str = "(wp_normal (fun s => " + post_coq + "))"
 
     n_stages = len(ccall_segs)
@@ -789,7 +821,7 @@ def _make_wholefn_obligation(
     name: str, params: list[str], ghost_vars: dict[str, str],
     init_state: str, pre_coq: str, post_coq: str,
 ) -> Obligation:
-    params_forall = " ".join(f"({p} : Z)" for p in params)
+    params_forall = _params_forall(params)
     ghost_has = ghost_vars is not None and len(ghost_vars) > 0
 
     if ghost_has:

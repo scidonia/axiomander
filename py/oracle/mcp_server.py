@@ -4141,6 +4141,8 @@ def _render_obligations_coq(func_node, lint_results, imp_body: str,
     obligations = generate_obligations(
         func_node, imp_ir, contract_map, params,
         ghost_vars or {}, init_state, pre_coq, post_coq, name,
+        expanded_params_override=expanded_params,
+        params_coq_override=params_coq,
     )
 
     # Collect segment + Q definitions from obligations' dependencies
@@ -4151,31 +4153,41 @@ def _render_obligations_coq(func_node, lint_results, imp_body: str,
 
     ccalls = _collect_ccalls(imp_ir)
     if ccalls:
-        all_frame_vars = set(params) | set(ghost_vars.keys() if ghost_vars else [])
-        expanded_params = sorted(all_frame_vars)
-        val_init: dict[str, str] = {p: p for p in params}
+        # Use expanded_params already computed by _expand_params (not set(params)).
+        # For string/list/dict params, expanded_params has e.g. ['raw__len', 'raw_str']
+        # and params_coq has the correctly typed binders "(raw__len : Z) (raw_str : string)".
+        # Shadowing expanded_params here was the root cause of raw__len free-variable errors.
+        all_frame_vars = set(expanded_params) | set(ghost_vars.keys() if ghost_vars else [])
+        q_expanded = sorted(all_frame_vars)
+        val_init: dict[str, str] = {p: p for p in expanded_params}
         if ghost_vars:
             val_init.update(ghost_vars)
 
         segments, ccall_segs = _extract_segments(imp_ir)
         q_def_data, seg_names, seg_coqs = _build_q_defs(
-            ccall_segs, contract_map, expanded_params, pre_coq, post_coq, name,
-            all_params_param=expanded_params, val_init=val_init,
+            ccall_segs, contract_map, q_expanded, pre_coq, post_coq, name,
+            all_params_param=q_expanded, val_init=val_init,
         )
 
         # Emit segment definitions
         for seg_name, seg_coq in zip(seg_names, seg_coqs):
             seg_defs += f"Definition {seg_name} : com := {seg_coq}.\n"
 
-        # Emit Q definitions
+        # Emit Q definitions with correctly typed binders from params_coq.
+        # params_coq = "(raw__len : Z) (raw_str : string)" -- already correct.
+        # Ghost vars are always Z.
+        ghost_binders = ""
+        if ghost_vars:
+            ghost_binders = " " + " ".join(f"({g} : Z)" for g in sorted(ghost_vars.keys()))
+        q_binders = params_coq + ghost_binders
+
         n_stages = len(ccall_segs)
-        params_for_q = " ".join(expanded_params)
         for k in range(n_stages):
             qn = f"Q_{name}_{k + 1}"
             conj_strs = q_def_data.all_conjs[k]
             body = " /\\ ".join(conj_strs)
             q_defs += (
-                f"Definition {qn} ({params_for_q} : Z) : assertion :=\n"
+                f"Definition {qn} {q_binders} : assertion :=\n"
                 f"  fun s => {body}.\n\n"
             )
 

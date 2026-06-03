@@ -384,14 +384,14 @@ class TestTheoryDispatcher:
 
     def test_regex_implies_nonempty(self):
         """If result matches [a-z]+ then its length is > 0."""
-        hyp  = 're_match (asString (s "result")) "[a-z]+" = true'
+        hyp  = 're_match (asString (s "result")) "[a-z]+"'
         goal = 'String.length (asString (s "result")) > 0'
         res = self._dispatch(goal, [hyp], {"result": "str"})
         assert len(res.proved) == 1
 
     def test_regex_counterexample_wrong_start(self):
         """[a-z]+ does not imply the string starts with 'z'."""
-        hyp  = 're_match (asString (s "result")) "[a-z]+" = true'
+        hyp  = 're_match (asString (s "result")) "[a-z]+"'
         goal = 'String.prefix "z" (asString (s "result")) = true'
         res = self._dispatch(goal, [hyp], {"result": "str"})
         assert len(res.counterexamples) == 1
@@ -403,7 +403,7 @@ class TestTheoryDispatcher:
 
     def test_iso_date_regex(self):
         """A date matching [0-9]{4}-[0-9]{2}-[0-9]{2} has length 10."""
-        hyp  = r're_match (asString (s "result")) "[0-9]{4}-[0-9]{2}-[0-9]{2}" = true'
+        hyp  = r're_match (asString (s "result")) "[0-9]{4}-[0-9]{2}-[0-9]{2}"'
         goal = 'String.length (asString (s "result")) > 0'
         res = self._dispatch(goal, [hyp], {"result": "str"})
         assert len(res.proved) == 1
@@ -477,7 +477,7 @@ class TestTheoryDispatcher:
     LETTERS_ONLY  = r"[A-Za-z]+"
 
     def _phone_hyp(self) -> str:
-        return f're_match (asString (s "s")) "{self.PHONE_GATE}" = true'
+        return f're_match (asString (s "s")) "{self.PHONE_GATE}"'
 
     def test_phone_gate_implies_digits_dashes(self):
         """Subsumption: phone format [0-9]{3}-[0-9]{3}-[0-9]{4}
@@ -487,7 +487,7 @@ class TestTheoryDispatcher:
         digits and dashes, so the postcondition is a superset.
         Z3 must prove this by showing no phone string violates [0-9-]+.
         """
-        goal = f're_match (asString (s "s")) "{self.DIGITS_DASHES}" = true'
+        goal = f're_match (asString (s "s")) "{self.DIGITS_DASHES}"'
         res = self._dispatch(goal, [self._phone_hyp()], {"s": "str"})
         assert len(res.proved) == 1, (
             f"Expected subsumption proof, got: "
@@ -501,7 +501,7 @@ class TestTheoryDispatcher:
         Any string in [0-9]{3}-[0-9]{3}-[0-9]{4} is non-empty (length 12),
         so the weakest possible postcondition is trivially subsumed.
         """
-        goal = f're_match (asString (s "s")) "{self.NONEMPTY}" = true'
+        goal = f're_match (asString (s "s")) "{self.NONEMPTY}"'
         res = self._dispatch(goal, [self._phone_hyp()], {"s": "str"})
         assert len(res.proved) == 1
         assert len(res.counterexamples) == 0
@@ -513,7 +513,7 @@ class TestTheoryDispatcher:
         The postcondition [A-Za-z]+ is disjoint from the phone language.
         Z3 must produce a concrete phone number as the witness.
         """
-        goal = f're_match (asString (s "s")) "{self.LETTERS_ONLY}" = true'
+        goal = f're_match (asString (s "s")) "{self.LETTERS_ONLY}"'
         res = self._dispatch(goal, [self._phone_hyp()], {"s": "str"})
         assert len(res.counterexamples) == 1, (
             f"Expected counterexample, got: proved={res.proved} unknown={res.unknown}"
@@ -543,8 +543,8 @@ class TestTheoryDispatcher:
         A string like "0" satisfies [0-9-]+ but not the full phone format.
         Z3 must find it as the counterexample.
         """
-        hyp_weak = f're_match (asString (s "s")) "{self.DIGITS_DASHES}" = true'
-        goal_strong = f're_match (asString (s "s")) "{self.PHONE_GATE}" = true'
+        hyp_weak = f're_match (asString (s "s")) "{self.DIGITS_DASHES}"'
+        goal_strong = f're_match (asString (s "s")) "{self.PHONE_GATE}"'
 
         res = self._dispatch(goal_strong, [hyp_weak], {"s": "str"})
         assert len(res.counterexamples) == 1
@@ -639,3 +639,58 @@ def greeting() -> str:
         goal = self._verify(source, "greeting")
         assert goal is not None
         assert not goal.is_proved(), f"Should not be proved but level={goal.level}"
+
+    def test_two_function_phone_gate_subsumption(self):
+        """Two-function composition: parse_phone -> send_sms.
+
+        parse_phone postcondition (full phone regex) must satisfy
+        send_sms precondition (same full phone regex).
+        Same pattern -> subsumption -> notify_user should prove at Level 1.
+
+        This is the canonical regex gate composition example:
+          - parse_phone: str -> str, ensures result.re_match(PHONE)
+          - send_sms: str -> int, requires phone.re_match(PHONE)
+          - notify_user: chains them, should prove result == 0
+        """
+        source = '''
+def parse_phone(raw: str) -> str:
+    """
+    axiomander:
+        ensures:
+            result.re_match("[0-9]{3}-[0-9]{3}-[0-9]{4}")
+    """
+    result = raw
+    assert result.re_match("[0-9]{3}-[0-9]{3}-[0-9]{4}")
+    return result
+
+
+def send_sms(phone: str) -> int:
+    """
+    axiomander:
+        requires:
+            phone.re_match("[0-9]{3}-[0-9]{3}-[0-9]{4}")
+        ensures:
+            result == 0
+    """
+    result = 0
+    return result
+
+
+def notify_user(raw: str) -> int:
+    """
+    axiomander:
+        requires:
+            True
+        ensures:
+            result == 0
+    """
+    phone = parse_phone(raw)
+    result = send_sms(phone)
+    return result
+'''
+        goal = self._verify(source, "notify_user")
+        assert goal is not None
+        assert goal.is_proved(), (
+            f"notify_user should prove (regex subsumption at CCall boundary) "
+            f"but level={goal.level}, error={goal.error_detail[:200]}"
+        )

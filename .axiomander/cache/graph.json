@@ -419,7 +419,8 @@
       "generate_havoc_body",
       "visit_Attribute",
       "explain",
-      "_build_coq_prop"
+      "_build_coq_prop",
+      "_params_forall"
     ]
   },
   "parts.append": {
@@ -2701,7 +2702,8 @@
       "test_string_result_equality",
       "test_wrong_string_contract_detected",
       "test_string_length_known_literal",
-      "test_string_equality_literal"
+      "test_string_equality_literal",
+      "test_two_function_phone_gate_subsumption"
     ]
   },
   "pytest.mark.parametrize": {
@@ -2960,6 +2962,7 @@
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
       "QDefData",
+      "_coq_type_of_param",
       "_get_callee_param_bindings",
       "_get_ccall_from_seg",
       "_subst_post_for_qmid",
@@ -3163,6 +3166,7 @@
     "callees": [
       "Obligation",
       "ProofAttempt",
+      "_params_forall",
       "ghost_vars.items",
       "join",
       "len"
@@ -4454,6 +4458,7 @@
   "_mk_post_obligation": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
+      "_params_forall",
       "enumerate",
       "join",
       "len",
@@ -4480,6 +4485,7 @@
   "_mk_stage1_statement_proof": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
+      "_params_forall",
       "join",
       "len",
       "lines.append",
@@ -4513,6 +4519,7 @@
   "_mk_stage_k_statement_proof": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
+      "_params_forall",
       "_writes_list_coq",
       "enumerate",
       "join",
@@ -4544,7 +4551,7 @@
     ]
   },
   "_multi_call_callees": {
-    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "contract_hash": "2740989731ede6ebbf85f6d96a525739517e29f84eee3639e534b09863fb634e",
     "callees": [
       "append",
       "callee_targets.items",
@@ -8430,7 +8437,8 @@
       "test_string_result_equality",
       "test_wrong_string_contract_detected",
       "test_string_length_known_literal",
-      "test_string_equality_literal"
+      "test_string_equality_literal",
+      "test_two_function_phone_gate_subsumption"
     ]
   },
   "test_string_contains_postcondition": {
@@ -8581,5 +8589,43 @@
     "callers": [
       "visit_Call"
     ]
+  },
+  "p.endswith": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_coq_type_of_param"
+    ]
+  },
+  "_coq_type_of_param": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "p.endswith"
+    ],
+    "callers": [
+      "_params_forall",
+      "_build_q_defs"
+    ]
+  },
+  "_params_forall": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_coq_type_of_param",
+      "join"
+    ],
+    "callers": [
+      "_mk_stage1_statement_proof",
+      "_mk_stage_k_statement_proof",
+      "_make_wholefn_obligation",
+      "_mk_post_obligation"
+    ]
+  },
+  "test_two_function_phone_gate_subsumption": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "goal.is_proved",
+      "self._verify"
+    ],
+    "callers": []
   }
 }
