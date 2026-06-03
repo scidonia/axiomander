@@ -321,7 +321,6 @@ class ContractLinter(ast.NodeVisitor):
 
     def visit_Attribute(self, node: ast.Attribute) -> Expr:
         if isinstance(node.value, ast.Subscript):
-            # items[i].field → IndexExpr with compound key
             base = node.value.value
             if isinstance(base, ast.Name):
                 name = f"{base.id}.{node.attr}"
@@ -331,6 +330,13 @@ class ContractLinter(ast.NodeVisitor):
             if not idx:
                 idx = IntLit(value=0)
             return IndexExpr(name=name, index=idx)
+        # Resolve enum member references to their integer encoding
+        # e.g. ProofLevel.UNPROVED → IntLit(3)
+        if isinstance(node.value, ast.Name):
+            from .shape_ir import lookup_enum_value
+            ev = lookup_enum_value(node.value.id, node.attr)
+            if ev is not None:
+                return IntLit(value=ev)
         path = self._attribute_path(node)
         # Always normalise dots to underscores with _escape_field convention:
         # precondition: bare var  e.g. item_value  (Coq param name)

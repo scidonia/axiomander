@@ -48,18 +48,55 @@ def _escape_field(name: str) -> str:
 
 
 _shape_registry: dict[str, Shape] = {}
+_enum_registry: dict[str, dict[str, int]] = {}  # e.g. ProofLevel → {"UNPROVED": 0, ...}
 
 
 def build_shape_registry(tree: ast.Module) -> dict[str, Shape]:
     _shape_registry.clear()
+    _enum_registry.clear()
     for node in ast.walk(tree):
         if not isinstance(node, ast.ClassDef):
             continue
-        if not _inherits_base_model(node) and not _is_dataclass(node):
-            continue
-        shape = _build_shape(node)
-        _shape_registry[node.name] = shape
+        if _inherits_base_model(node) or _is_dataclass(node):
+            shape = _build_shape(node)
+            _shape_registry[node.name] = shape
+        elif _is_enum(node):
+            _enum_registry[node.name] = _build_enum_values(node)
     return _shape_registry
+
+
+def lookup_enum_value(enum_name: str, member_name: str) -> int | None:
+    """Return the integer encoding of an enum member, or None."""
+    members = _enum_registry.get(enum_name)
+    if members is None:
+        return None
+    return members.get(member_name)
+
+
+def _is_enum(node: ast.ClassDef) -> bool:
+    """Check if a ClassDef inherits from Enum."""
+    for base in node.bases:
+        if isinstance(base, ast.Name) and base.id == "Enum":
+            return True
+        if isinstance(base, ast.Attribute) and base.attr == "Enum":
+            return True
+    return False
+
+
+def _build_enum_values(node: ast.ClassDef) -> dict[str, int]:
+    """Build {member_name: integer_encoding} for an enum class.
+    
+    Encoding is 0-based by declaration order in the AST body.
+    """
+    values: dict[str, int] = {}
+    idx = 0
+    for stmt in node.body:
+        if isinstance(stmt, ast.Assign):
+            for target in stmt.targets if isinstance(stmt.targets, list) else [stmt.targets]:
+                if isinstance(target, ast.Name):
+                    values[target.id] = idx
+                    idx += 1
+    return values
 
 
 def lookup_shape(model_name: str) -> Optional[Shape]:

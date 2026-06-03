@@ -192,6 +192,11 @@ class PyToImpLowerer:
         # Single-level: obj.field where obj is a known record param
         if isinstance(expr.obj, PyName):
             obj_name = expr.obj.name
+            # Check if this is an enum member (e.g. ProofLevel.UNPROVED → 0)
+            from .shape_ir import lookup_enum_value
+            ev = lookup_enum_value(obj_name, expr.attr)
+            if ev is not None:
+                return ImpANum(value=ev)
             for cls_name, fields in self._record_fields.items():
                 if expr.attr in fields:
                     if self._param_types.get(obj_name) == cls_name:

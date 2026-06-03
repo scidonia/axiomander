@@ -135,15 +135,41 @@ def _parse_name_list(line: str) -> list[str]:
 def docstring_assert_nodes(func_node: ast.FunctionDef) -> list[tuple[ast.Assert, str]]:
     """Return docstring requires/ensures/raises as synthetic ast.Assert nodes.
 
-    raises: clauses become assert raises(ExcType, cond) nodes classified as
-    'exception_postcondition', which the contract linter already handles.
+    Multi-line expressions in ensures/requires sections are joined into single
+    entries before parsing.  A line that fails to parse as a standalone
+    expression is treated as a continuation of the previous incomplete line.
     """
     parsed = parse_axiomander_docstring(func_node)
     out: list[tuple[ast.Assert, str]] = []
 
+    def _group_expressions(entries: list[str]) -> list[str]:
+        """Join continuation lines into complete expressions.
+
+        Each line that parses as a standalone eval expression starts a new
+        group.  Each line that does NOT parse is joined (with a space) to
+        the most recent incomplete group — or starts a new one if there
+        is no incomplete group already open.
+        """
+        groups: list[str] = []
+        incomplete = False
+        for text in entries:
+            try:
+                ast.parse(text, mode="eval")
+                groups.append(text)
+                incomplete = False
+            except SyntaxError:
+                if incomplete and groups:
+                    groups[-1] = groups[-1] + " " + text
+                else:
+                    groups.append(text)
+                    incomplete = True
+        return groups
+
     # requires -> precondition, ensures -> postcondition
-    for expr_text, cls in [(e, "precondition") for e in parsed.requires] + [
-        (e, "postcondition") for e in parsed.ensures
+    for expr_text, cls in [
+        (e, "precondition") for e in _group_expressions(parsed.requires)
+    ] + [
+        (e, "postcondition") for e in _group_expressions(parsed.ensures)
     ]:
         try:
             expr = ast.parse(expr_text, mode="eval").body

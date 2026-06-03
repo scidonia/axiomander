@@ -386,6 +386,12 @@ class ImpTranslator:
             expanded = self._try_record_field(node)
             if expanded:
                 return f'(AVar "{expanded}"%string)'
+            # Check if this is an enum member (e.g. ProofLevel.UNPROVED → 0)
+            if isinstance(node.value, ast.Name):
+                from .shape_ir import lookup_enum_value
+                ev = lookup_enum_value(node.value.id, node.attr)
+                if ev is not None:
+                    return f"(ANum {ev})"
             path = self._attribute_path(node)
             return f'(AVar "{path}"%string)'
 

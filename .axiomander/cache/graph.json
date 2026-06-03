@@ -39,7 +39,8 @@
       "_parse_docstring_contract",
       "_subst_post_for_qmid",
       "_parse_tactics",
-      "extract_proof"
+      "extract_proof",
+      "parse_axiomander_docstring"
     ]
   },
   "extract_goal_from_coq": {
@@ -290,7 +291,9 @@
       "_extract_name",
       "_attribute_dot_path",
       "_lower_arg",
-      "_is_dataclass"
+      "_is_dataclass",
+      "_build_enum_values",
+      "_is_enum"
     ]
   },
   "len": {
@@ -1131,7 +1134,7 @@
     "callers": []
   },
   "is_proved": {
-    "contract_hash": "c7bdd37b5992b715a92047c6461590ac1b4defb04c15d3c30c577bb176714933",
+    "contract_hash": "dbe9d76c3a86758d1272c4322e023385db1a7bb137c4a1e333d578ccb88d9f98",
     "callees": [],
     "callers": []
   },
@@ -1725,7 +1728,9 @@
       "analyze_function",
       "dump_obligations",
       "_parse_py_expression_to_coq",
-      "docstring_assert_nodes"
+      "docstring_assert_nodes",
+      "_try_parse_join",
+      "_group_expressions"
     ]
   },
   "lint_results.append": {
@@ -3260,7 +3265,8 @@
     "callers": [
       "_build_dict_literal_assign",
       "_build_for_range_with_body",
-      "_lower_call"
+      "_lower_call",
+      "_lower_attribute"
     ]
   },
   "ImpCAss": {
@@ -3563,10 +3569,12 @@
     "callees": [
       "ImpADictCount",
       "ImpALen",
+      "ImpANum",
       "ImpAVar",
       "_esc",
       "_flat_fields",
       "isinstance",
+      "lookup_enum_value",
       "lookup_shape",
       "path.split",
       "self._attribute_dot_path",
@@ -3934,7 +3942,8 @@
     "callees": [],
     "callers": [
       "_desugar_break_continue",
-      "flat_fields"
+      "flat_fields",
+      "_try_parse_join"
     ]
   },
   "self._desugar_break_continue": {
@@ -4926,6 +4935,7 @@
       "Var",
       "isinstance",
       "join",
+      "lookup_enum_value",
       "path.split",
       "replace",
       "self._attribute_path",
@@ -5513,7 +5523,7 @@
     ]
   },
   "parse_axiomander_docstring": {
-    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "contract_hash": "8b8b8f02ec3049236e8f6a3bacc16ce5477a066f615049918097c4a0321a050d",
     "callees": [
       "DocstringContracts",
       "_parse_name_list",
@@ -5526,9 +5536,11 @@
       "re.match",
       "result.ensures.append",
       "result.modifies.extend",
+      "result.raises.append",
       "result.reads.extend",
       "result.requires.append",
-      "splitlines"
+      "splitlines",
+      "strip"
     ],
     "callers": [
       "docstring_assert_nodes",
@@ -6855,9 +6867,12 @@
   "build_shape_registry": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
+      "_build_enum_values",
       "_build_shape",
+      "_enum_registry.clear",
       "_inherits_base_model",
       "_is_dataclass",
+      "_is_enum",
       "_shape_registry.clear",
       "ast.walk",
       "isinstance"
@@ -7477,6 +7492,86 @@
     "callees": [
       "self._violation",
       "type"
+    ],
+    "callers": []
+  },
+  "_build_enum_values": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "isinstance"
+    ],
+    "callers": [
+      "build_shape_registry"
+    ]
+  },
+  "_is_enum": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "isinstance"
+    ],
+    "callers": [
+      "build_shape_registry"
+    ]
+  },
+  "_enum_registry.clear": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "build_shape_registry"
+    ]
+  },
+  "_enum_registry.get": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "lookup_enum_value"
+    ]
+  },
+  "members.get": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "lookup_enum_value"
+    ]
+  },
+  "lookup_enum_value": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_enum_registry.get",
+      "members.get"
+    ],
+    "callers": [
+      "_lower_attribute",
+      "visit_Attribute"
+    ]
+  },
+  "result.raises.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "parse_axiomander_docstring"
+    ]
+  },
+  "_try_parse_join": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "ast.parse",
+      "result.append"
+    ],
+    "callers": []
+  },
+  "groups.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_group_expressions"
+    ]
+  },
+  "_group_expressions": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "ast.parse",
+      "groups.append"
     ],
     "callers": []
   }

@@ -57,9 +57,11 @@ class GoalStatus:
         """
         axiomander:
             ensures:
-                implies(self.level == 0, result == 0)
-                implies(self.level == 1, result == 0)
-                implies(self.level >= 2, result == 1)
+                implies(self.level == ProofLevel.UNPROVED, result == 0)
+                implies(self.level == ProofLevel.COUNTEREXAMPLE, result == 0)
+                implies(self.level != ProofLevel.UNPROVED
+                        and self.level != ProofLevel.COUNTEREXAMPLE,
+                        result == 1)
         """
         return self.level not in (ProofLevel.UNPROVED, ProofLevel.COUNTEREXAMPLE)
 

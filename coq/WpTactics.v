@@ -10,7 +10,7 @@ Open Scope Z_scope.
 
 (** [wp_reduce] -- unfold state, aeval, beval, asZ; simplify. *)
 Ltac wp_reduce :=
-  unfold wp, wp_normal, aeval, beval, asZ, asString, asFloat; cbn -[In clobber lget upd updZ lupd].
+  unfold wp, wp_normal, aeval, beval, asZ, asString, asFloat; cbn -[In clobber].
 
 (** [wp_cif_btrue] -- collapse [CIf BTrue c1 c2] WP to just [wp c1 Phi s]. *)
 Lemma wp_cif_btrue : forall c1 c2 Phi s,
@@ -163,7 +163,7 @@ Ltac ccall_simpl :=
     pattern-match dispatch so those terms reduce before we recurse. *)
 Ltac wp_prove :=
   wp_reduce;
-  try (unfold lget, upd, updZ; cbn -[Z.leb Z.eqb Z.add Z.mul Z.sub]);
+  try (unfold lget, upd, updZ; cbn -[In clobber Z.leb Z.add Z.mul Z.sub]);
   match goal with
   | [ H: false = true |- _ ] => discriminate
   | [ H: true = false |- _ ] => discriminate
@@ -172,7 +172,7 @@ Ltac wp_prove :=
   | [ H: Z.eqb ?a ?b = true |- _ ] => apply Z.eqb_eq in H; subst; wp_prove
   | [ H: Z.eqb ?a ?b = false |- _ ] => apply Z.eqb_neq in H; wp_prove
   | |- _ /\ _ => split; wp_prove
-  | |- _ -> _ => intro; wp_prove
+  | |- _ -> _ => intro; try subst; simpl; wp_prove
   | |- (true -> _) /\ _ => split; [intros; wp_prove | intros; exfalso; auto]
   | |- context[wp (CIf BTrue _ _) _ _] => rewrite wp_cif_btrue; wp_prove
   | |- forall _, ~ In _ (_ :: _) -> lget _ _ = lget (clobber (lupd _ _ (VZ _)) _) _ => apply wp_ccall_frame
@@ -183,6 +183,10 @@ Ltac wp_prove :=
   | |- _ \/ _ => solve [left; wp_prove | right; wp_prove]
   | |- ?x = ?x => reflexivity
   | |- context[clobber ?s nil] => rewrite (clobber_nil s); wp_prove
+  | |- context[?a =? ?b] =>
+      destruct (a =? b) eqn:Heq;
+      [apply Z.eqb_eq in Heq; subst | apply Z.eqb_neq in Heq];
+      simpl; wp_prove
   | |- _ =>
       ccall_simpl; unfold lget, upd, updZ; cbn;
       solve [ assumption | reflexivity | lia | auto |

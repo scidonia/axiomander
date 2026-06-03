@@ -71,6 +71,8 @@ def _gen_imp_body(tree, func_node, contract_map=None) -> "tuple[str, object]":
     """
     import ast
     from oracle.imp_ir import ImpCom
+    from .shape_ir import build_shape_registry
+    build_shape_registry(tree) if tree else None
     predicates = _collect_predicates(tree) if tree else {}
     ghost_vars = _detect_ghost_vars(func_node)
     ghost_var_names = frozenset(ghost_vars.keys())
