@@ -6680,7 +6680,7 @@
     ]
   },
   "get_transitive_callers": {
-    "contract_hash": "85793cb5059e6be55f4704af2b16373bb7901617bb046da0ef999a47554dc094",
+    "contract_hash": "2f8ae6681f2b4ce188c8a0df91198a1bd209365d70f51d97bafbb47c0c6fadfc",
     "callees": [
       "list",
       "self.get_callers",
@@ -7392,7 +7392,7 @@
     "callers": []
   },
   "get_contract_hash": {
-    "contract_hash": "73a085f95452a54bfa99ec4b3dd9f31b911a84e1bb3bdf3f065e85f22315fa7a",
+    "contract_hash": "ca968934d1f6a5867428c5ac42bf82547d362204450a56849c33d0c812c8037c",
     "callees": [
       "self.nodes.get"
     ],

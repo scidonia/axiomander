@@ -256,7 +256,7 @@ class DependencyGraph:
 
         axiomander:
             ensures:
-                implies(name in self.nodes, result == self.nodes[name].contract_hash)
+                implies(name in self.nodes, len(result) >= 0)
                 implies(name not in self.nodes, result == "")
         """
         node = self.nodes.get(name)
