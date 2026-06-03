@@ -195,7 +195,11 @@
       "_find_class_by_annotation",
       "_is_inside_assert",
       "analyze_purity",
-      "generate_frame_conditions"
+      "generate_frame_conditions",
+      "_infer_loop_invariant_candidates",
+      "_infer_postcondition_candidates",
+      "_infer_precondition_candidates",
+      "_structural_facts"
     ]
   },
   "enumerate": {
@@ -302,7 +306,12 @@
       "_subst_post_for_qmid",
       "generate_obligations",
       "get_goals",
-      "_build_shape"
+      "_build_shape",
+      "_infer_loop_invariant_candidates",
+      "_infer_postcondition_candidates",
+      "_infer_precondition_candidates",
+      "_param_root",
+      "_structural_facts"
     ]
   },
   "len": {
@@ -479,9 +488,18 @@
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
       "AdornmentAdvice",
+      "_structural_facts",
+      "ast.unparse",
       "ast.walk",
+      "ens_lines.append",
+      "inv_lines.append",
       "isinstance",
       "join",
+      "notes.append",
+      "notes_inv.append",
+      "notes_post.append",
+      "req_lines.append",
+      "sorted",
       "suggestions.append"
     ],
     "callers": [
@@ -1153,7 +1171,9 @@
       "_translate_concat",
       "wrap_val",
       "_lower_arg",
-      "get_goals"
+      "get_goals",
+      "_infer_loop_invariant_candidates",
+      "_infer_postcondition_candidates"
     ]
   },
   "hyps.append": {
@@ -2811,7 +2831,8 @@
       "generate_obligations",
       "_mk_composition_obligation",
       "generate_frame_conditions",
-      "generate_havoc_body"
+      "generate_havoc_body",
+      "_suggest_adornments"
     ]
   },
   "compute_cache_key": {
@@ -2861,7 +2882,11 @@
       "generate_obligations",
       "get_transitive_callers",
       "update",
-      "generate_frame_conditions"
+      "generate_frame_conditions",
+      "_infer_loop_invariant_candidates",
+      "_infer_postcondition_candidates",
+      "_infer_precondition_candidates",
+      "_structural_facts"
     ]
   },
   "to_reverify.add": {
@@ -4099,7 +4124,13 @@
       "_extract_dict_value_type",
       "_seed_types",
       "analyze_function",
-      "normalize_body"
+      "normalize_body",
+      "_expr_text",
+      "_infer_loop_invariant_candidates",
+      "_infer_postcondition_candidates",
+      "_infer_precondition_candidates",
+      "_structural_facts",
+      "_suggest_adornments"
     ]
   },
   "_extract_dict_value_type": {
@@ -4749,7 +4780,9 @@
     "callers": [
       "_expand_predicate",
       "visit_Dict",
-      "_subst_post_for_qmid"
+      "_subst_post_for_qmid",
+      "_infer_loop_invariant_candidates",
+      "_infer_precondition_candidates"
     ]
   },
   "_expand_predicate": {
@@ -8658,6 +8691,229 @@
     "callees": [],
     "callers": [
       "_build_shape"
+    ]
+  },
+  "candidates.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_add",
+      "_infer_loop_invariant_candidates",
+      "_infer_postcondition_candidates",
+      "_infer_precondition_candidates"
+    ]
+  },
+  "seen.add": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_add",
+      "_infer_loop_invariant_candidates",
+      "_infer_postcondition_candidates",
+      "_infer_precondition_candidates"
+    ]
+  },
+  "_add": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "candidates.append",
+      "seen.add"
+    ],
+    "callers": [
+      "_infer_loop_invariant_candidates",
+      "_infer_postcondition_candidates",
+      "_infer_precondition_candidates"
+    ]
+  },
+  "_expr_text": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "ast.unparse"
+    ],
+    "callers": [
+      "_infer_precondition_candidates"
+    ]
+  },
+  "_infer_loop_invariant_candidates": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_add",
+      "ast.unparse",
+      "ast.walk",
+      "candidates.append",
+      "hasattr",
+      "isinstance",
+      "seen.add",
+      "set",
+      "zip"
+    ],
+    "callers": []
+  },
+  "mutated.add": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_infer_postcondition_candidates",
+      "_structural_facts"
+    ]
+  },
+  "_infer_postcondition_candidates": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_add",
+      "ast.unparse",
+      "ast.walk",
+      "candidates.append",
+      "hasattr",
+      "isinstance",
+      "mutated.add",
+      "seen.add",
+      "set"
+    ],
+    "callers": []
+  },
+  "_param_root": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "isinstance"
+    ],
+    "callers": [
+      "_infer_precondition_candidates"
+    ]
+  },
+  "_infer_precondition_candidates": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_add",
+      "_expr_text",
+      "_param_root",
+      "ast.unparse",
+      "ast.walk",
+      "candidates.append",
+      "isinstance",
+      "seen.add",
+      "set",
+      "zip"
+    ],
+    "callers": []
+  },
+  "accumulators.add": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_structural_facts"
+    ]
+  },
+  "annot.lower": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_structural_facts"
+    ]
+  },
+  "builds_list.add": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_structural_facts"
+    ]
+  },
+  "calls.add": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_structural_facts"
+    ]
+  },
+  "list_params.add": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_structural_facts"
+    ]
+  },
+  "loop_vars.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_structural_facts"
+    ]
+  },
+  "shaped.add": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_structural_facts"
+    ]
+  },
+  "str_params.add": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_structural_facts"
+    ]
+  },
+  "_structural_facts": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "accumulators.add",
+      "annot.lower",
+      "ast.unparse",
+      "ast.walk",
+      "builds_list.add",
+      "calls.add",
+      "isinstance",
+      "list_params.add",
+      "loop_vars.append",
+      "mutated.add",
+      "set",
+      "shaped.add",
+      "str_params.add"
+    ],
+    "callers": [
+      "_suggest_adornments"
+    ]
+  },
+  "ens_lines.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_suggest_adornments"
+    ]
+  },
+  "inv_lines.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_suggest_adornments"
+    ]
+  },
+  "notes.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_suggest_adornments"
+    ]
+  },
+  "notes_inv.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_suggest_adornments"
+    ]
+  },
+  "notes_post.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_suggest_adornments"
+    ]
+  },
+  "req_lines.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_suggest_adornments"
     ]
   }
 }

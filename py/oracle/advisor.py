@@ -304,64 +304,267 @@ def _classify_in_function(func_node, assert_node) -> str:
     return "general"
 
 
+def _structural_facts(func_node) -> dict:
+    """Extract structural facts from a function for contract guidance.
+
+    Returns a dict with:
+      shaped_params   -- params accessed via .field (need is_shape)
+      list_params     -- params annotated as list[T] or used with len()
+      str_params      -- params annotated as str
+      readonly_params -- params that are never assigned in the body
+      mutated_params  -- params (or their fields) that are assigned
+      loop_vars       -- (loop_var, bound_expr) pairs from while/for
+      accumulators    -- names assigned 0 before a loop
+      builds_list     -- names that have .append() called on them
+      return_type     -- return annotation string, or ""
+      calls           -- set of function/method names called
+    """
+    params = {arg.arg for arg in func_node.args.args}
+
+    shaped: set[str] = set()
+    list_params: set[str] = set()
+    str_params: set[str] = set()
+    mutated: set[str] = set()
+    loop_vars: list[tuple[str, str]] = []
+    accumulators: set[str] = set()
+    builds_list: set[str] = set()
+    calls: set[str] = set()
+
+    # Param type annotations
+    for arg in func_node.args.args:
+        if arg.annotation:
+            try:
+                annot = ast.unparse(arg.annotation)
+            except Exception:
+                annot = ""
+            if "list" in annot.lower() or "List" in annot:
+                list_params.add(arg.arg)
+            elif annot in ("str", "string"):
+                str_params.add(arg.arg)
+
+    for node in ast.walk(func_node):
+        # Attribute access on a param -> shaped
+        if isinstance(node, ast.Attribute):
+            if isinstance(node.value, ast.Name) and node.value.id in params:
+                if node.value.id != "self":
+                    shaped.add(node.value.id)
+
+        # Assignments -> mutated
+        if isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name):
+                    mutated.add(t.id)
+            # Accumulator: x = 0 before any loop
+            for t in node.targets:
+                if (isinstance(t, ast.Name)
+                        and isinstance(node.value, ast.Constant)
+                        and node.value.value == 0):
+                    accumulators.add(t.id)
+        if isinstance(node, ast.AugAssign) and isinstance(node.target, ast.Name):
+            mutated.add(node.target.id)
+
+        # len() used with a param -> list-like
+        if (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "len"
+                and node.args
+                and isinstance(node.args[0], ast.Name)
+                and node.args[0].id in params):
+            list_params.add(node.args[0].id)
+
+        # list.append() -> builds_list
+        if (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "append"
+                and isinstance(node.func.value, ast.Name)):
+            builds_list.add(node.func.value.id)
+
+        # While loop bounds
+        if isinstance(node, ast.While) and isinstance(node.test, ast.Compare):
+            try:
+                var = ast.unparse(node.test.left)
+                bound = ast.unparse(node.test.comparators[0])
+                loop_vars.append((var, bound))
+            except Exception:
+                pass
+
+        # For loop
+        if isinstance(node, ast.For):
+            try:
+                var = ast.unparse(node.target)
+                it = ast.unparse(node.iter)
+                loop_vars.append((var, it))
+            except Exception:
+                pass
+
+        # Function/method calls
+        if isinstance(node, ast.Call):
+            try:
+                calls.add(ast.unparse(node.func))
+            except Exception:
+                pass
+
+    readonly = params - mutated - {"self"}
+
+    return_type = ""
+    if func_node.returns:
+        try:
+            return_type = ast.unparse(func_node.returns)
+        except Exception:
+            pass
+
+    return {
+        "shaped_params":   shaped,
+        "list_params":     list_params,
+        "str_params":      str_params,
+        "readonly_params": readonly,
+        "mutated_params":  mutated & params,
+        "loop_vars":       loop_vars,
+        "accumulators":    accumulators,
+        "builds_list":     builds_list,
+        "return_type":     return_type,
+        "calls":           calls,
+    }
+
+
 def _suggest_adornments(func_node, analysis: FunctionAnalysis) -> list[AdornmentAdvice]:
-    """Suggest where to add assertions based on code structure."""
+    """Suggest where to add assertions based on structural analysis.
+
+    Uses structural facts (shaped params, read-only params, loop vars,
+    return type) to produce targeted guidance and starting templates.
+    The templates are concise starters -- the user or LLM fills in the
+    domain-specific semantic content.
+    """
     import ast
     suggestions = []
+    facts = _structural_facts(func_node)
+    params = [arg.arg for arg in func_node.args.args if arg.arg != "self"]
 
-    # If no preconditions, suggest adding via docstring syntax
-    if not analysis.has_preconditions:
-        params = [arg.arg for arg in func_node.args.args]
-        if params:
-            first_line = func_node.body[0].lineno if func_node.body else func_node.lineno + 1
-            param_list = ', '.join(params)
-            suggestions.append(AdornmentAdvice(
-                location="function_start",
-                line=first_line,
-                suggestion=f"Add precondition for {param_list}",
-                template=(
-                    '"""\n'
-                    'axiomander:\n'
-                    '    requires:\n'
-                    f'        <condition on {param_list}>\n'
-                    '"""'
-                ),
-                reasoning="Preconditions document assumptions about inputs and enable verification.",
-            ))
+    # ── Preconditions ────────────────────────────────────────────────
+    if not analysis.has_preconditions and params:
+        first_line = func_node.body[0].lineno if func_node.body else func_node.lineno + 1
 
-    # If loops and no invariants, suggest invariants as body asserts
+        # Build specific requires lines from structural facts
+        req_lines: list[str] = []
+        for p in params:
+            if p in facts["shaped_params"]:
+                req_lines.append(f"        is_shape({p})")
+            elif p in facts["list_params"]:
+                req_lines.append(f"        len({p}) >= 0")
+            elif p in facts["str_params"]:
+                req_lines.append(f"        len({p}) >= 0")
+        if not req_lines:
+            req_lines = [f"        <condition on {', '.join(params)}>"]
+
+        # Reasoning notes what was detected
+        notes: list[str] = []
+        if facts["shaped_params"]:
+            notes.append(f"{', '.join(sorted(facts['shaped_params']))} accessed via attributes")
+        if facts["list_params"]:
+            notes.append(f"{', '.join(sorted(facts['list_params']))} used as list")
+
+        template = (
+            '"""\n'
+            'axiomander:\n'
+            '    requires:\n'
+            + "\n".join(req_lines) + "\n"
+            '"""'
+        )
+        reasoning = (
+            ("Structural: " + "; ".join(notes) + ". " if notes else "")
+            + "Add any domain-specific constraints (value ranges, non-emptiness, "
+            "relationships between params)."
+        )
+        suggestions.append(AdornmentAdvice(
+            location="function_start",
+            line=first_line,
+            suggestion=f"Add precondition for {', '.join(params)}",
+            template=template,
+            reasoning=reasoning,
+        ))
+
+    # ── Loop invariants ──────────────────────────────────────────────
     if analysis.has_loops and not analysis.has_invariants:
         for node in ast.walk(func_node):
             if isinstance(node, (ast.While, ast.For)):
+                # Build invariant hints from loop structure
+                inv_lines: list[str] = []
+                notes_inv: list[str] = []
+
+                if isinstance(node, ast.While) and isinstance(node.test, ast.Compare):
+                    try:
+                        var = ast.unparse(node.test.left)
+                        bound = ast.unparse(node.test.comparators[0])
+                        inv_lines.append(f"    assert {var} <= {bound}")
+                        notes_inv.append(f"loop counter {var} bounded by {bound}")
+                    except Exception:
+                        pass
+
+                for acc in sorted(facts["accumulators"]):
+                    inv_lines.append(f"    assert {acc} >= 0  # accumulator")
+                    notes_inv.append(f"{acc} is an accumulator")
+
+                for lst in sorted(facts["builds_list"]):
+                    inv_lines.append(f"    assert len({lst}) >= 0  # growing list")
+
+                if not inv_lines:
+                    inv_lines = ["    assert <invariant condition>"]
+
+                template = "\n".join(inv_lines)
+                reasoning = (
+                    ("Structural: " + "; ".join(notes_inv) + ". " if notes_inv else "")
+                    + "The invariant must hold at every iteration. Add relationships "
+                    "between accumulators, counters, and the collection being processed."
+                )
                 suggestions.append(AdornmentAdvice(
                     location="loop_body",
                     line=node.lineno,
                     suggestion="Add loop invariant at the top of this loop body",
-                    template="assert <invariant condition>",
-                    reasoning=(
-                        "Loops need invariants to prove postconditions. "
-                        "Place assert statements at the top of the loop body."
-                    ),
+                    template=template,
+                    reasoning=reasoning,
                 ))
-                break  # one suggestion per function
+                break
 
-    # If no postconditions, suggest adding via docstring syntax
+    # ── Postconditions ───────────────────────────────────────────────
     if not analysis.has_postconditions:
         returns = [n for n in ast.walk(func_node) if isinstance(n, ast.Return)]
         if returns:
             last_return = returns[-1]
+
+            ens_lines: list[str] = []
+            notes_post: list[str] = []
+
+            # Return type hint
+            rt = facts["return_type"]
+            if rt and rt not in ("None", ""):
+                ens_lines.append(f"        # result : {rt}")
+
+            # Frame conditions for read-only params
+            for p in sorted(facts["readonly_params"]):
+                ens_lines.append(f"        {p} == old({p})  # {p} not modified")
+                notes_post.append(f"{p} is read-only")
+
+            # Placeholder for value postcondition
+            ens_lines.append("        <what result satisfies>")
+
+            template = (
+                '"""\n'
+                'axiomander:\n'
+                '    ensures:\n'
+                + "\n".join(ens_lines) + "\n"
+                '"""'
+            )
+            reasoning = (
+                ("Structural: " + "; ".join(notes_post) + ". " if notes_post else "")
+                + "Frame conditions for read-only params are shown. "
+                "Add the semantic guarantee about result."
+            )
             suggestions.append(AdornmentAdvice(
                 location="before_return",
                 line=last_return.lineno - 1,
                 suggestion="Add postcondition describing what the function guarantees",
-                template=(
-                    '"""\n'
-                    'axiomander:\n'
-                    '    ensures:\n'
-                    '        <postcondition about result>\n'
-                    '"""'
-                ),
-                reasoning="Postconditions specify what the function guarantees on return.",
+                template=template,
+                reasoning=reasoning,
             ))
 
     return suggestions
