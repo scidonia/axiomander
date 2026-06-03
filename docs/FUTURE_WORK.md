@@ -1,3 +1,61 @@
+# Future Work
+
+## Open Design: re_match at CCall boundaries
+
+The theory-SMT oracle (Level 2b) can prove and falsify regex contracts
+on individual functions. The open problem is **two-function composition**:
+
+```python
+def parse_phone(raw: str) -> str:
+    """
+    axiomander:
+        ensures:
+            result.re_match("[0-9]{3}-[0-9]{3}-[0-9]{4}")
+    """
+
+def send_sms(phone: str) -> int:
+    """
+    axiomander:
+        requires:
+            phone.re_match("[0-9]{3}-[0-9]{3}-[0-9]{4}")
+    """
+
+def notify_user(raw: str) -> int:
+    phone = parse_phone(raw)   # postcondition: regex A
+    result = send_sms(phone)   # precondition:  regex A  <- need to verify
+    return result
+```
+
+The verification question: does `parse_phone`'s postcondition (regex A)
+satisfy `send_sms`'s precondition (regex A or weaker)? The interesting
+case: `parse_phone` guarantees regex A, `send_sms` requires regex B --
+is A a subset of B? The theory-SMT oracle can answer this (subsumption)
+but the CCall machinery needs to:
+
+1. Compile `re_match` postconditions to Coq `Prop` -- currently no Coq
+   definition of `re_match` exists. Options:
+   a. `Axiom re_match : string -> string -> bool.` in a shared .v file,
+      tagged as oracle-verified (the same oracle-backed axiom pattern).
+   b. `Definition re_match s p := true.` (unsound but closes the goal)
+   c. Treat it as an opaque predicate and let the theory oracle discharge
+      the precondition check at each call site without Coq seeing the
+      regex content at all.
+
+2. At the call site `send_sms(phone)`, the CCall proof obligation
+   `pre s` must unfold to `re_match (asString (s "phone")) "..."`.
+   This is the theory oracle's job: prove it from the hypothesis that
+   `parse_phone` established the regex postcondition on `phone`.
+
+3. The subsumption check (parse_phone post => send_sms pre) is
+   exactly the phone gate test: `TheoryDispatcher.dispatch([pre_goal],
+   [post_hyp])` returns `proved` iff the regex subsumption holds.
+
+**Status**: theory oracle proves/falsifies individual regex goals (50
+tests passing). CCall integration and the Coq-level `re_match` axiom
+are the next steps.
+
+---
+
 # Future Work: Verified LLM Pipelines
 
 ## 1. Structured LLM Output with Retry and Monadic Error Handling
