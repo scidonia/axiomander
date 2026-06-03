@@ -492,7 +492,8 @@ class ReMatchExpr(BaseModel):
             subj = self.subject
         # Escape double-quotes inside the pattern for Coq string literals
         pat = self.pattern.replace('"', '\\"')
-        return f're_match {subj} "{pat}"'
+        # re_match is a bool function -- equality = true makes a Prop
+        return f're_match {subj} "{pat}" = true'
 
     def to_smt(self) -> str:
         return f"re_match_{self.subject}_{self.pattern}"

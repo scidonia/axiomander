@@ -1827,7 +1827,7 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
     # Build preamble with imports, segmented defs, stage lemmas, goal
     import_prefix = (
         "From Stdlib Require Import ZArith String List Lia.\n"
-        "Require Import Imp Wp WpTactics.\n"
+        "Require Import Imp Wp WpTactics RegMatch.\n"
         "Import ListNotations.\n"
         "Open Scope Z_scope.\n\n"
     )
@@ -1854,7 +1854,7 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
         # Save full proof — imports + definitions (NOT staged lemmas) + new proof
         import_prefix_save = (
             "From Stdlib Require Import ZArith String List Lia.\n"
-            "Require Import Imp Wp WpTactics.\n"
+            "Require Import Imp Wp WpTactics RegMatch.\n"
             "Import ListNotations.\n"
             "Open Scope Z_scope.\n\n"
         )
@@ -2828,13 +2828,25 @@ def _build_contract_map(tree) -> dict[str, tuple[list[str], str, str, list[str],
         linter_post = ContractLinter(param_names, "postcondition")
         pres = []
         posts = []
+
+        def _pre_coq(lr) -> str:
+            """Get the Coq translation for a precondition lint result.
+            ReMatchExpr uses scoped=True so the subject resolves to
+            s "param"%string in the caller's state (CCall context).
+            All other precondition IRs keep scoped=False (forall params).
+            """
+            from .contract_ir import ReMatchExpr as _ReMatchExpr
+            if lr.ir and isinstance(lr.ir, _ReMatchExpr):
+                return lr.ir.to_coq(scoped=True)
+            return lr.coq_translation
+
         for stmt in fn_node.body:
             if isinstance(stmt, ast.Assert):
                 cls = _classify_assert(fn_node, stmt)
                 if cls == "precondition":
                     lr = linter_pre.lint_expression(stmt.test)
                     if lr.is_valid and lr.coq_translation:
-                        pres.append(lr.coq_translation)
+                        pres.append(_pre_coq(lr))
                 elif cls == "postcondition":
                     lr = linter_post.lint_expression(stmt.test)
                     if lr.is_valid and lr.coq_translation:
@@ -2843,7 +2855,7 @@ def _build_contract_map(tree) -> dict[str, tuple[list[str], str, str, list[str],
             if cls == "precondition":
                 lr = linter_pre.lint_expression(stmt.test)
                 if lr.is_valid and lr.coq_translation:
-                    pres.append(lr.coq_translation)
+                    pres.append(_pre_coq(lr))
             elif cls == "postcondition":
                 lr = linter_post.lint_expression(stmt.test)
                 if lr.is_valid and lr.coq_translation:
@@ -4202,7 +4214,7 @@ def _render_obligations_coq(func_node, lint_results, imp_body: str,
 {source_notes}
 {hammer_import}
 From Stdlib Require Import ZArith String List Lia.
-{bool_import}Require Import Imp Wp Pydantic WpTactics.
+{bool_import}Require Import Imp Wp Pydantic WpTactics RegMatch.
 Import ListNotations.
 Open Scope Z_scope.
 
@@ -4738,7 +4750,7 @@ Theorem {name}_vcg_exit : forall {vcg_params},
 {source_notes}
 {hammer_import}
 From Stdlib Require Import ZArith String List Lia.
-{bool_import}Require Import Imp Wp Pydantic WpTactics.
+{bool_import}Require Import Imp Wp Pydantic WpTactics RegMatch.
 Import ListNotations.
 Open Scope Z_scope.
 

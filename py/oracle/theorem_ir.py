@@ -105,7 +105,7 @@ class TheoremIR(BaseModel):
         parts.append("Require Import ZArith String List Lia.")
         if self.bool_import:
             parts.append(self.bool_import)
-        parts.append("Require Import Imp Wp Pydantic WpTactics.")
+        parts.append("Require Import Imp Wp Pydantic WpTactics RegMatch.")
         parts.append("Import ListNotations.")
         parts.append("Open Scope Z_scope.")
         if self.record_section:
