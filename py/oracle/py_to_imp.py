@@ -912,6 +912,9 @@ class PyToImpLowerer:
         if expr.func == "isinstance":
             return ImpCAss(target=target, value=ImpABool(bexp=ImpBTrue()))
         if expr.func == "list" and expr.args:
+            if isinstance(expr.args[0], PyName):
+                # list(name) — create a copy reference to the heap object
+                return ImpCListNew(name=target)
             return ImpCListNew(name=target)
         if expr.func == "set" and not expr.args:
             return ImpCSkip()

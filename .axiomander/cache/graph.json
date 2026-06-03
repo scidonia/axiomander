@@ -663,9 +663,7 @@
   },
   "__init__": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
-    "callees": [
-      "frozenset"
-    ],
+    "callees": [],
     "callers": []
   },
   "ProofState": {
@@ -4550,8 +4548,7 @@
       "dump_obligations",
       "flat_fields",
       "to_coq",
-      "to_coq_arm",
-      "__init__"
+      "to_coq_arm"
     ]
   },
   "Logical": {

@@ -268,6 +268,53 @@ class DependencyGraph:
 
         axiomander:
             ensures:
+                implies(name not in self.nodes, len(result) == 0)
+        """
+        node = self.nodes.get(name)
+        result = list(node.callers) if node else []
+        return result
+
+    def get_transitive_callers(self, name: str) -> list[str]:
+        """Get all transitive callers (direct + indirect).
+
+        The result excludes the seed function itself: if A calls B calls A
+        (cycle), name will not appear in the result.
+
+        axiomander:
+            ensures:
+                name not in result
+                implies(name not in self.nodes, len(result) == 0)
+        """
+        visited: set[str] = set()
+        stack = [name]
+        while stack:
+            current = stack.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            for caller in self.get_callers(current):
+                if caller not in visited:
+                    stack.append(caller)
+        visited.discard(name)
+        result = list(visited)
+        return result
+
+    def get_callees(self, name: str) -> list[str]:
+        """Return direct callees of a function.
+
+        axiomander:
+            ensures:
+                implies(name not in self.nodes, len(result) == 0)
+        """
+        node = self.nodes.get(name)
+        result = list(node.callees) if node else []
+        return result
+
+    def get_callers(self, name: str) -> list[str]:
+        """Get direct callers of a function.
+
+        axiomander:
+            ensures:
                 implies(name not in self.nodes, result == [])
                 implies(name in self.nodes, result == list(self.nodes[name].callers))
         """
