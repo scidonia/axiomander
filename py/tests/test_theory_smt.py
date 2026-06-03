@@ -457,6 +457,112 @@ class TestTheoryDispatcher:
         assert len(res.counterexamples) == 0
         assert len(res.unknown) == 0   # pure int: not our responsibility
 
+    # ── Regex gate: subsumption vs contradiction ──────────────────
+    #
+    # A "regex gate" precondition constrains the input to a specific
+    # pattern.  A postcondition that is WEAKER (a superset of the
+    # precondition's language) is a subsumption -- it must be proved.
+    # A postcondition that is DISJOINT is a contradiction -- the SMT
+    # oracle must produce a concrete counterexample.
+    #
+    # Phone number as the running example:
+    #   STRONG (gate):  [0-9]{3}-[0-9]{3}-[0-9]{4}  e.g. "555-867-5309"
+    #   WEAKER:         [0-9-]+   (digits and dashes  -- superset)
+    #   WEAKEST:        .+        (any non-empty       -- superset)
+    #   DISJOINT:       [A-Za-z]+ (letters only        -- no phone matches)
+
+    PHONE_GATE    = r"[0-9]{3}-[0-9]{3}-[0-9]{4}"
+    DIGITS_DASHES = r"[0-9-]+"
+    NONEMPTY      = r".+"
+    LETTERS_ONLY  = r"[A-Za-z]+"
+
+    def _phone_hyp(self) -> str:
+        return f'matches (asString (s "s")) "{self.PHONE_GATE}" = true'
+
+    def test_phone_gate_implies_digits_dashes(self):
+        """Subsumption: phone format [0-9]{3}-[0-9]{3}-[0-9]{4}
+        implies the weaker pattern [0-9-]+ (digits and dashes).
+
+        Every string matching the full phone format contains only
+        digits and dashes, so the postcondition is a superset.
+        Z3 must prove this by showing no phone string violates [0-9-]+.
+        """
+        goal = f'matches (asString (s "s")) "{self.DIGITS_DASHES}" = true'
+        res = self._dispatch(goal, [self._phone_hyp()], {"s": "str"})
+        assert len(res.proved) == 1, (
+            f"Expected subsumption proof, got: "
+            f"ce={res.counterexamples} unknown={res.unknown}"
+        )
+        assert len(res.counterexamples) == 0
+
+    def test_phone_gate_implies_nonempty(self):
+        """Subsumption: phone format implies .+ (weakest non-empty).
+
+        Any string in [0-9]{3}-[0-9]{3}-[0-9]{4} is non-empty (length 12),
+        so the weakest possible postcondition is trivially subsumed.
+        """
+        goal = f'matches (asString (s "s")) "{self.NONEMPTY}" = true'
+        res = self._dispatch(goal, [self._phone_hyp()], {"s": "str"})
+        assert len(res.proved) == 1
+        assert len(res.counterexamples) == 0
+
+    def test_phone_gate_contradicts_letters(self):
+        """Contradiction: phone format does NOT imply [A-Za-z]+.
+
+        Phone numbers contain only digits and dashes -- no letters.
+        The postcondition [A-Za-z]+ is disjoint from the phone language.
+        Z3 must produce a concrete phone number as the witness.
+        """
+        goal = f'matches (asString (s "s")) "{self.LETTERS_ONLY}" = true'
+        res = self._dispatch(goal, [self._phone_hyp()], {"s": "str"})
+        assert len(res.counterexamples) == 1, (
+            f"Expected counterexample, got: proved={res.proved} unknown={res.unknown}"
+        )
+        assert len(res.proved) == 0
+
+        ce = res.counterexamples[0]
+        s_val = ce.assignments.get("s")
+        assert s_val is not None
+        assert s_val.sort == "String"
+
+        # The witness must be a valid phone number:
+        # strip quotes from the python repr and check it matches the gate
+        import re as _re
+        raw = s_val.python.strip("'\"")
+        assert _re.fullmatch(self.PHONE_GATE, raw) is not None, (
+            f"Witness {raw!r} does not match the phone gate {self.PHONE_GATE!r}"
+        )
+
+    def test_weak_pre_strong_post_contradiction(self):
+        """Contradiction from wrong direction: weak precondition cannot
+        imply a stronger postcondition.
+
+        Precondition:  s matches [0-9-]+  (digits and dashes -- weak)
+        Postcondition: s matches full phone format  (strong)
+
+        A string like "0" satisfies [0-9-]+ but not the full phone format.
+        Z3 must find it as the counterexample.
+        """
+        hyp_weak = f'matches (asString (s "s")) "{self.DIGITS_DASHES}" = true'
+        goal_strong = f'matches (asString (s "s")) "{self.PHONE_GATE}" = true'
+
+        res = self._dispatch(goal_strong, [hyp_weak], {"s": "str"})
+        assert len(res.counterexamples) == 1
+        assert len(res.proved) == 0
+
+        ce = res.counterexamples[0]
+        s_val = ce.assignments.get("s")
+        assert s_val is not None
+        # The witness satisfies [0-9-]+ but NOT the phone format
+        import re as _re
+        raw = s_val.python.strip("'\"")
+        assert _re.fullmatch(self.DIGITS_DASHES, raw) is not None, (
+            f"Witness {raw!r} should match {self.DIGITS_DASHES!r}"
+        )
+        assert _re.fullmatch(self.PHONE_GATE, raw) is None, (
+            f"Witness {raw!r} should NOT match phone gate {self.PHONE_GATE!r}"
+        )
+
 
 # ── 3. Pipeline integration tests ────────────────────────────────
 

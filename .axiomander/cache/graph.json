@@ -366,7 +366,10 @@
       "test_prefix_proved",
       "test_regex_counterexample_wrong_start",
       "test_regex_implies_nonempty",
-      "test_unknown_for_unencodable_goal"
+      "test_unknown_for_unencodable_goal",
+      "test_phone_gate_contradicts_letters",
+      "test_phone_gate_implies_digits_dashes",
+      "test_weak_pre_strong_post_contradiction"
     ]
   },
   "_classify_in_function": {
@@ -8239,7 +8242,10 @@
       "test_prefix_proved",
       "test_regex_counterexample_wrong_start",
       "test_regex_implies_nonempty",
-      "test_unknown_for_unencodable_goal"
+      "test_unknown_for_unencodable_goal",
+      "test_phone_gate_contradicts_letters",
+      "test_phone_gate_implies_digits_dashes",
+      "test_weak_pre_strong_post_contradiction"
     ]
   },
   "test_axiom_has_hash_and_solver": {
@@ -8319,7 +8325,9 @@
     "callees": [],
     "callers": [
       "test_counterexample_has_typed_values",
-      "test_regex_counterexample_wrong_start"
+      "test_regex_counterexample_wrong_start",
+      "test_phone_gate_contradicts_letters",
+      "test_weak_pre_strong_post_contradiction"
     ]
   },
   "ce.format_report": {
@@ -8507,6 +8515,62 @@
     "callees": [
       "goal.is_proved",
       "self._verify"
+    ],
+    "callers": []
+  },
+  "_re.fullmatch": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_phone_gate_contradicts_letters",
+      "test_weak_pre_strong_post_contradiction"
+    ]
+  },
+  "s_val.python.strip": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_phone_gate_contradicts_letters",
+      "test_weak_pre_strong_post_contradiction"
+    ]
+  },
+  "self._phone_hyp": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "test_phone_gate_contradicts_letters",
+      "test_phone_gate_implies_digits_dashes"
+    ]
+  },
+  "test_phone_gate_contradicts_letters": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_re.fullmatch",
+      "ce.assignments.get",
+      "len",
+      "s_val.python.strip",
+      "self._dispatch",
+      "self._phone_hyp"
+    ],
+    "callers": []
+  },
+  "test_phone_gate_implies_digits_dashes": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "len",
+      "self._dispatch",
+      "self._phone_hyp"
+    ],
+    "callers": []
+  },
+  "test_weak_pre_strong_post_contradiction": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "_re.fullmatch",
+      "ce.assignments.get",
+      "len",
+      "s_val.python.strip",
+      "self._dispatch"
     ],
     "callers": []
   }
