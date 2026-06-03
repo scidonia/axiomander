@@ -469,6 +469,35 @@ class IsValid(BaseModel):
         return "true"
 
 
+class ReMatchExpr(BaseModel):
+    """s.re_match("pattern") -- regex membership contract predicate.
+
+    In scoped (postcondition) context compiles to:
+      re_match (asString (s "subject"%string)) "pattern"
+
+    In unscoped (precondition) context compiles to:
+      re_match subject "pattern"
+
+    The theory-SMT oracle recognises this form and dispatches to
+    QF_SLIA via str.in_re + the sre_parse-based RegLan translator.
+    """
+    kind: Literal["re_match"] = "re_match"
+    subject: str    # variable name, e.g. "phone"
+    pattern: str    # Python regex pattern, e.g. "[0-9]{3}-[0-9]{3}-[0-9]{4}"
+
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        if scoped and self.subject not in unbound:
+            subj = f'(asString (s "{self.subject}"%string))'
+        else:
+            subj = self.subject
+        # Escape double-quotes inside the pattern for Coq string literals
+        pat = self.pattern.replace('"', '\\"')
+        return f're_match {subj} "{pat}"'
+
+    def to_smt(self) -> str:
+        return f"re_match_{self.subject}_{self.pattern}"
+
+
 class ListEqExpr(BaseModel):
     """List literal equality: result == [a, b] or result != [].
 
@@ -492,4 +521,4 @@ class ListEqExpr(BaseModel):
         return f"({self.op} (len {self.name}) {self.n_elements})"
 
 
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, ListEqExpr]
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, ListEqExpr, ReMatchExpr]

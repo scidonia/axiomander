@@ -39,6 +39,7 @@ PURE_BUILTINS = frozenset({
     "isinstance", "ord", "chr", "range", "pow", "sqrt",
     "get", "list", "dict",
     "lower", "upper", "startswith", "endswith",
+    "re_match",   # regex membership: s.re_match("[0-9]+")
 })
 
 PURE_MODULE_FUNCTIONS = frozenset({
@@ -232,6 +233,23 @@ class ContractLinter(ast.NodeVisitor):
                 if obj and type_name:
                     cls = IsShape if name == "is_shape" else IsValid
                     return cls(obj=obj, model_type=type_name)
+            return None
+        # s.re_match("pattern") -- regex membership predicate.
+        # AST: Call(func=Attribute(value=Name(id=subject), attr="re_match"),
+        #           args=[Constant(value=pattern)])
+        if method_name == "re_match":
+            if (len(node.args) == 1
+                    and isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and isinstance(node.args[0], ast.Constant)
+                    and isinstance(node.args[0].value, str)):
+                from .contract_ir import ReMatchExpr
+                subject = node.func.value.id
+                pattern = node.args[0].value
+                return ReMatchExpr(subject=subject, pattern=pattern)
+            self._violation(node, ExprKind.UNSUPPORTED,
+                            "re_match() requires exactly one string literal argument: "
+                            "s.re_match(\"[0-9]+\")")
             return None
         if name not in PURE_BUILTINS and name not in PURE_MODULE_FUNCTIONS \
            and method_name not in PURE_BUILTINS:

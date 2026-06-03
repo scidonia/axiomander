@@ -502,7 +502,7 @@ _STRING_SIGNALS = frozenset([
     "String.prefix", "String.substring", "String.concat",
     "asString", "VString", "isVString",
     "smem_f",       # our string-keyed set field
-    "matches",      # regex membership contract predicate
+    "re_match",     # regex membership contract predicate: s.re_match("pat")
     "str.in_re",    # SMTLIB2 regex (may appear in post-reduction goals)
 ])
 
@@ -744,11 +744,11 @@ class StringTheoryEncoder:
             if smt_op:
                 return f"({smt_op} (str.len {s}) {n})"
 
-        # matches(s, "pattern") = true/false  ->  (str.in_re s <re>)
+        # re_match subject "pattern" [= true|false]  ->  (str.in_re s <re>)
         # Must come BEFORE the general equality check, because
-        # 'matches (...) "pat" = true' would be misparse as LHS=matches... RHS=true.
-        if expr.startswith("matches"):
-            parsed = self._parse_matches_call(expr, coq_sorts)
+        # 're_match (...) "pat" = true' would be misparse as LHS=re_match... RHS=true.
+        if expr.startswith("re_match"):
+            parsed = self._parse_re_match_call(expr, coq_sorts)
             if parsed:
                 return parsed
 
@@ -846,15 +846,14 @@ class StringTheoryEncoder:
         # Fallback: emit as-is (solver will reject if wrong)
         return _smt_string_var(s)
 
-    def _parse_matches_call(
+    def _parse_re_match_call(
         self, expr: str, coq_sorts: dict[str, str]
     ) -> Optional[str]:
-        """Parse: matches <subject> "<pattern>" [= true|false]
+        """Parse: re_match <subject> "<pattern>" [= true|false]
 
-        The contract syntax is:
-          matches (asString (s "result")) "[a-z]+"
-          matches (asString (s "result")) "[a-z]+" = true
-          matches (asString (s "result")) "[a-z]+" = false
+        The Coq form emitted by ReMatchExpr.to_coq():
+          re_match subject "pattern"
+          re_match (asString (s "result"%string)) "pattern" = true
 
         <subject> may be any Coq string expression.
         <pattern> is a Python regex literal (quoted string).
@@ -863,9 +862,9 @@ class StringTheoryEncoder:
         embedded quotes (e.g. asString (s "result")).
         """
         expr = expr.strip()
-        if not expr.startswith('matches'):
+        if not expr.startswith('re_match'):
             return None
-        rest = expr[7:].strip()   # everything after 'matches'
+        rest = expr[8:].strip()   # everything after 're_match'
 
         # Parse the subject: either paren-wrapped or a bare token
         subject, after_subject = self._consume_one_arg(rest)

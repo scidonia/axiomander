@@ -5104,6 +5104,7 @@
     "callees": [
       "ImpliesExpr",
       "RaisesExpr",
+      "ReMatchExpr",
       "cls",
       "isinstance",
       "len",
@@ -8573,5 +8574,12 @@
       "self._dispatch"
     ],
     "callers": []
+  },
+  "ReMatchExpr": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "visit_Call"
+    ]
   }
 }

@@ -341,8 +341,8 @@ class TestTheoryDispatcher:
         # Pure integer arithmetic -- handled upstream by _smt_prove_goal
         assert classify_goal('asZ (s "n") >= 0') is None
 
-    def test_classify_matches_goal(self):
-        assert classify_goal('matches (asString (s "s")) "[a-z]+"') is not None
+    def test_classify_re_match_goal(self):
+        assert classify_goal('re_match (asString (s "s")) "[a-z]+"') is not None
 
     # ── String contains ──────────────────────────────────────────
 
@@ -384,14 +384,14 @@ class TestTheoryDispatcher:
 
     def test_regex_implies_nonempty(self):
         """If result matches [a-z]+ then its length is > 0."""
-        hyp  = 'matches (asString (s "result")) "[a-z]+" = true'
+        hyp  = 're_match (asString (s "result")) "[a-z]+" = true'
         goal = 'String.length (asString (s "result")) > 0'
         res = self._dispatch(goal, [hyp], {"result": "str"})
         assert len(res.proved) == 1
 
     def test_regex_counterexample_wrong_start(self):
         """[a-z]+ does not imply the string starts with 'z'."""
-        hyp  = 'matches (asString (s "result")) "[a-z]+" = true'
+        hyp  = 're_match (asString (s "result")) "[a-z]+" = true'
         goal = 'String.prefix "z" (asString (s "result")) = true'
         res = self._dispatch(goal, [hyp], {"result": "str"})
         assert len(res.counterexamples) == 1
@@ -403,7 +403,7 @@ class TestTheoryDispatcher:
 
     def test_iso_date_regex(self):
         """A date matching [0-9]{4}-[0-9]{2}-[0-9]{2} has length 10."""
-        hyp  = r'matches (asString (s "result")) "[0-9]{4}-[0-9]{2}-[0-9]{2}" = true'
+        hyp  = r're_match (asString (s "result")) "[0-9]{4}-[0-9]{2}-[0-9]{2}" = true'
         goal = 'String.length (asString (s "result")) > 0'
         res = self._dispatch(goal, [hyp], {"result": "str"})
         assert len(res.proved) == 1
@@ -477,7 +477,7 @@ class TestTheoryDispatcher:
     LETTERS_ONLY  = r"[A-Za-z]+"
 
     def _phone_hyp(self) -> str:
-        return f'matches (asString (s "s")) "{self.PHONE_GATE}" = true'
+        return f're_match (asString (s "s")) "{self.PHONE_GATE}" = true'
 
     def test_phone_gate_implies_digits_dashes(self):
         """Subsumption: phone format [0-9]{3}-[0-9]{3}-[0-9]{4}
@@ -487,7 +487,7 @@ class TestTheoryDispatcher:
         digits and dashes, so the postcondition is a superset.
         Z3 must prove this by showing no phone string violates [0-9-]+.
         """
-        goal = f'matches (asString (s "s")) "{self.DIGITS_DASHES}" = true'
+        goal = f're_match (asString (s "s")) "{self.DIGITS_DASHES}" = true'
         res = self._dispatch(goal, [self._phone_hyp()], {"s": "str"})
         assert len(res.proved) == 1, (
             f"Expected subsumption proof, got: "
@@ -501,7 +501,7 @@ class TestTheoryDispatcher:
         Any string in [0-9]{3}-[0-9]{3}-[0-9]{4} is non-empty (length 12),
         so the weakest possible postcondition is trivially subsumed.
         """
-        goal = f'matches (asString (s "s")) "{self.NONEMPTY}" = true'
+        goal = f're_match (asString (s "s")) "{self.NONEMPTY}" = true'
         res = self._dispatch(goal, [self._phone_hyp()], {"s": "str"})
         assert len(res.proved) == 1
         assert len(res.counterexamples) == 0
@@ -513,7 +513,7 @@ class TestTheoryDispatcher:
         The postcondition [A-Za-z]+ is disjoint from the phone language.
         Z3 must produce a concrete phone number as the witness.
         """
-        goal = f'matches (asString (s "s")) "{self.LETTERS_ONLY}" = true'
+        goal = f're_match (asString (s "s")) "{self.LETTERS_ONLY}" = true'
         res = self._dispatch(goal, [self._phone_hyp()], {"s": "str"})
         assert len(res.counterexamples) == 1, (
             f"Expected counterexample, got: proved={res.proved} unknown={res.unknown}"
@@ -543,8 +543,8 @@ class TestTheoryDispatcher:
         A string like "0" satisfies [0-9-]+ but not the full phone format.
         Z3 must find it as the counterexample.
         """
-        hyp_weak = f'matches (asString (s "s")) "{self.DIGITS_DASHES}" = true'
-        goal_strong = f'matches (asString (s "s")) "{self.PHONE_GATE}" = true'
+        hyp_weak = f're_match (asString (s "s")) "{self.DIGITS_DASHES}" = true'
+        goal_strong = f're_match (asString (s "s")) "{self.PHONE_GATE}" = true'
 
         res = self._dispatch(goal_strong, [hyp_weak], {"s": "str"})
         assert len(res.counterexamples) == 1
