@@ -38,7 +38,9 @@ PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 Axiomander supports two contract carriers:
 
 1. ordinary Python `assert` statements, still useful for executable checks;
-2. verifier-only `axiomander:` docstring blocks, preferred for ghost state, frames, and non-runtime specifications.
+2. verifier-only `axiomander:` docstring blocks, preferred for ghost state, frames, non-runtime specifications, regex gating, and dimensional annotations.
+
+The full contract sublanguage is documented in **[docs/CONTRACT_LANGUAGE.md](docs/CONTRACT_LANGUAGE.md)** — operators, sections, quantifiers, regex, units, exceptions, Pydantic support.
 
 ### Assert Contracts
 
@@ -145,6 +147,12 @@ Other self-verified functions:
 | `GoalStatus.is_proved` (real) | 1 | Enum resolution + implies + `not in` tuple body |
 | `classify_failure` (real) | 3 | String methods + `in` operator + branch priority |
 | `_escape_field` | 3 | String replacement in body |
+| `_sha256` | 1 | Hash function with black-hole purity warning |
+| `get_callers`/`get_callees` | 3 | list() constructor + `self.nodes` attribute access |
+| `get_transitive_callers` | 3 | while+list+set with string-keyed sets |
+| `build_report` | 3 | PipelineReport object construction |
+| `CoqVar.to_coq` | 3 | String concatenation + contains in postcondition |
+| `lower_expr` (PyIR) | 3 | Expression dispatch over PyExpr AST nodes |
 
 Remaining gaps are tracked in [the self-verification plan](docs/self-verification-plan.md).
 
@@ -259,6 +267,60 @@ def build_sorted(n: int):
     return result
 ```
 
+### Dimensional Analysis — `units:`
+
+Axiomander can track **physical and financial dimensions** through arithmetic, catching unit errors before the Coq proof runs.  Declare dimensions in a `units:` section:
+
+```python
+def gdp_per_capita(gdp: float, population: int) -> float:
+    """
+    axiomander:
+        units:
+            gdp:        [USD]
+            population: [person]
+            result:     [USD/person]
+        requires:
+            population > 0
+        ensures:
+            result >= 0
+    """
+    result = gdp / population
+    return result
+```
+
+Base dimensions are **arbitrary strings** — `USD`, `GBP`, `person`, `item`, `m`, `kg`, `s`.  Incompatible dimensions are rejected as a dimension error (returns `COUNTEREXAMPLE`, skips the proof).  Exchange rates carry dimension: `rate: [USD/GBP]`.  See the [full contract language reference](docs/CONTRACT_LANGUAGE.md#5-dimensional-analysis--units) for the complete dimension expression grammar and composition rules.
+
+### Regex Gating — `s.re_match(pattern)`
+
+A verifier-only predicate for regex membership in contracts:
+
+```python
+def accept_phone(phone: str) -> str:
+    """
+    axiomander:
+        requires:
+            phone.re_match("[0-9]{3}-[0-9]{3}-[0-9]{4}")
+        ensures:
+            result.re_match("[0-9-]+")
+    """
+    result = phone
+    return result
+```
+
+The theory-SMT oracle (Level 2b) verifies subsumption between regex patterns and produces **concrete typed counterexamples** when a postcondition contradicts a precondition.  Uses Python's `sre_parse` for pattern translation — no hand-written regex parser.  See [Section 4](docs/CONTRACT_LANGUAGE.md#4-regex-contracts--sre_matchpattern).
+
+### Level 2b — Theory-SMT Oracle
+
+A fourth proof tier between SMT (Level 2) and the LLM oracle (Level 3):
+
+| Level | Mechanism | What it handles |
+|---|---|---|
+| 2b — theory-SMT | Z3 / CVC5 string theory | String equality, contains, prefix, suffix, regex subsumption/contradiction, float dimension scaling |
+
+String contract goals that survive `wp_reduce` are dispatched to the `QF_SLIA` SMT logic.  Proved goals emit oracle-backed Coq axioms tagged with query hashes.  Counterexamples carry typed `TheoryValue` objects (quoted strings, unscaled floats) and are surfaced in the verification report with an explanation of which postcondition failed.
+
+See **[docs/CONTRACT_LANGUAGE.md](docs/CONTRACT_LANGUAGE.md)** for the oracle architecture and **[docs/case-dispatch-verification.md](docs/case-dispatch-verification.md)** for the case-analysis pattern that extends this to universal properties over finite dispatch tables.
+
 ## Pipeline Tiers
 
 | Level | Mechanism | What it handles |
@@ -307,6 +369,10 @@ PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 ```
 
 124 tests covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, docstring contracts, old-state syntax, reads/modifies frames, range quantifiers, stub integration, tuple/bytes/dict/set/None value comparisons, implication, loop-predicate contract inlining, exception contracts, validate_assignment enforcement, nested Pydantic models, constructor CCalls, and collection fields.
+
+Plus **60 dimensional analysis tests** (`py/tests/test_dim_analysis.py`) covering DimVec algebra, expression parsing, constraint checking, and end-to-end violation detection for financial, physical, and cardinality dimensions.
+
+Plus **51 theory-SMT tests** (`py/tests/test_theory_smt.py`) covering regex translation via sre_parse, string contains/prefix dispatch, typed counterexample generation, phone-gate subsumption/contradiction, and two-function CCall regex gating.
 
 ## Dependencies
 
@@ -366,20 +432,37 @@ py/
     contract_linter.py   # Python AST → IR (Coq + SMT targets)
     contract_ir.py       # Expression IR (Pydantic models)
     python_to_imp.py     # Python AST → IMP commands
+    py_to_imp.py         # PyIR → IMP IR lowering pass
+    py_ir.py             # Python function IR
+    imp_ir.py            # IMP command/expression IR
     mcp_server.py        # MCP server + all tools
     purity_analyzer.py   # Purity detection + frame condition generation
     stub_loader.py       # .pyi stub parser for library contracts
     cache.py             # Incremental verification cache + dependency graph
     smt_export.py        # Coq → SMT-LIB export
+    theory_smt.py        # Theory-dispatched SMT oracle (strings, floats, regex)
     client.py            # LLM oracle client
     coqpyt_session.py    # Interactive Coq proof session
     reporting.py         # Goal status + report generation
+    theorem_ir.py        # Coq theorem IR generation
+    obligation_gen.py    # Per-obligation Coq theorem generator
+    dim_ir.py            # Dimensional analysis IR (DimVec, parsing, constraints)
+    dim_checker.py       # Dimension checker (AST walker)
+    shape_ir.py          # Pydantic/dataclass shape registry
+    docstring_contracts.py  # axiomander: docstring parser
+    advisor.py           # Contract guidance and structural hints
 
 coq/
   Imp.v                  # IMP language (value: VZ | VBool | VUnit), clobber
   Wp.v                   # WP calculus with CCall writes enforcement
   WpTactics.v            # wp_reduce/wp_prove/frame_prove automation
   Pydantic.v             # Pydantic model support (store_field, load_field)
+  RegMatch.v             # re_match placeholder definition
+
+docs/
+  CONTRACT_LANGUAGE.md   # Full contract sublanguage reference
+  case-dispatch-verification.md  # Herbrand instantiation over finite dispatch
+  
 stubs/
   builtins.pyi           # Stub contracts for pop, add, get, len, etc.
   math_stubs.pyi         # Stub contracts for math functions
@@ -387,10 +470,9 @@ stubs/
 
 ## Contract Discipline
 
-- **Type annotations** carry contracts: `x: int` constrains the parameter type, `-> bool` constrains the return value
+- **`axiomander:` docstrings** carry rich contracts: requires, ensures, where, reads, modifies, raises, units. Full reference: [docs/CONTRACT_LANGUAGE.md](docs/CONTRACT_LANGUAGE.md).
 - **`assert`** captures what types can't: `assert len(lst) > 0`, `assert depth >= 0`
-- **`if __debug__:`** marks ghost snapshots: `if __debug__: old_x = x`. Stripped by `python -O`.
-- **`python -O`** strips all assert statements and `if __debug__:` blocks. Verification has zero production overhead.
-- **Contracts** document pre/post/invariant in docstrings
-- **SMT counterexamples** tell you exactly what's missing from weak invariants
-- **Loop predicates** are verified as standalone functions. Their semantic postconditions (guarded by `implies(result == 1, ...)`) are inlined at call sites. Pure predicates are inlined directly; predicates without postconditions are rejected.
+- **Type annotations** carry contracts: `x: int` constrains the parameter type, `-> bool` constrains the return value
+- **SMT counterexamples** tell you exactly what's missing from weak invariants. Dimension errors give typed violation reports with mismatched dimensions.
+- **Loop predicates** are verified as standalone functions and inlined at call sites
+- **Frame conditions** are explicit via `modifies:` section; the verifier enforces preservation of unlisted variables
