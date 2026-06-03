@@ -309,20 +309,27 @@ def _suggest_adornments(func_node, analysis: FunctionAnalysis) -> list[Adornment
     import ast
     suggestions = []
 
-    # If no preconditions, suggest adding at function start
+    # If no preconditions, suggest adding via docstring syntax
     if not analysis.has_preconditions:
         params = [arg.arg for arg in func_node.args.args]
         if params:
             first_line = func_node.body[0].lineno if func_node.body else func_node.lineno + 1
+            param_list = ', '.join(params)
             suggestions.append(AdornmentAdvice(
                 location="function_start",
                 line=first_line,
-                suggestion=f"Add precondition for {', '.join(params)}",
-                template=f"assert <condition on {', '.join(params)}>",
+                suggestion=f"Add precondition for {param_list}",
+                template=(
+                    '"""\n'
+                    'axiomander:\n'
+                    '    requires:\n'
+                    f'        <condition on {param_list}>\n'
+                    '"""'
+                ),
                 reasoning="Preconditions document assumptions about inputs and enable verification.",
             ))
 
-    # If loops and no invariants, suggest invariants
+    # If loops and no invariants, suggest invariants as body asserts
     if analysis.has_loops and not analysis.has_invariants:
         for node in ast.walk(func_node):
             if isinstance(node, (ast.While, ast.For)):
@@ -331,13 +338,15 @@ def _suggest_adornments(func_node, analysis: FunctionAnalysis) -> list[Adornment
                     line=node.lineno,
                     suggestion="Add loop invariant at the top of this loop body",
                     template="assert <invariant condition>",
-                    reasoning="Loops need invariants to prove postconditions. Describe what the loop preserves.",
+                    reasoning=(
+                        "Loops need invariants to prove postconditions. "
+                        "Place assert statements at the top of the loop body."
+                    ),
                 ))
                 break  # one suggestion per function
 
-    # If no postconditions, suggest adding before return
+    # If no postconditions, suggest adding via docstring syntax
     if not analysis.has_postconditions:
-        # Find the last return
         returns = [n for n in ast.walk(func_node) if isinstance(n, ast.Return)]
         if returns:
             last_return = returns[-1]
@@ -345,7 +354,13 @@ def _suggest_adornments(func_node, analysis: FunctionAnalysis) -> list[Adornment
                 location="before_return",
                 line=last_return.lineno - 1,
                 suggestion="Add postcondition describing what the function guarantees",
-                template="assert <postcondition about result>",
+                template=(
+                    '"""\n'
+                    'axiomander:\n'
+                    '    ensures:\n'
+                    '        <postcondition about result>\n'
+                    '"""'
+                ),
                 reasoning="Postconditions specify what the function guarantees on return.",
             ))
 

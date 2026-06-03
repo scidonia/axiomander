@@ -301,7 +301,8 @@
       "_is_enum",
       "_subst_post_for_qmid",
       "generate_obligations",
-      "get_goals"
+      "get_goals",
+      "_build_shape"
     ]
   },
   "len": {
@@ -5328,7 +5329,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "analyze_function"
+      "analyze_function",
+      "_build_shape"
     ]
   },
   "_build_contract_map": {
@@ -6920,7 +6922,9 @@
       "bool",
       "isinstance"
     ],
-    "callers": []
+    "callers": [
+      "_build_shape"
+    ]
   },
   "constraints.append": {
     "contract_hash": "",
@@ -6935,7 +6939,9 @@
       "constraints.append",
       "isinstance"
     ],
-    "callers": []
+    "callers": [
+      "_build_shape"
+    ]
   },
   "_inherits_base_model": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
@@ -6958,7 +6964,9 @@
     "callees": [
       "mapping.get"
     ],
-    "callers": []
+    "callers": [
+      "_build_shape"
+    ]
   },
   "_python_type_name": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
@@ -6967,12 +6975,22 @@
       "isinstance"
     ],
     "callers": [
-      "_python_type_name"
+      "_python_type_name",
+      "_build_shape"
     ]
   },
   "_build_shape": {
-    "contract_hash": "",
-    "callees": [],
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "Shape",
+      "ShapeField",
+      "_detect_validate_assignment",
+      "_extract_field_constraints",
+      "_py_to_coq",
+      "_python_type_name",
+      "fields.append",
+      "isinstance"
+    ],
     "callers": [
       "build_shape_registry"
     ]
@@ -8627,5 +8645,19 @@
       "self._verify"
     ],
     "callers": []
+  },
+  "Shape": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_build_shape"
+    ]
+  },
+  "ShapeField": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_build_shape"
+    ]
   }
 }

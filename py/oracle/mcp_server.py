@@ -331,6 +331,15 @@ def _infer_var_types(func_node: ast.FunctionDef) -> dict[str, str]:
 
     return var_types
 
+def _render_template(template: str, indent: str = "  ") -> str:
+    """Render a (possibly multiline) contract template inside a code block.
+
+    Indents every line uniformly so markdown code blocks look correct.
+    """
+    indented = "\n".join(indent + line for line in template.splitlines())
+    return f"```python\n{indented}\n```"
+
+
 def tool_check_file(args: dict) -> str:
     """Analyze a Python file and suggest where to add contracts."""
     source = args.get("source", "")
@@ -374,7 +383,7 @@ def tool_check_file(args: dict) -> str:
                 if s.reasoning:
                     lines.append(f"  - *{s.reasoning}*")
                 if s.template:
-                    lines.append(f"  - Template: `{s.template}`")
+                    lines.append(_render_template(s.template))
             lines.append("")
 
         if f.existing_asserts:
@@ -496,7 +505,7 @@ def tool_check_function(args: dict) -> str:
             for s in analysis.suggested_adornments:
                 lines.append(f"- **{s.location}** (line ~{s.line}): {s.suggestion}")
                 if s.template:
-                    lines.append(f"  ```python\n  {s.template}\n  ```")
+                    lines.append(_render_template(s.template))
             lines.append("")
 
         lines.append("After adding these assertions, run `check-function` again to verify.")
@@ -541,7 +550,7 @@ def tool_check_function(args: dict) -> str:
         for s in analysis.suggested_adornments:
             lines.append(f"- **{s.location}** (line ~{s.line}): {s.suggestion}")
             if s.template:
-                lines.append(f"  ```python\n  {s.template}\n  ```")
+                lines.append(_render_template(s.template))
         lines.append("")
 
     # Verification details
