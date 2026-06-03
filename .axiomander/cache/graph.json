@@ -663,7 +663,9 @@
   },
   "__init__": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
-    "callees": [],
+    "callees": [
+      "self._load"
+    ],
     "callers": []
   },
   "ProofState": {
@@ -1215,7 +1217,9 @@
   "self._load": {
     "contract_hash": "",
     "callees": [],
-    "callers": []
+    "callers": [
+      "__init__"
+    ]
   },
   "h.hexdigest": {
     "contract_hash": "",
@@ -6676,7 +6680,7 @@
     ]
   },
   "get_transitive_callers": {
-    "contract_hash": "2f8ae6681f2b4ce188c8a0df91198a1bd209365d70f51d97bafbb47c0c6fadfc",
+    "contract_hash": "85793cb5059e6be55f4704af2b16373bb7901617bb046da0ef999a47554dc094",
     "callees": [
       "list",
       "self.get_callers",
@@ -7363,7 +7367,7 @@
     ]
   },
   "get_callees": {
-    "contract_hash": "dbbb8112510854e5d20fed23fc570fa2f939f9c7e7e26d6207bf3d3dd784940b",
+    "contract_hash": "22d704a4118b05c8d814626fe6d0d2138427d9cd44828da7c8471b3dddd59130",
     "callees": [
       "list",
       "self.nodes.get"

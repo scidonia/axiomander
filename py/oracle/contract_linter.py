@@ -116,9 +116,15 @@ class ContractLinter(ast.NodeVisitor):
 
     def visit_Compare(self, node: ast.Compare) -> Optional[Expr]:
         if len(node.ops) == 1 and len(node.comparators) == 1:
+            op = self._translate_compare_op(node.ops[0])
+            # List literals: result == []  →  len(result) == 0
+            if isinstance(node.comparators[0], ast.List):
+                left = self.visit(node.left)
+                if left and isinstance(left, Var) and op in ("=", "<>"):
+                    n = len(node.comparators[0].elts)
+                    return BinOp(op=op, left=LenExpr(name=left.name), right=IntLit(value=n))
             left = self.visit(node.left)
             right = self.visit(node.comparators[0])
-            op = self._translate_compare_op(node.ops[0])
             if op == "in":
                 # k in d → dict membership: ADictLen "d" k != 0
                 # Only works when right side is a simple target (dict)
@@ -200,6 +206,7 @@ class ContractLinter(ast.NodeVisitor):
                 right = self.visit(node.args[1])
                 if left and right:
                     return ImpliesExpr(left=left, right=right)
+            return None
             return None
         if name == "raises":
             if len(node.args) == 2:

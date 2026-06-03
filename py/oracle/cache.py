@@ -268,7 +268,7 @@ class DependencyGraph:
 
         axiomander:
             ensures:
-                implies(name not in self.nodes, len(result) == 0)
+                implies(name not in self.nodes, result == [])
         """
         node = self.nodes.get(name)
         result = list(node.callers) if node else []
@@ -283,7 +283,7 @@ class DependencyGraph:
         axiomander:
             ensures:
                 name not in result
-                implies(name not in self.nodes, len(result) == 0)
+                implies(name not in self.nodes, result == [])
         """
         visited: set[str] = set()
         stack = [name]
@@ -304,7 +304,7 @@ class DependencyGraph:
 
         axiomander:
             ensures:
-                implies(name not in self.nodes, len(result) == 0)
+                implies(name not in self.nodes, result == [])
         """
         node = self.nodes.get(name)
         result = list(node.callees) if node else []
