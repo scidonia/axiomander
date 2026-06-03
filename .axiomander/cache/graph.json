@@ -311,7 +311,13 @@
       "_infer_postcondition_candidates",
       "_infer_precondition_candidates",
       "_param_root",
-      "_structural_facts"
+      "_structural_facts",
+      "__eq__",
+      "_check_assign",
+      "_check_augassign",
+      "_check_compound",
+      "_check_stmt",
+      "_infer_attribute"
     ]
   },
   "len": {
@@ -379,7 +385,8 @@
       "test_unknown_for_unencodable_goal",
       "test_phone_gate_contradicts_letters",
       "test_phone_gate_implies_digits_dashes",
-      "test_weak_pre_strong_post_contradiction"
+      "test_weak_pre_strong_post_contradiction",
+      "_tokenise"
     ]
   },
   "_classify_in_function": {
@@ -430,7 +437,9 @@
       "visit_Attribute",
       "explain",
       "_build_coq_prop",
-      "_params_forall"
+      "_params_forall",
+      "__repr__",
+      "format_report"
     ]
   },
   "parts.append": {
@@ -706,7 +715,7 @@
   "__init__": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
-      "build_dir.resolve"
+      "set"
     ],
     "callers": []
   },
@@ -776,7 +785,8 @@
       "_mk_post_obligation",
       "_mk_stage1_statement_proof",
       "_mk_composition_obligation",
-      "explain"
+      "explain",
+      "format_report"
     ]
   },
   "self._parse": {
@@ -945,9 +955,7 @@
   "build_dir.resolve": {
     "contract_hash": "",
     "callees": [],
-    "callers": [
-      "__init__"
-    ]
+    "callers": []
   },
   "TextDocumentContentChangeEvent": {
     "contract_hash": "",
@@ -1631,7 +1639,9 @@
       "interactive_oracle_query",
       "run_langgraph_oracle",
       "visit_Constant",
-      "insert_user"
+      "insert_user",
+      "_parse_atom",
+      "_parse_factor"
     ]
   },
   "os.environ.get": {
@@ -2832,7 +2842,8 @@
       "_mk_composition_obligation",
       "generate_frame_conditions",
       "generate_havoc_body",
-      "_suggest_adornments"
+      "_suggest_adornments",
+      "__repr__"
     ]
   },
   "compute_cache_key": {
@@ -2886,7 +2897,9 @@
       "_infer_loop_invariant_candidates",
       "_infer_postcondition_candidates",
       "_infer_precondition_candidates",
-      "_structural_facts"
+      "_structural_facts",
+      "all_base_dims",
+      "__init__"
     ]
   },
   "to_reverify.add": {
@@ -4130,7 +4143,10 @@
       "_infer_postcondition_candidates",
       "_infer_precondition_candidates",
       "_structural_facts",
-      "_suggest_adornments"
+      "_suggest_adornments",
+      "_check_assign",
+      "_check_augassign",
+      "_check_return"
     ]
   },
   "_extract_dict_value_type": {
@@ -5669,7 +5685,6 @@
     "callees": [
       "DocstringContracts",
       "_parse_name_list",
-      "_rewrite_implies_syntax",
       "_rewrite_old_refs",
       "ast.get_docstring",
       "inspect.cleandoc",
@@ -5693,10 +5708,15 @@
   "docstring_assert_nodes": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
     "callees": [
+      "_group_expressions",
       "ast.Assert",
+      "ast.Call",
+      "ast.Load",
+      "ast.Name",
       "ast.fix_missing_locations",
       "ast.parse",
       "getattr",
+      "groups.append",
       "out.append",
       "parse_axiomander_docstring"
     ],
@@ -5731,7 +5751,8 @@
       "_mk_post_obligation",
       "_coq_int_to_smt",
       "_coq_string_to_smt",
-      "_consume_one_arg"
+      "_consume_one_arg",
+      "_tokenise"
     ]
   },
   "m_section.group": {
@@ -7735,7 +7756,8 @@
     "contract_hash": "",
     "callees": [],
     "callers": [
-      "_group_expressions"
+      "_group_expressions",
+      "docstring_assert_nodes"
     ]
   },
   "_group_expressions": {
@@ -7744,7 +7766,9 @@
       "ast.parse",
       "groups.append"
     ],
-    "callers": []
+    "callers": [
+      "docstring_assert_nodes"
+    ]
   },
   "_rewrite_implies_syntax": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
@@ -7753,9 +7777,7 @@
       "len",
       "strip"
     ],
-    "callers": [
-      "parse_axiomander_docstring"
-    ]
+    "callers": []
   },
   "_find_arrow": {
     "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
@@ -8915,5 +8937,481 @@
     "callers": [
       "_suggest_adornments"
     ]
+  },
+  "ast.Call": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "docstring_assert_nodes"
+    ]
+  },
+  "ast.Load": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "docstring_assert_nodes"
+    ]
+  },
+  "ast.Name": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "docstring_assert_nodes"
+    ]
+  },
+  "__eq__": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "isinstance"
+    ],
+    "callers": []
+  },
+  "components.items": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": []
+  },
+  "DimVec": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "__pow__"
+    ]
+  },
+  "DimVec.dimensionless": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "__pow__",
+      "_parse_atom"
+    ]
+  },
+  "self._components.items": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "__pow__",
+      "__repr__"
+    ]
+  },
+  "__pow__": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "DimVec",
+      "DimVec.dimensionless",
+      "self._components.items"
+    ],
+    "callers": []
+  },
+  "fmt_neg": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "__repr__"
+    ]
+  },
+  "fmt_pos": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "__repr__"
+    ]
+  },
+  "__repr__": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "fmt_neg",
+      "fmt_pos",
+      "join",
+      "self._components.items",
+      "sorted"
+    ],
+    "callers": []
+  },
+  "ValueError": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_consume",
+      "_parse_atom",
+      "_tokenise"
+    ]
+  },
+  "repr": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_consume"
+    ]
+  },
+  "self._peek": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_consume",
+      "_parse_atom",
+      "_parse_factor",
+      "parse_expr"
+    ]
+  },
+  "_consume": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "ValueError",
+      "repr",
+      "self._peek"
+    ],
+    "callers": []
+  },
+  "DimVec.base": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_parse_atom"
+    ]
+  },
+  "self._consume": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_parse_atom",
+      "_parse_factor"
+    ]
+  },
+  "self.parse_expr": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_parse_atom"
+    ]
+  },
+  "_parse_atom": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "DimVec.base",
+      "DimVec.dimensionless",
+      "ValueError",
+      "int",
+      "self._consume",
+      "self._peek",
+      "self.parse_expr"
+    ],
+    "callers": []
+  },
+  "self._parse_atom": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_parse_factor"
+    ]
+  },
+  "_parse_factor": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "int",
+      "self._consume",
+      "self._parse_atom",
+      "self._peek"
+    ],
+    "callers": []
+  },
+  "_TOKEN_RE.match": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_tokenise"
+    ]
+  },
+  "m.end": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_tokenise"
+    ]
+  },
+  "tokens.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_tokenise"
+    ]
+  },
+  "_tokenise": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "ValueError",
+      "_TOKEN_RE.match",
+      "len",
+      "m.end",
+      "m.group",
+      "tokens.append"
+    ],
+    "callers": []
+  },
+  "bases.update": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "all_base_dims"
+    ]
+  },
+  "d.dim.components.keys": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "all_base_dims"
+    ]
+  },
+  "all_base_dims": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "bases.update",
+      "d.dim.components.keys",
+      "set"
+    ],
+    "callers": []
+  },
+  "DimViolation": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "check_constraints"
+    ]
+  },
+  "c.lhs_dim.compatible_with": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "check_constraints"
+    ]
+  },
+  "violations.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "check_constraints"
+    ]
+  },
+  "check_constraints": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "DimViolation",
+      "c.lhs_dim.compatible_with",
+      "violations.append"
+    ],
+    "callers": []
+  },
+  "compatible_with": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [],
+    "callers": []
+  },
+  "dim_of": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [],
+    "callers": []
+  },
+  "format_report": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "join",
+      "lines.append"
+    ],
+    "callers": []
+  },
+  "self._parse_factor": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "parse_expr"
+    ]
+  },
+  "parse_expr": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "self._parse_factor",
+      "self._peek"
+    ],
+    "callers": []
+  },
+  "DimConstraint": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_check_assign",
+      "_check_augassign",
+      "_check_return"
+    ]
+  },
+  "rhs_dim.compatible_with": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_check_assign"
+    ]
+  },
+  "self._constraints.append": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_check_assign",
+      "_check_augassign",
+      "_check_return"
+    ]
+  },
+  "self._env.mark_unknown": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_check_assign"
+    ]
+  },
+  "self._env.set": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_check_assign",
+      "_check_augassign",
+      "_check_stmt"
+    ]
+  },
+  "self._infer_expr": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_check_assign",
+      "_check_augassign",
+      "_check_return",
+      "_check_stmt"
+    ]
+  },
+  "self._units.dim_of": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_check_assign",
+      "_check_return",
+      "_infer_attribute"
+    ]
+  },
+  "_check_assign": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "DimConstraint",
+      "ast.unparse",
+      "isinstance",
+      "rhs_dim.compatible_with",
+      "self._constraints.append",
+      "self._env.mark_unknown",
+      "self._env.set",
+      "self._infer_expr",
+      "self._units.dim_of"
+    ],
+    "callers": []
+  },
+  "self._env.get": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_check_augassign",
+      "_infer_attribute"
+    ]
+  },
+  "_check_augassign": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "DimConstraint",
+      "ast.unparse",
+      "isinstance",
+      "self._constraints.append",
+      "self._env.get",
+      "self._env.set",
+      "self._infer_expr"
+    ],
+    "callers": []
+  },
+  "self._check_stmt": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_check_compound"
+    ]
+  },
+  "_check_compound": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "isinstance",
+      "self._check_stmt"
+    ],
+    "callers": []
+  },
+  "ret_dim.compatible_with": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_check_return"
+    ]
+  },
+  "_check_return": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "DimConstraint",
+      "ast.unparse",
+      "ret_dim.compatible_with",
+      "self._constraints.append",
+      "self._infer_expr",
+      "self._units.dim_of"
+    ],
+    "callers": []
+  },
+  "self._check_assign": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_check_stmt"
+    ]
+  },
+  "self._check_augassign": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_check_stmt"
+    ]
+  },
+  "self._check_compound": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_check_stmt"
+    ]
+  },
+  "self._check_return": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_check_stmt"
+    ]
+  },
+  "_check_stmt": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "isinstance",
+      "self._check_assign",
+      "self._check_augassign",
+      "self._check_compound",
+      "self._check_return",
+      "self._env.set",
+      "self._infer_expr"
+    ],
+    "callers": []
+  },
+  "_infer_attribute": {
+    "contract_hash": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+    "callees": [
+      "isinstance",
+      "self._env.get",
+      "self._units.dim_of"
+    ],
+    "callers": []
   }
 }

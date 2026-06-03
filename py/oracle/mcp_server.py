@@ -1059,6 +1059,33 @@ def _map_coq_error_to_source(coq_source: str, coq_line: int) -> str:
     return ""
 
 
+def _run_dimension_check(func_node: ast.FunctionDef) -> str:
+    """Run dimensional analysis pre-pass if a units: section is present.
+
+    Returns an error report string if violations are found, or "" if
+    no units section exists or all checks pass.
+    """
+    try:
+        from .docstring_contracts import parse_axiomander_docstring
+        from .dim_ir import parse_units_section
+        from .dim_checker import check_dimensions
+
+        contracts = parse_axiomander_docstring(func_node)
+        if not contracts.has_units:
+            return ""
+
+        units = parse_units_section(contracts.units_lines)
+        result = check_dimensions(func_node, units)
+
+        if result.is_consistent:
+            return ""
+
+        return result.format_report(func_node.name)
+    except Exception as e:
+        # Dimension check is best-effort -- never block verification
+        return ""
+
+
 def _verify_function(source: str, func_name: str, hint: str | None = None) -> GoalStatus | None:
     """Try to verify a function. Returns GoalStatus or None on error."""
     try:
@@ -1098,6 +1125,20 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
                           error_detail=old_err,
                           suggested_action=Action.REFACTOR,
                           suggestion_text=old_err)
+
+    # Dimensional analysis pre-pass -- runs before WP proof.
+    # If the units: section is present and violations are found,
+    # return COUNTEREXAMPLE immediately (no point trying WP).
+    dim_report = _run_dimension_check(func_node)
+    if dim_report:
+        return GoalStatus(
+            name=func_name,
+            goal_statement="",
+            level=ProofLevel.COUNTEREXAMPLE,
+            error_detail=dim_report,
+            suggested_action=Action.REFACTOR,
+            suggestion_text=dim_report,
+        )
 
     predicates = _collect_predicates(tree)
     ghost_vars = _detect_ghost_vars(func_node)

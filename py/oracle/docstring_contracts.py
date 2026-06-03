@@ -23,11 +23,17 @@ class DocstringContracts:
     # raises: list of (exc_type, condition_expr) pairs
     # e.g. [("ValueError", "n < 0"), ("KeyError", "key not in mapping")]
     raises: list[tuple[str, str]] = field(default_factory=list)
+    # units: raw lines from the units: section, parsed by dim_ir.parse_units_section
+    units_lines: list[str] = field(default_factory=list)
 
     @property
     def has_contracts(self) -> bool:
         return bool(self.where or self.requires or self.ensures
                     or self.reads or self.modifies or self.raises)
+
+    @property
+    def has_units(self) -> bool:
+        return bool(self.units_lines)
 
 
 def parse_axiomander_docstring(func_node: ast.FunctionDef) -> DocstringContracts:
@@ -106,6 +112,11 @@ def parse_axiomander_docstring(func_node: ast.FunctionDef) -> DocstringContracts
                 exc_type = m.group(1)
                 cond = _rewrite_old_refs(m.group(2).strip(), result.where)
                 result.raises.append((exc_type, cond))
+            continue
+
+        if section == "units":
+            # Raw lines accumulated and parsed lazily by dim_ir.parse_units_section
+            result.units_lines.append(stripped)
             continue
 
     return result
