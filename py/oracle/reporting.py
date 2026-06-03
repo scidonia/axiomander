@@ -19,11 +19,12 @@ from typing import Optional
 
 class ProofLevel(Enum):
     """Which tier closed the goal."""
-    LEVEL1_LTAC = "level1"       # wp_reduce, lia
-    LEVEL2_SMT = "level2"        # coq-hammer → cvc4/eprover
-    LEVEL3_LLM = "level3"        # LLM oracle
-    UNPROVED = "unproved"        # still open
-    COUNTEREXAMPLE = "counterexample"  # SMT found a model showing the property is false
+    LEVEL1_LTAC        = "level1"       # wp_reduce, lia
+    LEVEL2_SMT         = "level2"       # coq-hammer → cvc4/eprover
+    LEVEL2B_SMT_THEORY = "level2b"      # theory-SMT oracle (strings, floats)
+    LEVEL3_LLM         = "level3"       # LLM oracle
+    UNPROVED           = "unproved"     # still open
+    COUNTEREXAMPLE     = "counterexample"  # SMT found a model showing the property is false
 
 
 class Action(Enum):
@@ -47,6 +48,10 @@ class GoalStatus:
     elapsed_ms: float = 0.0
     dependencies: list[str] = field(default_factory=list)
     counterexample: dict[str, int] = field(default_factory=dict)
+    # Typed counterexample from the theory-SMT oracle (strings, floats).
+    # Populated when level == COUNTEREXAMPLE and the violation came from
+    # a theory solver rather than the integer SMT path.
+    theory_counterexample: "str" = ""  # formatted report from TheoryCounterexample
     proof_method: str = ""
     error_detail: str = ""
     suggested_action: "Action | None" = None
@@ -108,9 +113,12 @@ class PipelineReport:
                 lines.append(f"### `{g.name}`")
                 lines.append(f"**Action**: {g.suggested_action.value if g.suggested_action else "unknown"}")
                 lines.append(f"**Detail**: {g.suggestion_text}")
-                if g.counterexample:
-                    lines.append(f"**SMT counterexample**: {", ".join(f"`{k}={v}`" for k, v in g.counterexample.items())}")
-                    lines.append(f"> The loop invariant is too weak. Strengthen it to rule out these values.")
+                if g.theory_counterexample:
+                    lines.append("**Theory counterexample**:")
+                    lines.append(f"```\n{g.theory_counterexample}\n```")
+                elif g.counterexample:
+                    lines.append(f"**SMT counterexample**: {', '.join(f'`{k}={v}`' for k, v in g.counterexample.items())}")
+                    lines.append("> The loop invariant is too weak. Strengthen it to rule out these values.")
                 if g.error_detail:
                     lines.append(f"```\n{g.error_detail[:500]}\n```")
                 if g.dependencies:

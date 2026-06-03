@@ -1226,10 +1226,11 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
     # Try SMT on the remaining goals after wp_reduce
     goals = _capture_wp_reduce_goal(coq_source)
     smt_axiom = None
+    theory_oracle_result = None  # set when Level 2b fires
     if goals:
+        # Level 1b: integer arithmetic SMT (existing path)
         smt_axiom = _smt_prove_goal(goals)
         if smt_axiom:
-            # Replace the proof with an SMT axiom
             import re
             coq_source = re.sub(
                 r'(Proof\.\n).*?(\nQed\.)',
@@ -1237,6 +1238,40 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
                 f'  intros. wp_reduce. apply smt_{func_name}.\n\\2',
                 coq_source, count=1, flags=re.DOTALL
             )
+        else:
+            # Level 2b: theory-SMT oracle (strings, floats)
+            # Build param_types from function annotations (same as _gen_imp_body)
+            _pt: dict[str, str] = {
+                a.arg: a.annotation.id
+                for a in func_node.args.args
+                if a.annotation and isinstance(a.annotation, ast.Name)
+            }
+            theory_oracle_result = _try_theory_smt(
+                goals, func_name, coq_source, _pt
+            )
+            if theory_oracle_result is not None:
+                if theory_oracle_result.has_counterexample:
+                    # Contract violation — surface immediately, skip LLM
+                    from .theory_smt import format_counterexample_report
+                    ce_report = format_counterexample_report(
+                        theory_oracle_result, func_name
+                    )
+                    return GoalStatus(
+                        name=func_name,
+                        goal_statement=f"wp {func_name}_body ...",
+                        level=ProofLevel.COUNTEREXAMPLE,
+                        theory_counterexample=ce_report,
+                        suggested_action=Action.PROPERTY_FALSE,
+                        suggestion_text=(
+                            "The theory-SMT oracle found a counterexample.\n"
+                            + ce_report
+                        ),
+                    )
+                elif theory_oracle_result.all_proved:
+                    from .theory_smt import inject_theory_axioms
+                    coq_source = inject_theory_axioms(
+                        coq_source, theory_oracle_result, func_name
+                    )
 
     # Write temp file and compile
     tmp_path = None
@@ -1276,11 +1311,20 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
             if has_while:
                 method += " + VCG"
 
+            # Elevate to Level 2b if theory-SMT axioms were used
+            proof_level = ProofLevel.LEVEL1_LTAC
+            if theory_oracle_result is not None and theory_oracle_result.proved:
+                proof_level = ProofLevel.LEVEL2B_SMT_THEORY
+                theories = ", ".join(
+                    sorted({ax.theory.value for ax in theory_oracle_result.proved})
+                )
+                method += f" + SMT({theories})"
+
             purity_note = _compute_purity_note(tree, func_node, imp_body)
 
             return GoalStatus(name=func_name,
                             goal_statement=f"wp {func_name}_body ...",
-                            level=ProofLevel.LEVEL1_LTAC,
+                            level=proof_level,
                             proof_method=method,
                             purity_note=purity_note)
 
@@ -2107,6 +2151,53 @@ def _smt_prove_goal(goal_texts: list[str]) -> str | None:
         return "True"
     return " /\\ ".join(f"({g})" for g in proven)
 
+
+def _try_theory_smt(
+    goal_texts: list[str],
+    func_name: str,
+    coq_source: str,
+    param_types: dict[str, str],
+) -> "TheoryOracleResult | None":
+    """Level 2b: dispatch string/float goals to the theory-SMT oracle.
+
+    Returns a TheoryOracleResult if any goals were classified as
+    theory-relevant, or None if all goals are pure integer arithmetic
+    (already handled by _smt_prove_goal).
+    """
+    try:
+        from .theory_smt import TheoryDispatcher, classify_goal
+    except ImportError:
+        return None
+
+    # Only invoke if at least one goal touches a non-integer theory
+    theory_goals = [g for g in goal_texts if classify_goal(g) is not None]
+    if not theory_goals:
+        return None
+
+    # Extract hypothesis lines from the wp_reduce output
+    # Goals are in "hyp1\nhyp2\n---\ngoal" format when captured via coqpyt
+    hyp_texts: list[str] = []
+    for block in goal_texts:
+        parts = block.split("====")
+        if len(parts) >= 2:
+            hyp_texts.extend(
+                h.strip() for h in parts[0].strip().split("\n") if h.strip()
+            )
+
+    dispatcher = TheoryDispatcher(param_types=param_types, timeout=15)
+    result = dispatcher.dispatch(theory_goals, hyp_texts)
+
+    # Only return a result if we actually did something
+    if result.proved or result.counterexamples:
+        return result
+    return None
+
+
+# Expose TheoryOracleResult type for the call site above
+try:
+    from .theory_smt import TheoryOracleResult as _TheoryOracleResult  # noqa: F401
+except ImportError:
+    pass
 
 def _is_raises_call(node: ast.expr) -> bool:
     """Return True if node is a raises(ExcType, cond) call."""
