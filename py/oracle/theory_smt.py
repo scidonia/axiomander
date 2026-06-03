@@ -276,6 +276,224 @@ class TheoryOracleResult:
         return f"  intros; wp_reduce; repeat split;\n{applies}\n  try lia."
 
 
+# ── Python regex to SMTLIB2 RegLan translator ─────────────────────
+#
+# Uses Python's own sre_parse module to obtain a typed AST for the
+# pattern, then walks that AST to emit SMTLIB2 RegLan expressions.
+# This means we never hand-parse regex syntax -- we delegate that
+# entirely to the stdlib and only handle the semantic mapping.
+#
+# sre_parse AST nodes are (opcode, data) pairs where opcode is one of
+# the constants in the sre_constants module.  A SubPattern is a list
+# of such pairs.
+#
+# Supported opcodes -> SMTLIB2:
+#   LITERAL c           -> (str.to_re "c")
+#   NOT_LITERAL c       -> (re.comp (str.to_re "c"))
+#   ANY                 -> re.allchar
+#   IN [items]          -> re.union / re.range / re.comp
+#   BRANCH [alts]       -> re.union
+#   SUBPATTERN (n,a,b,p)-> recurse into p (groups are transparent)
+#   MAX_REPEAT (lo,hi,p)-> re.* / re.+ / re.opt / (_ re.^ n) / (_ re.loop n m)
+#   AT (AT_BEGINNING/END)-> epsilon (anchors implicit in str.in_re)
+#   CATEGORY WORD/DIGIT/SPACE -> named character classes
+#
+# Unsupported: GROUPREF, ASSERT (lookahead), AT_WORD_BOUNDARY, etc.
+# Returns None on unsupported features or parse errors.
+
+import re as _re_module
+import warnings as _warnings
+with _warnings.catch_warnings():
+    _warnings.simplefilter("ignore", DeprecationWarning)
+    import sre_parse as _sre_parse
+    import sre_constants as _sre_const
+
+
+def _python_re_to_smt(pattern: str) -> Optional[str]:
+    """Translate a Python regex pattern to a SMTLIB2 RegLan term.
+
+    Uses sre_parse for the AST -- no hand-written regex parsing.
+    Returns None if the pattern uses unsupported features.
+    """
+    try:
+        # sre_parse.parse returns a SubPattern (list of (op, av) pairs)
+        parsed = _sre_parse.parse(pattern)
+        return _sre_subpattern_to_smt(parsed)
+    except Exception:
+        return None
+
+
+def _sre_subpattern_to_smt(nodes: "_sre_parse.SubPattern | list") -> Optional[str]:
+    """Translate a sre_parse SubPattern (sequence of nodes) to SMTLIB2.
+
+    A sequence is a concatenation; emit re.++ over each node.
+    Empty sequence = epsilon = (str.to_re "").
+    """
+    parts = []
+    for op, av in nodes:
+        part = _sre_node_to_smt(op, av)
+        if part is None:
+            return None   # unsupported feature -- propagate failure
+        parts.append(part)
+    return _smt_concat(parts)
+
+
+def _smt_concat(parts: list[str]) -> str:
+    """Build a SMTLIB2 re.++ chain from a list of RegLan expressions."""
+    if not parts:
+        return '(str.to_re "")'   # epsilon
+    if len(parts) == 1:
+        return parts[0]
+    result = parts[0]
+    for p in parts[1:]:
+        result = f"(re.++ {result} {p})"
+    return result
+
+
+def _smt_union(parts: list[str]) -> str:
+    """Build a SMTLIB2 re.union chain from a list of RegLan expressions."""
+    if not parts:
+        return "re.none"
+    if len(parts) == 1:
+        return parts[0]
+    result = parts[0]
+    for p in parts[1:]:
+        result = f"(re.union {result} {p})"
+    return result
+
+
+def _smt_literal(code_point: int) -> str:
+    """Emit a single-character RegLan from a Unicode code point."""
+    c = chr(code_point)
+    # SMTLIB2 strings use "" to escape a literal double-quote inside a string.
+    if c == '"':
+        return '(str.to_re "\\"\\"")'
+    if c == '\\':
+        return '(str.to_re "\\\\")'
+    return f'(str.to_re "{c}")'
+
+
+def _sre_node_to_smt(op, av) -> Optional[str]:
+    """Translate one sre_parse (op, av) node to a SMTLIB2 RegLan term."""
+
+    if op is _sre_const.LITERAL:
+        # av = Unicode code point
+        return _smt_literal(av)
+
+    if op is _sre_const.NOT_LITERAL:
+        return f"(re.comp {_smt_literal(av)})"
+
+    if op is _sre_const.ANY:
+        # . matches any character (re.allchar is all single-char strings)
+        return "re.allchar"
+
+    if op is _sre_const.AT:
+        # ^ / $ anchors -- implicit in str.in_re; emit epsilon
+        return '(str.to_re "")'
+
+    if op is _sre_const.SUBPATTERN:
+        # av = (group_id, add_flags, del_flags, pattern)
+        # Groups are transparent for our purposes -- just recurse.
+        _, _, _, subpat = av
+        return _sre_subpattern_to_smt(subpat)
+
+    if op is _sre_const.BRANCH:
+        # av = (None, [alt1, alt2, ...]) where each alt is a SubPattern
+        _, alts = av
+        parts = [_sre_subpattern_to_smt(a) for a in alts]
+        if any(p is None for p in parts):
+            return None
+        return _smt_union(parts)  # type: ignore[arg-type]
+
+    if op is _sre_const.IN:
+        # av = list of items inside [...].
+        # First item may be NEGATE.
+        items = list(av)
+        negate = False
+        if items and items[0][0] is _sre_const.NEGATE:
+            negate = True
+            items = items[1:]
+        parts = []
+        for item_op, item_av in items:
+            part = _sre_class_item_to_smt(item_op, item_av)
+            if part is None:
+                return None
+            parts.append(part)
+        union = _smt_union(parts)
+        return f"(re.comp {union})" if negate else union
+
+    if op is _sre_const.MAX_REPEAT:
+        lo, hi, subpat = av
+        inner = _sre_subpattern_to_smt(subpat)
+        if inner is None:
+            return None
+        # MAXREPEAT sentinel means unbounded
+        if lo == 0 and hi is _sre_const.MAXREPEAT:
+            return f"(re.* {inner})"
+        if lo == 1 and hi is _sre_const.MAXREPEAT:
+            return f"(re.+ {inner})"
+        if lo == 0 and hi == 1:
+            return f"(re.opt {inner})"
+        if lo == hi:
+            # Exact repetition: (_ re.^ n)
+            return f"((_ re.^ {lo}) {inner})"
+        if hi is _sre_const.MAXREPEAT:
+            # {lo,} -- at least lo repetitions
+            return f"(re.++ ((_ re.^ {lo}) {inner}) (re.* {inner}))"
+        # {lo,hi} range
+        return f"((_ re.loop {lo} {hi}) {inner})"
+
+    if op is _sre_const.MIN_REPEAT:
+        # Lazy quantifiers (* ? +) -- semantically same as greedy for str.in_re
+        lo, hi, subpat = av
+        return _sre_node_to_smt(_sre_const.MAX_REPEAT, (lo, hi, subpat))
+
+    if op is _sre_const.CATEGORY:
+        # \d \w \s and their complements
+        return _sre_category_to_smt(av)
+
+    # Unsupported: GROUPREF, ASSERT (lookahead/lookbehind), etc.
+    return None
+
+
+def _sre_class_item_to_smt(op, av) -> Optional[str]:
+    """Translate one item inside [...] to a SMTLIB2 RegLan term."""
+    if op is _sre_const.LITERAL:
+        return _smt_literal(av)
+    if op is _sre_const.RANGE:
+        lo, hi = av
+        return f'(re.range "{chr(lo)}" "{chr(hi)}")'
+    if op is _sre_const.CATEGORY:
+        return _sre_category_to_smt(av)
+    if op is _sre_const.NEGATE:
+        return None   # handled by caller
+    return None
+
+
+def _sre_category_to_smt(category) -> Optional[str]:
+    """Translate a sre CATEGORY (\\d, \\w, \\s, \\D, \\W, \\S) to SMTLIB2."""
+    _DIGITS    = '(re.range "0" "9")'
+    _LOWER     = '(re.range "a" "z")'
+    _UPPER     = '(re.range "A" "Z")'
+    _UNDERSCORE = '(str.to_re "_")'
+    _WORD      = f"(re.union (re.union {_LOWER} {_UPPER}) (re.union {_DIGITS} {_UNDERSCORE}))"
+    _SPACE     = '(re.union (str.to_re " ") (re.union (str.to_re "\\t") (re.union (str.to_re "\\n") (str.to_re "\\r"))))'
+
+    if category is _sre_const.CATEGORY_DIGIT:
+        return _DIGITS
+    if category is _sre_const.CATEGORY_NOT_DIGIT:
+        return f"(re.comp {_DIGITS})"
+    if category is _sre_const.CATEGORY_WORD:
+        return _WORD
+    if category is _sre_const.CATEGORY_NOT_WORD:
+        return f"(re.comp {_WORD})"
+    if category is _sre_const.CATEGORY_SPACE:
+        return _SPACE
+    if category is _sre_const.CATEGORY_NOT_SPACE:
+        return f"(re.comp {_SPACE})"
+    return None   # unknown category
+
+
 # ── Theory classifier ─────────────────────────────────────────────
 
 # Coq terms that signal string theory involvement
@@ -284,6 +502,8 @@ _STRING_SIGNALS = frozenset([
     "String.prefix", "String.substring", "String.concat",
     "asString", "VString", "isVString",
     "smem_f",       # our string-keyed set field
+    "matches",      # regex membership contract predicate
+    "str.in_re",    # SMTLIB2 regex (may appear in post-reduction goals)
 ])
 
 # Coq terms that signal float theory involvement
@@ -478,29 +698,33 @@ class StringTheoryEncoder:
             return eq if m.group(3) == "true" else f"(not {eq})"
 
         # String.index 0 s1 s2 <> None  ->  (str.contains s2 s1)
+        # s1 and s2 may be paren-wrapped: (asString (s "name"))
         m = re.match(
-            r'String\.index\s+0\s+(.+?)\s+(.+?)\s*<>\s*None$', expr)
+            r'String\.index\s+0\s+(.+?)\s*<>\s*None$', expr)
         if m:
-            s1 = self._coq_string_to_smt(m.group(1), coq_sorts)
-            s2 = self._coq_string_to_smt(m.group(2), coq_sorts)
-            return f"(str.contains {s2} {s1})"
+            rest = m.group(1).strip()
+            s1, s2 = self._split_two_args(rest)
+            if s1 is not None and s2 is not None:
+                return f"(str.contains {self._coq_string_to_smt(s2, coq_sorts)} {self._coq_string_to_smt(s1, coq_sorts)})"
 
         # String.index 0 s1 s2 = None  ->  (not (str.contains s2 s1))
         m = re.match(
-            r'String\.index\s+0\s+(.+?)\s+(.+?)\s*=\s*None$', expr)
+            r'String\.index\s+0\s+(.+?)\s*=\s*None$', expr)
         if m:
-            s1 = self._coq_string_to_smt(m.group(1), coq_sorts)
-            s2 = self._coq_string_to_smt(m.group(2), coq_sorts)
-            return f"(not (str.contains {s2} {s1}))"
+            rest = m.group(1).strip()
+            s1, s2 = self._split_two_args(rest)
+            if s1 is not None and s2 is not None:
+                return f"(not (str.contains {self._coq_string_to_smt(s2, coq_sorts)} {self._coq_string_to_smt(s1, coq_sorts)}))"
 
         # String.prefix s1 s2 = true  ->  (str.prefixof s1 s2)
         m = re.match(
-            r'String\.prefix\s+(.+?)\s+(.+?)\s*=\s*(true|false)$', expr)
+            r'String\.prefix\s+(.+?)\s*=\s*(true|false)$', expr)
         if m:
-            s1 = self._coq_string_to_smt(m.group(1), coq_sorts)
-            s2 = self._coq_string_to_smt(m.group(2), coq_sorts)
-            pref = f"(str.prefixof {s1} {s2})"
-            return pref if m.group(3) == "true" else f"(not {pref})"
+            rest = m.group(1).strip()
+            s1, s2 = self._split_two_args(rest)
+            if s1 is not None and s2 is not None:
+                pref = f"(str.prefixof {self._coq_string_to_smt(s1, coq_sorts)} {self._coq_string_to_smt(s2, coq_sorts)})"
+                return pref if m.group(2) == "true" else f"(not {pref})"
 
         # VString s1 = VString s2
         m = re.match(r'VString\s+(.+?)\s*=\s*VString\s+(.+)$', expr)
@@ -508,6 +732,25 @@ class StringTheoryEncoder:
             s1 = self._coq_string_to_smt(m.group(1), coq_sorts)
             s2 = self._coq_string_to_smt(m.group(2), coq_sorts)
             return f"(= {s1} {s2})"
+
+        # String.length s > 0 / = n / >= n  (integer comparison on length)
+        m = re.match(r'String\.length\s+(.+?)\s*([<>=!]+)\s*(.+)$', expr)
+        if m:
+            s = self._coq_string_to_smt(m.group(1), coq_sorts)
+            coq_op = m.group(2)
+            n = self._coq_int_to_smt(m.group(3), coq_sorts)
+            smt_op = {"=": "=", ">": ">", "<": "<", ">=": ">=", "<=": "<=",
+                      "!=": "distinct", "<>": "distinct"}.get(coq_op)
+            if smt_op:
+                return f"({smt_op} (str.len {s}) {n})"
+
+        # matches(s, "pattern") = true/false  ->  (str.in_re s <re>)
+        # Must come BEFORE the general equality check, because
+        # 'matches (...) "pat" = true' would be misparse as LHS=matches... RHS=true.
+        if expr.startswith("matches"):
+            parsed = self._parse_matches_call(expr, coq_sorts)
+            if parsed:
+                return parsed
 
         # General string equality: s1 = s2 where either side may be ++, asString, literal
         # Try splitting on = and encoding both sides as strings
@@ -524,6 +767,12 @@ class StringTheoryEncoder:
                 s1 = self._coq_string_to_smt(lhs, coq_sorts)
                 s2 = self._coq_string_to_smt(rhs, coq_sorts)
                 return f"(= {s1} {s2})"
+
+        # str.in_re s r  (already in SMTLIB2 form, pass through)
+        m = re.match(r'str\.in_re\s+(.+?)\s+(.+)$', expr)
+        if m:
+            s = self._coq_string_to_smt(m.group(1), coq_sorts)
+            return f"(str.in_re {s} {m.group(2)})"
 
         # Logical connectives: A /\ B, A \/ B, ~ A
         m = re.match(r'^(.+)\s*/\\\\\s*(.+)$', expr, re.DOTALL)
@@ -551,8 +800,27 @@ class StringTheoryEncoder:
     def _coq_string_to_smt(self, s: str, coq_sorts: dict[str, str]) -> str:
         """Convert a Coq string expression to SMTLIB2."""
         s = s.strip()
+
+        # Strip outer parens and recurse (handles (asString (s "x")) etc.)
+        if s.startswith('(') and s.endswith(')'):
+            inner = s[1:-1].strip()
+            # Only strip if balanced
+            depth = 0
+            for c in inner:
+                if c == '(': depth += 1
+                elif c == ')': depth -= 1
+                if depth < 0:
+                    break
+            else:
+                if depth == 0:
+                    candidate = self._coq_string_to_smt(inner, coq_sorts)
+                    # Only accept if it changed (otherwise infinite loop on bare literals)
+                    if candidate != _smt_string_var(s):
+                        return candidate
+
         # asString (s "x")  ->  x (the declared SMT variable)
-        m = re.match(r'asString\s*\(\s*s\s*"([^"]+)"\s*\)', s)
+        # Use fullmatch / $ anchor so partial prefix doesn't swallow a chain
+        m = re.match(r'asString\s*\(\s*s\s*"([^"]+)"\s*\)\s*$', s)
         if m:
             return _smt_string_var(m.group(1))
         # String literal: "hello"%string  ->  "hello"
@@ -566,14 +834,150 @@ class StringTheoryEncoder:
         # Bare variable name that we know is a string
         if s in coq_sorts and coq_sorts[s] == "String":
             return _smt_string_var(s)
-        # String.append / ++ -- recurse
-        m = re.match(r'^(.+?)\s*\+\+\s*(.+)$', s)
-        if m:
-            a = self._coq_string_to_smt(m.group(1), coq_sorts)
-            b = self._coq_string_to_smt(m.group(2), coq_sorts)
+
+        # String.append / ++ chain -- find the leftmost top-level ++
+        # and recurse. Use paren-depth scanning so nested calls don't confuse.
+        pp = self._split_concat(s)
+        if pp is not None:
+            a = self._coq_string_to_smt(pp[0], coq_sorts)
+            b = self._coq_string_to_smt(pp[1], coq_sorts)
             return f"(str.++ {a} {b})"
+
         # Fallback: emit as-is (solver will reject if wrong)
         return _smt_string_var(s)
+
+    def _parse_matches_call(
+        self, expr: str, coq_sorts: dict[str, str]
+    ) -> Optional[str]:
+        """Parse: matches <subject> "<pattern>" [= true|false]
+
+        The contract syntax is:
+          matches (asString (s "result")) "[a-z]+"
+          matches (asString (s "result")) "[a-z]+" = true
+          matches (asString (s "result")) "[a-z]+" = false
+
+        <subject> may be any Coq string expression.
+        <pattern> is a Python regex literal (quoted string).
+
+        Handles depth-aware parsing since <subject> may contain
+        embedded quotes (e.g. asString (s "result")).
+        """
+        expr = expr.strip()
+        if not expr.startswith('matches'):
+            return None
+        rest = expr[7:].strip()   # everything after 'matches'
+
+        # Parse the subject: either paren-wrapped or a bare token
+        subject, after_subject = self._consume_one_arg(rest)
+        if subject is None:
+            return None
+
+        after_subject = after_subject.strip()
+
+        # Parse the pattern: a quoted string
+        if not after_subject.startswith('"'):
+            return None
+        # Find closing quote (pattern may contain [ ] - + etc but not ")
+        pat_end = after_subject.find('"', 1)
+        if pat_end < 0:
+            return None
+        pattern = after_subject[1:pat_end]
+        suffix = after_subject[pat_end+1:].strip()
+
+        # Optional polarity: = true / = false
+        polarity = "true"
+        pm = re.match(r'=\s*(true|false)', suffix)
+        if pm:
+            polarity = pm.group(1)
+
+        # Encode
+        s_smt = self._coq_string_to_smt(subject, coq_sorts)
+        re_smt = _python_re_to_smt(pattern)
+        if not re_smt:
+            return None
+        membership = f"(str.in_re {s_smt} {re_smt})"
+        return membership if polarity == "true" else f"(not {membership})"
+
+    def _consume_one_arg(self, s: str) -> "tuple[str | None, str]":
+        """Consume one argument from the start of s.
+
+        If s starts with '(', find the matching ')' and return
+        (content_with_parens, rest). Otherwise take one whitespace-delimited token.
+        Returns (arg, remainder) or (None, s) on failure.
+        """
+        s = s.strip()
+        if not s:
+            return (None, s)
+        if s.startswith('('):
+            depth = 0
+            for i, c in enumerate(s):
+                if c == '(':
+                    depth += 1
+                elif c == ')':
+                    depth -= 1
+                    if depth == 0:
+                        return (s[:i+1], s[i+1:])
+            return (None, s)
+        # Bare token: take until whitespace
+        m = re.match(r'(\S+)(.*)', s, re.DOTALL)
+        if m:
+            return (m.group(1), m.group(2))
+        return (None, s)
+
+    def _split_two_args(self, s: str) -> "tuple[str | None, str | None]":
+        """Split 'arg1 arg2' where each arg may be paren-wrapped.
+
+        Handles: 'name result', '(asString (s "name")) (asString (s "result"))'
+        Returns (arg1, arg2) or (None, None).
+        """
+        s = s.strip()
+        # If starts with '(', find matching ')' as arg1
+        if s.startswith('('):
+            depth = 0
+            for i, c in enumerate(s):
+                if c == '(':
+                    depth += 1
+                elif c == ')':
+                    depth -= 1
+                    if depth == 0:
+                        arg1 = s[:i+1].strip()
+                        arg2 = s[i+1:].strip()
+                        return (arg1, arg2) if arg2 else (None, None)
+            return (None, None)
+        # Otherwise split on first whitespace
+        parts = s.split(None, 1)
+        if len(parts) == 2:
+            return (parts[0], parts[1])
+        return (None, None)
+
+    def _split_concat(self, s: str) -> "tuple[str, str] | None":
+        """Find the first top-level ++ in s (not inside parens or quotes).
+        Returns (left, right) or None.
+        """
+        depth = 0
+        in_str = False
+        i = 0
+        while i < len(s):
+            c = s[i]
+            if c == '"' and not in_str:
+                # scan to end of string literal
+                j = i + 1
+                while j < len(s) and s[j] != '"':
+                    j += 1
+                i = j + 1
+                continue
+            if c == '(':
+                depth += 1
+            elif c == ')':
+                depth -= 1
+            elif c == '+' and depth == 0 and i + 1 < len(s) and s[i+1] == '+':
+                left  = s[:i].strip()
+                right = s[i+2:].strip()
+                if left and right:
+                    return (left, right)
+                break
+            i += 1
+        return None
 
     def _coq_int_to_smt(self, n: str, coq_sorts: dict[str, str]) -> str:
         """Convert a Coq integer expression to SMTLIB2."""
