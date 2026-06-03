@@ -220,6 +220,13 @@ Definition elem_f (i : Z) : var := z_to_string i.
 Definition dval_f (k : Z) : var := ("v." ++ z_to_string k)%string.
 Definition dlen_f (k : Z) : var := ("_len_v." ++ z_to_string k)%string.
 
+(** String-keyed set field names.
+    A set[str] is encoded in the heap as:
+      hget s name (smem_f k) = VZ 1  iff  k is a member
+      hget s name (smem_f k) = VZ 0  iff  k is absent
+    count_f tracks the number of distinct members. *)
+Definition smem_f (k : string) : var := ("_sm." ++ k)%string.
+
 (** Float scale factor. *)
 Definition float_scale : Z := 100.
 
@@ -240,6 +247,8 @@ Inductive aexp : Type :=
   | ASet (a : aexp) (idx : aexp) (val : aexp)
   | ADictLen (name : var) (key_e : aexp)
   | ADictCount (name : var)
+  (** Test membership in a string-keyed set: 1 if present, 0 if absent. *)
+  | ASetMem (name : var) (key_e : aexp)
   | ABool (b : bexp)
   | AString (s : string)
   | AFloat (f : Z)
@@ -308,6 +317,7 @@ Fixpoint aeval (a : aexp) (s : state) : value :=
       VList (set_nth (asList (aeval a s)) (Z.to_nat (asZ (aeval idx s))) (aeval val s))
   | ADictLen name key_e => VZ (asZ (hget s name (dlen_f (asZ (aeval key_e s)))))
   | ADictCount name => VZ (asZ (hget s name count_f))
+  | ASetMem name key_e => VZ (asZ (hget s name (smem_f (asString (aeval key_e s)))))
   | ABool b => VZ (if beval b s then 1%Z else 0%Z)
   end
 with beval (b : bexp) (s : state) : bool :=
@@ -357,6 +367,12 @@ Inductive com : Type :=
   | CDictEnsureList (name : var) (key : aexp)
   | CDictAppend (name : var) (key val : aexp)
   | CDictAppendKv (name : var) (key val : aexp)
+  (** String-keyed set: add a member (idempotent). *)
+  | CSetAdd (name : var) (key : aexp)
+  (** String-keyed set: remove a member (no-op if absent). *)
+  | CSetDiscard (name : var) (key : aexp)
+  (** Pop last element of a heap list and assign it to [target]. *)
+  | CListPopTo (name : var) (target : var)
   | CCall (name : var) (args : list aexp) (pre post : state -> Prop) (writes : list var) (target : var)
   | CAssume (P : state -> Prop)
   | CRaise (e : aexp)
@@ -459,6 +475,27 @@ Inductive ceval : com -> state -> outcome -> Prop :=
       ceval (CDictAppendKv name key_e val_e) s
             (OReturn (hupd (hupd s1 name (elem_f c) (aeval key_e s))
                            name count_f (VZ new_c)))
+  | E_SetAdd : forall name key_e s,
+      let k := asString (aeval key_e s) in
+      let is_new := Z.eqb 0 (asZ (hget s name (smem_f k))) in
+      let old_count := asZ (hget s name count_f) in
+      let new_count := old_count + (if is_new then 1 else 0) in
+      ceval (CSetAdd name key_e) s
+            (OReturn (hupd (hupd s name (smem_f k) (VZ 1))
+                           name count_f (VZ new_count)))
+  | E_SetDiscard : forall name key_e s,
+      let k := asString (aeval key_e s) in
+      let was_present := Z.eqb 1 (asZ (hget s name (smem_f k))) in
+      let old_count := asZ (hget s name count_f) in
+      let new_count := old_count - (if was_present then 1 else 0) in
+      ceval (CSetDiscard name key_e) s
+            (OReturn (hupd (hupd s name (smem_f k) (VZ 0))
+                           name count_f (VZ new_count)))
+  | E_ListPopTo : forall name target s,
+      let len := asZ (hget s name len_f) in
+      let last_val := hget s name (elem_f (len - 1)) in
+      ceval (CListPopTo name target) s
+            (OReturn (lupd (hupd s name len_f (VZ (len - 1))) target last_val))
   | E_Call : forall name args pre post writes target s r,
       pre s ->
       post (lupd s target (VZ r)) ->

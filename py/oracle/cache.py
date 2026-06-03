@@ -255,6 +255,8 @@ class DependencyGraph:
         """Return the stored contract hash for a function, or empty string if unknown.
 
         axiomander:
+            requires:
+                is_shape(self)
             ensures:
                 implies(name in self.nodes, len(result) >= 0)
                 implies(name not in self.nodes, result == "")
@@ -281,6 +283,8 @@ class DependencyGraph:
         (cycle), name will not appear in the result.
 
         axiomander:
+            requires:
+                is_shape(self)
             ensures:
                 name not in result
                 implies(name not in self.nodes, result == [])
@@ -329,6 +333,8 @@ class DependencyGraph:
         (cycle), name will not appear in the result.
 
         axiomander:
+            requires:
+                is_shape(self)
             ensures:
                 name not in result
                 implies(name not in self.nodes, result == [])

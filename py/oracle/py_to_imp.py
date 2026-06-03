@@ -274,6 +274,9 @@ class PyToImpLowerer:
         if isinstance(expr, PyName):
             if expr.name == "__debug__":
                 return ImpBTrue()
+            # list/set variable truthiness: non-empty iff len > 0
+            if self._param_types.get(expr.name) in ("list", "set"):
+                return ImpBLe(left=ImpANum(value=1), right=ImpALen(name=expr.name))
             return ImpBNot(operand=ImpBEq(
                 left=ImpAVar(name=expr.name), right=ImpANum(value=0)))
         if isinstance(expr, PyCall):
@@ -295,11 +298,19 @@ class PyToImpLowerer:
 
             # in / not in must be handled before the comparison fallback at the end
             if expr.op in ("in", "not in"):
-                # Dict membership: key in dict_name → ADictLen "d" key != 0
                 if isinstance(expr.right, PyName):
                     key = left
+                    rname = expr.right.name
                     if key:
-                        dlen = ImpADictLen(name=expr.right.name, key=key)
+                        # String-keyed set: use ASetMem
+                        if self._param_types.get(rname) == "set":
+                            mem = ImpASetMem(name=rname, key=key)
+                            if expr.op == "in":
+                                return ImpBLe(left=ImpANum(value=1), right=mem)
+                            else:
+                                return ImpBEq(left=ImpANum(value=0), right=mem)
+                        # Dict membership: key in dict_name → ADictLen "d" key != 0
+                        dlen = ImpADictLen(name=rname, key=key)
                         if expr.op == "in":
                             return ImpBLe(left=ImpANum(value=1), right=dlen)
                         else:
@@ -454,6 +465,7 @@ class PyToImpLowerer:
         return None
 
     def _build_list_literal_assign(self, target: str, lit: PyListLiteral) -> ImpCom:
+        self._param_types[target] = "list"
         cmds: list[ImpCom] = [ImpCListNew(name=target)]
         for elt in lit.elements:
             val = self.lower_expr(elt)
@@ -749,15 +761,21 @@ class PyToImpLowerer:
             if obj:
                 return ImpCListPop(name=obj)
 
-        # set.add(val)
+        # set.add(val) — dispatch to string-keyed CSetAdd for set[str] vars
         if name.endswith(".add") and args:
             obj = self._call_object(name)
             val = self.lower_expr(args[0])
             if obj and val:
+                if self._param_types.get(obj) == "set":
+                    return ImpCSetAdd(name=obj, key=val)
                 return ImpCDictSet(name=obj, key=val, val=ImpANum(value=1))
 
-        # set.discard / set.remove -> no-op
+        # set.discard / set.remove — CSetDiscard for set[str] vars, no-op otherwise
         if (name.endswith(".discard") or name.endswith(".remove")) and args:
+            obj = self._call_object(name)
+            val = self.lower_expr(args[0])
+            if obj and val and self._param_types.get(obj) == "set":
+                return ImpCSetDiscard(name=obj, key=val)
             return ImpCSkip()
 
         # str.lower()
@@ -914,9 +932,14 @@ class PyToImpLowerer:
         if expr.func == "list" and expr.args:
             if isinstance(expr.args[0], PyName):
                 # list(name) — create a copy reference to the heap object
+                self._param_types[target] = "list"
                 return ImpCListNew(name=target)
+            self._param_types[target] = "list"
             return ImpCListNew(name=target)
         if expr.func == "set" and not expr.args:
+            # Track this variable as a string-keyed set so that in/not-in
+            # and .add()/.discard() dispatch to the correct IMP operations.
+            self._param_types[target] = "set"
             return ImpCSkip()
         if expr.func == "dict" and expr.args:
             return ImpCSkip()
@@ -925,6 +948,12 @@ class PyToImpLowerer:
             if expr.func.endswith(".keys") or expr.func.endswith(".values") \
                     or expr.func.endswith(".items"):
                 return ImpCListNew(name=target)
+            # list.pop() used as rvalue: current = stack.pop()
+            # Emit CListPopTo which captures the removed element.
+            if expr.func.endswith(".pop") and not expr.args:
+                obj = self._call_object(expr.func)
+                if obj:
+                    return ImpCListPopTo(name=obj, target=target)
         # CCall
         return self._lower_ccall(target, expr)
 

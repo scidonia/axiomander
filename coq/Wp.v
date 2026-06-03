@@ -87,6 +87,24 @@ Fixpoint wp (c : com) (Phi : outcome_pred) : assertion :=
                                name (elem_f c) (aeval val_e s) in
                Phi (OReturn (hupd (hupd s1 name (elem_f c) (aeval key_e s))
                                   name count_f (VZ new_c)))
+  | CSetAdd name key_e =>
+      fun s => let k := asString (aeval key_e s) in
+               let is_new := Z.eqb 0 (asZ (hget s name (smem_f k))) in
+               let old_count := asZ (hget s name count_f) in
+               let new_count := old_count + (if is_new then 1 else 0) in
+               Phi (OReturn (hupd (hupd s name (smem_f k) (VZ 1))
+                                  name count_f (VZ new_count)))
+  | CSetDiscard name key_e =>
+      fun s => let k := asString (aeval key_e s) in
+               let was_present := Z.eqb 1 (asZ (hget s name (smem_f k))) in
+               let old_count := asZ (hget s name count_f) in
+               let new_count := old_count - (if was_present then 1 else 0) in
+               Phi (OReturn (hupd (hupd s name (smem_f k) (VZ 0))
+                                  name count_f (VZ new_count)))
+  | CListPopTo name target =>
+      fun s => let len := asZ (hget s name len_f) in
+               let last_val := hget s name (elem_f (len - 1)) in
+               Phi (OReturn (lupd (hupd s name len_f (VZ (len - 1))) target last_val))
   | CCall name args pre post writes target =>
       fun s => pre s /\ (forall r, post (lupd s target (VZ r)) ->
         Phi (OReturn (clobber (lupd s target (VZ r)) writes)) /\

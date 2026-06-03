@@ -128,18 +128,15 @@ class ContractLinter(ast.NodeVisitor):
             right = self.visit(node.comparators[0])
             if op == "in":
                 # k in d → dict membership: ADictLen "d" k != 0
-                # Only works when right side is a simple target (dict)
-                if isinstance(node.comparators[0], ast.Name):
-                    dname = node.comparators[0].id
-                    if left and isinstance(left, Var):
-                        return BinOp(op="<>", left=DictLenExpr(name=dname, key=left), right=IntLit(value=0))
+                # right is already resolved by the visitor (handles both bare
+                # names and attribute paths like self.nodes → Var("self_nodes"))
+                if left and right and isinstance(left, Var) and isinstance(right, Var):
+                    return BinOp(op="<>", left=DictLenExpr(name=right.name, key=left), right=IntLit(value=0))
                 return BinOp(op="<>", left=IntLit(value=1), right=IntLit(value=0))
             elif op == "notin":
                 # k not in d → dict non-membership: ADictLen "d" k == 0
-                if isinstance(node.comparators[0], ast.Name):
-                    dname = node.comparators[0].id
-                    if left and isinstance(left, Var):
-                        return BinOp(op="=", left=DictLenExpr(name=dname, key=left), right=IntLit(value=0))
+                if left and right and isinstance(left, Var) and isinstance(right, Var):
+                    return BinOp(op="=", left=DictLenExpr(name=right.name, key=left), right=IntLit(value=0))
                 return BinOp(op="=", left=IntLit(value=1), right=IntLit(value=0))
             if left and right:
                 # Convert BoolLit to IntLit in comparison context so

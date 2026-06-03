@@ -267,6 +267,18 @@ class ImpADictCount(ImpAExp):
         return f'(ADictCount "{self.name}"%string)'
 
 
+class ImpASetMem(ImpAExp):
+    """String-keyed set membership: ASetMem name key_e.
+    Evaluates to VZ 1 if the string key is a member, VZ 0 otherwise."""
+
+    kind: Literal["asetmem"] = "asetmem"
+    name: str
+    key: ImpAExp
+
+    def to_coq(self) -> str:
+        return f'(ASetMem "{self.name}"%string {self.key.to_coq()})'
+
+
 # ── BExp (boolean expressions) ───────────────────────────────────
 
 
@@ -506,13 +518,47 @@ class ImpCListAppend(ImpCom):
 
 
 class ImpCListPop(ImpCom):
-    """List pop: CListPop name."""
+    """List pop (discard): CListPop name. Does not capture the removed element."""
 
     kind: Literal["clistpop"] = "clistpop"
     name: str
 
     def to_coq(self) -> str:
         return f'(CListPop "{self.name}"%string)'
+
+
+class ImpCListPopTo(ImpCom):
+    """List pop and capture: CListPopTo name target.
+    Removes the last element from heap list [name] and assigns it to [target]."""
+
+    kind: Literal["clistpopto"] = "clistpopto"
+    name: str
+    target: str
+
+    def to_coq(self) -> str:
+        return f'(CListPopTo "{self.name}"%string "{self.target}"%string)'
+
+
+class ImpCSetAdd(ImpCom):
+    """String-keyed set insert (idempotent): CSetAdd name key."""
+
+    kind: Literal["csetadd"] = "csetadd"
+    name: str
+    key: ImpAExp
+
+    def to_coq(self) -> str:
+        return f'(CSetAdd "{self.name}"%string {self.key.to_coq()})'
+
+
+class ImpCSetDiscard(ImpCom):
+    """String-keyed set remove (no-op if absent): CSetDiscard name key."""
+
+    kind: Literal["csetdiscard"] = "csetdiscard"
+    name: str
+    key: ImpAExp
+
+    def to_coq(self) -> str:
+        return f'(CSetDiscard "{self.name}"%string {self.key.to_coq()})'
 
 
 class ImpCListSet(ImpCom):
