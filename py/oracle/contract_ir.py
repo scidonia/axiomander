@@ -469,4 +469,27 @@ class IsValid(BaseModel):
         return "true"
 
 
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid]
+class ListEqExpr(BaseModel):
+    """List literal equality: result == [a, b] or result != [].
+
+    Currently compiles to length equality (len(result) == len(literal))
+    since element-by-element comparison requires list-index support in
+    the contract IR.  The node preserves the semantic intent so it can
+    be upgraded to element-wise equality when that becomes available.
+    """
+    kind: Literal["list_eq"] = "list_eq"
+    name: str          # left-hand list name, e.g. "result"
+    op: str            # "=" or "<>"
+    n_elements: int    # number of elements in the literal on the right
+
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        # Compiles to length comparison: (hget s "name"%string len_f) = n_elements
+        key_ref = f's "{self.name}"%string' if scoped else self.name
+        op_str = "=" if self.op == "=" else "<>"
+        return f'(asZ (hget {key_ref} len_f) {op_str} {self.n_elements})'
+
+    def to_smt(self) -> str:
+        return f"({self.op} (len {self.name}) {self.n_elements})"
+
+
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, ListEqExpr]

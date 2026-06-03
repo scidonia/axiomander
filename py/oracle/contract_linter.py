@@ -18,7 +18,7 @@ from .contract_ir import (
     LenExpr, IndexExpr, DictLenExpr, DictCountExpr,
     AllExpr, AnyExpr, SliceLenExpr,
     MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr,
-    ImpliesExpr, RaisesExpr, IsShape, IsValid,
+    ImpliesExpr, RaisesExpr, IsShape, IsValid, ListEqExpr,
 )
 
 
@@ -117,12 +117,13 @@ class ContractLinter(ast.NodeVisitor):
     def visit_Compare(self, node: ast.Compare) -> Optional[Expr]:
         if len(node.ops) == 1 and len(node.comparators) == 1:
             op = self._translate_compare_op(node.ops[0])
-            # List literals: result == []  →  len(result) == 0
+            # List literal equality: result == [] compiles to length comparison
+            # via ListEqExpr which preserves the semantic intent.
             if isinstance(node.comparators[0], ast.List):
                 left = self.visit(node.left)
                 if left and isinstance(left, Var) and op in ("=", "<>"):
                     n = len(node.comparators[0].elts)
-                    return BinOp(op=op, left=LenExpr(name=left.name), right=IntLit(value=n))
+                    return ListEqExpr(name=left.name, op=op, n_elements=n)
             left = self.visit(node.left)
             right = self.visit(node.comparators[0])
             if op == "in":
