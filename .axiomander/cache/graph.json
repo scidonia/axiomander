@@ -289,7 +289,10 @@
       "_extract_name",
       "_attribute_dot_path",
       "_lower_arg",
-      "lower_expr"
+      "lower_expr",
+      "_is_string_param",
+      "_is_string_param_buggy",
+      "bad_tag"
     ]
   },
   "len": {
@@ -3137,7 +3140,7 @@
     "callers": []
   },
   "clamp": {
-    "contract_hash": "3c528b7ad1ea5032583176b36ceacc080841842ae775f5bd283ede4af88a78d4",
+    "contract_hash": "b93bcb1e9e2e412e000ffe95591513b349aed6c1e3862ec765fed570c6ba0599",
     "callees": [],
     "callers": []
   },
@@ -7448,13 +7451,49 @@
     "callers": []
   },
   "revenue_per_user": {
-    "contract_hash": "176109dc7b90d824a4606e1d72fc7413f7b3d6f89207c45cbcbf6094dc648778",
+    "contract_hash": "443c9d62e6827d5e3eaf8176dec102b441052f427e42997df20fd6dc4c998c93",
     "callees": [],
     "callers": []
   },
   "wrong_total": {
     "contract_hash": "b8a565bde2733a939392980ac61a675e78a54335703d53b638749aa18e0c36e4",
     "callees": [],
+    "callers": []
+  },
+  "p.endswith": {
+    "contract_hash": "",
+    "callees": [],
+    "callers": [
+      "_coq_type_of_param"
+    ]
+  },
+  "_coq_type_of_param": {
+    "contract_hash": "86132d373ee33f7b0690dfd867fd8af8a7ede1bb8497b0fe42bd2ba9db41fc45",
+    "callees": [
+      "p.endswith"
+    ],
+    "callers": []
+  },
+  "_is_string_param": {
+    "contract_hash": "77a42239f10b796fb340e19c0eb0b6d35046f564e2c897c8111c6e41576b9b81",
+    "callees": [
+      "_is_string_param",
+      "isinstance"
+    ],
+    "callers": []
+  },
+  "_is_string_param_buggy": {
+    "contract_hash": "68612be131aa210176cd5143750c4c5e61b094d51a83aaf146db86cbe2aa91d8",
+    "callees": [
+      "isinstance"
+    ],
+    "callers": []
+  },
+  "bad_tag": {
+    "contract_hash": "fb3dce53667c79952aaf79285b36198c8b967929ea10e83a555f7298f61ba794",
+    "callees": [
+      "isinstance"
+    ],
     "callers": []
   }
 }

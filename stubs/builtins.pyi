@@ -95,3 +95,14 @@ def remove(lst: list, x: any) -> None:
     writes: lst
     note: x type depends on list element type"""
     ...
+
+# ── string replace ─────────────────────────────────────────────
+
+def str_replace(s: str, old: str, new: str) -> str:
+    """requires: len(old) >= 1
+    ensures: implies(old not in s, result == s)
+             implies(old in s, new in result)
+             old not in result or old in new
+    reads: s, old, new
+    writes: result"""
+    ...

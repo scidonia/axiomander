@@ -1366,6 +1366,126 @@ class TheoryDispatcher:
 
         return result
 
+    def dispatch_cases(
+        self,
+        case_branches: "list[CaseBranch]",
+        property_spec,  # Callable[[CaseBranch], Optional[SmtFragment]]
+    ) -> TheoryOracleResult:
+        """Run SMT verification per case branch (case-dispatch verification).
+
+        For each CaseBranch, calls property_spec to construct an SmtFragment,
+        runs the SMT solver, and collects AxiomRecords (UNSAT) or
+        TheoryCounterexamples (SAT).
+
+        This is the core of the Herbrand-instantiation approach: each case
+        is a ground QF_SLIA check, and the universal follows by Coq case analysis.
+
+        Args:
+            case_branches: List of CaseBranch extracted from IMP IR.
+            property_spec:  Callable that maps a CaseBranch to an optional
+                           SmtFragment.  Return None to skip a branch
+                           (e.g., trivial cases that don't need SMT checks).
+
+        Returns:
+            TheoryOracleResult with per-case axioms or counterexamples.
+        """
+        result = TheoryOracleResult()
+
+        for i, branch in enumerate(case_branches):
+            fragment = property_spec(branch, i)
+            if fragment is None:
+                continue   # skip (e.g., empty branch, trivially true)
+
+            status, raw_output, solver = _run_fragment(fragment, self.timeout)
+
+            if status == "unsat":
+                solver_ver = _SOLVER_CACHE.get(solver, "") or ""
+                axiom_name = f"smt_case_{fragment.theory.kind.value}_{fragment.query_hash()}"
+                axiom = AxiomRecord(
+                    axiom_name=axiom_name,
+                    coq_statement=fragment.coq_prop,
+                    query_hash=fragment.query_hash(),
+                    theory=fragment.theory.kind,
+                    solver=solver,
+                    solver_version=solver_ver,
+                    fragment=fragment,
+                )
+                result.proved.append(axiom)
+
+            elif status == "sat":
+                model = _parse_model(raw_output, fragment.declarations)
+                ce = TheoryCounterexample(
+                    theory=fragment.theory.kind,
+                    assignments=model,
+                    violated_prop=fragment.coq_prop,
+                    query_hash=fragment.query_hash(),
+                    solver=solver,
+                    raw_model=raw_output,
+                )
+                result.counterexamples.append(ce)
+
+            else:
+                result.unknown.append(fragment)
+
+        return result
+
+
+# ── Case-dispatch property specifications ────────────────────────────
+
+def _expand_params_property_spec(branch: "CaseBranch", index: int) -> Optional[SmtFragment]:
+    """Property spec for the type-convention of _expand_params.
+
+    For each case branch, verifies that the output variables
+    (expanded, parts/params_coq) follow the suffix convention:
+      - If an output name ends in '_str', the Coq forall binder
+        in params_coq uses ': string'.
+      - Other suffixes (__len, __count) use ': Z'.
+    """
+    from .case_extractor import CaseBranch
+    from .imp_ir import ImpCListAppend, ImpAString, ImpAVar
+    from .imp_ir import ImpCIf, ImpBEq
+
+    # Determine what this branch produces based on assignments.
+    #
+    # Each branch appends to 'expanded' and 'parts' using CListAppend.
+    # We collect the concrete string patterns that this branch appends
+    # to figure out what suffixes are produced.
+    produced_suffixes: list[str] = []  # e.g. ["_str", "__len"]
+    for cmd in branch.assignments:
+        if isinstance(cmd, ImpCListAppend):
+            if cmd.name == "expanded" and isinstance(cmd.value, ImpAVar):
+                # Variable name is the output -- check suffix
+                name = cmd.value.name
+                if name.endswith("_str"):
+                    produced_suffixes.append("_str")
+                elif name.endswith("__len"):
+                    produced_suffixes.append("__len")
+                elif name.endswith("__count"):
+                    produced_suffixes.append("__count")
+            elif cmd.name == "expanded" and isinstance(cmd.value, ImpAString):
+                # String literal -- check suffix
+                val = cmd.value.value
+                if val.endswith("_str"):
+                    produced_suffixes.append("_str")
+                elif val.endswith("__len"):
+                    produced_suffixes.append("__len")
+
+    if not produced_suffixes:
+        return None   # no string classification needed
+
+    # Build SMT query: for each suffix s in produced_suffixes,
+    # verify the Coq type convention.
+    # We use a simple QF_SLIA check:
+    #   - Declare a string variable p (the parameter name)
+    #   - Assert the path condition (p is in the right category)
+    #   - Assert the generated suffix is correct
+    #   - Check that params_coq contains the right binder
+
+    # For now, return None to indicate "not yet fully automated"
+    # -- we'll wire this in after the core dispatch infrastructure
+    # is ready.
+    return None
+
 
 # ── Coq source injection ──────────────────────────────────────────
 

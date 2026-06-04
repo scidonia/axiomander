@@ -17,12 +17,24 @@ from typing import Optional
 
 
 def _coq_type_of_param(p: str) -> str:
-    """Infer the Coq type of an expanded parameter from its name convention.
+    r"""Infer the Coq type of an expanded parameter from its name convention.
 
     _expand_params names string params as '<name>_str' (type: string) and
     all other expanded params as '<name>__len', '<name>__count' etc. (type: Z).
     This lets obligation_gen emit correctly-typed forall binders without
     needing to thread the full params_coq string through every call site.
+
+    axiomander:
+        ensures:
+            implies(p.endswith("_str"), result == "string")
+            implies(not p.endswith("_str"), result == "Z")
+
+    Correctness is formalised in coq/ContractInvariants.v:
+      Lemma coq_type_of_param_iff (p) : suffix "_str" p = true <->
+        coq_type_of_param p = "string".
+
+    The suffix axioms backing this lemma are verified by Z3 (QF_SLIA,
+    queries 71b2f7cf52adf934, c19a1a0f2930927d, c418b88f75454557).
     """
     if p.endswith("_str"):
         return "string"
@@ -30,7 +42,12 @@ def _coq_type_of_param(p: str) -> str:
 
 
 def _params_forall(expanded_params: list[str]) -> str:
-    """Build a Coq 'forall' binder string with correct types for each param."""
+    """Build a Coq 'forall' binder string with correct types for each param.
+
+    Each param's type is determined by _coq_type_of_param, whose
+    correctness is proved in coq/ContractInvariants.v.
+    See: Lemma coq_type_of_param_iff.
+    """
     return " ".join(f"({p} : {_coq_type_of_param(p)})" for p in expanded_params)
 
 from .obligations import (

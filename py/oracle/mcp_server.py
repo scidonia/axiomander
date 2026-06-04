@@ -2248,6 +2248,154 @@ def _try_theory_smt(
     return None
 
 
+def _try_case_dispatch(
+    imp_ir,
+    func_name: str,
+    lint_results: list | None = None,
+) -> "TheoryOracleResult | None":
+    """Level 2b (case-dispatch): verify per-case properties via SMT.
+
+    Extracts case branches from the IMP IR decision tree, constructs
+    QF_LIA SMT queries for each branch's property, and runs them.
+    If all cases prove (UNSAT), produces per-case axioms that can be
+    assembled into a Coq lemma in ContractInvariants.v.
+
+    Only applies to decision-tree functions (no loops in branches).
+    Returns None if the IMP IR is not a decision tree.
+    """
+    try:
+        from .case_extractor import extract_cases, CaseBranch
+    except ImportError:
+        return None
+
+    try:
+        cases = extract_cases(imp_ir)
+    except ValueError:
+        return None  # loops in branches — not a decision tree
+
+    if not cases or len(cases) <= 1:
+        return None  # no branching — nothing to case-dispatch
+
+    from .theory_smt import (
+        TheoryDispatcher, SmtFragment, SmtDeclaration, STRING_THEORY,
+        TheoryOracleResult, AxiomRecord,
+    )
+    from .imp_ir import (
+        ImpCAss, ImpAVar, ImpANum, ImpAPlus, ImpAMinus,
+        ImpBLe, ImpBNot, ImpBAnd, ImpBOr, ImpBEq,
+    )
+
+    def _aexp_to_smt(a) -> str:
+        if isinstance(a, ImpAVar): return a.name
+        if isinstance(a, ImpANum): return str(a.value)
+        if isinstance(a, ImpAPlus):
+            return f"(+ {_aexp_to_smt(a.left)} {_aexp_to_smt(a.right)})"
+        if isinstance(a, ImpAMinus):
+            return f"(- {_aexp_to_smt(a.left)} {_aexp_to_smt(a.right)})"
+        return "0"
+
+    def _bexp_to_smt(b) -> str:
+        if isinstance(b, ImpBLe):
+            return f"(<= {_aexp_to_smt(b.left)} {_aexp_to_smt(b.right)})"
+        if isinstance(b, ImpBNot):
+            return f"(not {_bexp_to_smt(b.operand)})"
+        if isinstance(b, ImpBAnd):
+            return f"(and {_bexp_to_smt(b.left)} {_bexp_to_smt(b.right)})"
+        if isinstance(b, ImpBOr):
+            return f"(or {_bexp_to_smt(b.left)} {_bexp_to_smt(b.right)})"
+        if isinstance(b, ImpBEq):
+            return f"(= {_aexp_to_smt(b.left)} {_aexp_to_smt(b.right)})"
+        return "true"
+
+    # Collect the postcondition from lint results
+    post_irs = []
+    pre_irs = []
+    if lint_results:
+        post_irs = [r.lint_result.ir for r in lint_results
+                    if r.classification == "postcondition" and r.lint_result.ir]
+        pre_irs = [r.lint_result.ir for r in lint_results
+                   if r.classification == "precondition" and r.lint_result.ir]
+
+    def _case_property(branch: CaseBranch, idx: int) -> "SmtFragment | None":
+        # Find result assignment
+        result_aexp = None
+        for cmd in branch.assignments:
+            if isinstance(cmd, ImpCAss) and cmd.target == "result":
+                result_aexp = cmd.value
+                break
+        if result_aexp is None:
+            return None
+
+        result_smt = _aexp_to_smt(result_aexp)
+
+        # Collect variables from aexp nodes
+        vars_seen: set[str] = set()
+        def _collect_vars(a):
+            if isinstance(a, ImpAVar): vars_seen.add(a.name)
+            elif hasattr(a, 'left'): _collect_vars(a.left)
+            if hasattr(a, 'right'): _collect_vars(a.right)
+
+        for cond in branch.path_conditions:
+            _collect_vars(cond)
+        _collect_vars(result_aexp)
+
+        decls = [
+            SmtDeclaration(name=v, sort="Int", coq_var=v)
+            for v in sorted(vars_seen)
+        ]
+        decls.append(SmtDeclaration(name="result", sort="Int", coq_var="result"))
+
+        hyps: list[str] = []
+
+        # Encode precondition if available
+        if pre_irs:
+            for ir in pre_irs:
+                try:
+                    smt_pre = ir.to_smt()
+                    if smt_pre:
+                        hyps.append(smt_pre)
+                except Exception:
+                    pass
+
+        # Encode path conditions
+        for cond in branch.path_conditions:
+            s = _bexp_to_smt(cond)
+            if s and s != "true":
+                hyps.append(s)
+
+        # Result binding
+        hyps.append(f"(= result {result_smt})")
+
+        # Build goal from postcondition or default
+        if post_irs:
+            try:
+                goal_smt = " (and ".join(ir.to_smt() for ir in post_irs)
+                if goal_smt:
+                    goal_neg = f"(and {goal_smt})"
+                else:
+                    return None
+            except Exception:
+                goal_neg = "(= result result)"  # trivially true
+        else:
+            goal_neg = "(= result result)"
+
+        return SmtFragment(
+            theory=STRING_THEORY,
+            declarations=decls,
+            hypotheses=hyps,
+            goal_negation=goal_neg,
+            coq_prop=f"postcondition holds when result = {result_smt}",
+            coq_vars=sorted(vars_seen),
+            coq_sorts={v: "Z" for v in vars_seen},
+        )
+
+    dispatcher = TheoryDispatcher(timeout=15)
+    result = dispatcher.dispatch_cases(cases, _case_property)
+    if result.proved or result.counterexamples:
+        return result
+    return None
+
+
 # Expose TheoryOracleResult type for the call site above
 try:
     from .theory_smt import TheoryOracleResult as _TheoryOracleResult  # noqa: F401
@@ -2320,6 +2468,17 @@ def _used_self_fields(func_node) -> set[str]:
     return used
 
 
+def _dotted_path(node: ast.expr) -> str | None:
+    """Reconstruct 'annotation.id' from an ast.Attribute chain."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _dotted_path(node.value)
+        if base:
+            return f"{base}.{node.attr}"
+    return None
+
+
 def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
     """Expand class params into flat fields for Coq theorem params.
 
@@ -2358,6 +2517,31 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
                     fields.append(stmt.target.id)
             if fields:
                 class_fields[node.name] = fields
+
+    # Collect dotted attribute paths referenced in the function body.
+    # e.g. annotation.id -> "annotation.id", annotation.value.id -> "annotation.value.id"
+    # These become string-typed forall params so isinstance + attribute checks work.
+    # Only include paths whose root is a function parameter (not type references like ast.Name).
+    # Exclude method calls: name.replace is a call, not a field access.
+    param_names = {p for p in params}
+    dotted_fields: set[str] = set()
+    if func_node:
+        for node in ast.walk(func_node):
+            if isinstance(node, ast.Attribute):
+                # Skip attributes that are the target of a call (method calls)
+                if isinstance(node.ctx, ast.Load):
+                    parent = getattr(node, '_parent', None)
+                path = _dotted_path(node)
+                if path and "." in path:
+                    root = path.split(".", 1)[0]
+                    if root in param_names:
+                        dotted_fields.add(path)
+        # Remove method calls: walk again to find Call nodes and remove their func paths
+        for node in ast.walk(func_node):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                method_path = _dotted_path(node.func)
+                if method_path:
+                    dotted_fields.discard(method_path)
 
     expanded = []
     parts = []
@@ -2441,10 +2625,24 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
         else:
             expanded.append(p)
             parts.append(f"({p} : {coq_type})")
+            # _tag convention: unannotated params get a _tag integer
+            # so isinstance(x, ast.Name) lowers to BEq(x_tag, NAME_TAG).
+            tag_name = f"{p}_tag"
+            expanded.append(tag_name)
+            parts.append(f"({tag_name} : Z)")
+            init_state = f'(upd {init_state} "{tag_name}"%string (VZ {tag_name}))'
             if p in float_params:
                 init_state = f'(upd {init_state} "{p}"%string (VFloat {p}))'
             else:
                 init_state = f'(upd {init_state} "{p}"%string (VZ {p}))'
+    # Add dotted attribute fields as string-typed params.
+    # e.g. annotation.id -> annotation_id : string, init: upd s "annotation.id" (VString annotation_id)
+    for df in sorted(dotted_fields):
+        coq_name = df.replace(".", "_")
+        if coq_name not in expanded:  # avoid duplicates with existing params
+            expanded.append(coq_name)
+            parts.append(f"({coq_name} : string)")
+            init_state = f'(upd {init_state} "{df}"%string (VString {coq_name}))'
     return expanded, class_fields, " ".join(parts), init_state, record_section
 
 

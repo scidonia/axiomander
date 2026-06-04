@@ -999,9 +999,21 @@ def collection_field(basket: Basket) -> int:
     \"\"\"
     result = len(basket.items)
     return result"""),
+
+    # ── isinstance -> tag lowering ──────────────────────────────────
+    ("isinstance_dispatch", "def isinstance_dispatch(annotation) -> bool:\n assert True\n result = False\n if isinstance(annotation, ast.Name): result = True\n elif isinstance(annotation, ast.Subscript): result = True\n assert implies(result == 1, annotation_tag == 1 or annotation_tag == 2)\n return result"),
+    ("isinstance_dispatch_wrong", "def isinstance_dispatch_wrong(annotation) -> bool:\n assert True\n result = False\n if isinstance(annotation, ast.Name): result = True\n elif isinstance(annotation, ast.Subscript): result = True\n assert result == 0\n return result"),
+    # isinstance with builtin types (should still work via BIsVZ etc.)
+    ("isinstance_builtin", "def isinstance_builtin(x: int) -> bool:\n assert x >= 0\n result = False\n if isinstance(x, int): result = True\n assert implies(result == 1, x >= 0)\n return result"),
+    # isinstance with None check
+    ("isinstance_none", "def isinstance_none(annotation) -> bool:\n assert True\n if annotation is None: return True\n elif isinstance(annotation, ast.Name): return True\n return False"),
+    # Three-way isinstance dispatch (mimics _is_string_param structure)
+    ("isinstance_threeway", "def isinstance_threeway(x) -> bool:\n assert True\n if isinstance(x, ast.Name): return True\n if isinstance(x, ast.Subscript): return True\n if isinstance(x, ast.Attribute): return True\n return False"),
 ]
 
 NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail", "all_positive", "use_wrong", "user_no_post", "inv_body_violation",     "bad_pass_str", "bad_call_str", "bad_int_to_bool", "frame_fail_pop",
+    # isinstance lowering negative tests
+    "isinstance_dispatch_wrong",
     # Weak stub postconditions can't support callers that need
     # return-value info (pop returns any int, CCall frame too deep)
     "frame_stub_pop", "frame_stub_disjoint", "modifies_blocks_frame",

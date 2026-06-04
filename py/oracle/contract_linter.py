@@ -133,11 +133,22 @@ class ContractLinter(ast.NodeVisitor):
                 # names and attribute paths like self.nodes → Var("self_nodes"))
                 if left and right and isinstance(left, Var) and isinstance(right, Var):
                     return BinOp(op="<>", left=DictLenExpr(name=right.name, key=left), right=IntLit(value=0))
+                # String substring containment: needle in haystack
+                # Uses Coq's String.index idiom for substring check.
+                if left and right and isinstance(right, Var):
+                    from .contract_ir import StringContainsExpr
+                    needle = left.name if isinstance(left, Var) else str(getattr(left, 'value', left))
+                    return StringContainsExpr(needle=needle, haystack=right.name)
                 return BinOp(op="<>", left=IntLit(value=1), right=IntLit(value=0))
             elif op == "notin":
                 # k not in d → dict non-membership: ADictLen "d" k == 0
                 if left and right and isinstance(left, Var) and isinstance(right, Var):
                     return BinOp(op="=", left=DictLenExpr(name=right.name, key=left), right=IntLit(value=0))
+                # String substring non-containment: needle not in haystack
+                if left and right and isinstance(right, Var):
+                    from .contract_ir import StringContainsExpr
+                    needle = left.name if isinstance(left, Var) else str(getattr(left, 'value', left))
+                    return StringContainsExpr(needle=needle, haystack=right.name, negated=True)
                 return BinOp(op="=", left=IntLit(value=1), right=IntLit(value=0))
             if left and right:
                 # Convert BoolLit to IntLit in comparison context so

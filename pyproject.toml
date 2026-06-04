@@ -1,6 +1,6 @@
 [project]
 name = "axiomander"
-version = "0.7.0"
+version = "0.8.0"
 description = "Hoare-logic verification pipeline for Python — assert contracts → Coq + SMT + LLM"
 requires-python = ">=3.11"
 dependencies = [

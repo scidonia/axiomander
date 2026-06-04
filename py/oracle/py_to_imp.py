@@ -17,6 +17,34 @@ class PyToImpLowerer:
     are lowered conservatively. Never silently assume semantics.
     """
 
+    # Tag constants for isinstance lowering.
+    # Each AST node type gets a unique integer tag stored in {obj}._tag.
+    # When a parameter has no type annotation, its _tag encodes the
+    # runtime type, enabling isinstance checks to lower to CIf decision
+    # trees instead of being dropped.
+    _TYPE_TAG_MAP: dict[str, int] = {
+        "ast.Name": 1,
+        "ast.Subscript": 2,
+        "ast.Attribute": 3,
+        "ast.Constant": 4,
+        "ast.Call": 5,
+        "ast.Tuple": 6,
+        "ast.BinOp": 7,
+        "ast.UnaryOp": 8,
+        "ast.Compare": 9,
+        "ast.BoolOp": 10,
+        "ast.IfExp": 11,
+        "ast.ListComp": 12,
+        "ast.DictComp": 13,
+        "ast.GeneratorExp": 14,
+        "ast.List": 15,
+        "ast.Dict": 16,
+        "ast.Set": 17,
+        "ast.Starred": 18,
+        "ast.NamedExpr": 19,
+        "NoneType": 99,
+    }
+
     def __init__(self, func_name: str = "", record_fields: dict[str, list[str]] | None = None,
                  param_types: dict[str, str] | None = None, annot_guard_mode: bool = True,
                  contract_map: dict | None = None):
@@ -284,6 +312,8 @@ class PyToImpLowerer:
                 if isinstance(expr.args[0], PyName):
                     return ImpBLe(left=ImpANum(value=1),
                                   right=ImpALen(name=expr.args[0].name))
+            if expr.func == "isinstance" and expr.args:
+                return self._lower_isinstance_call_bexp(expr)
         aexp = self.lower_expr(expr)
         if aexp:
             return ImpBNot(operand=ImpBEq(left=aexp, right=ImpANum(value=0)))
@@ -388,7 +418,41 @@ class PyToImpLowerer:
             return ImpBIsVString(var=expr.obj.name)
         if expr.type_name == "float":
             return ImpBIsVFloat(var=expr.obj.name)
+        tag = self._TYPE_TAG_MAP.get(expr.type_name)
+        if tag is not None:
+            return ImpBEq(
+                left=ImpAVar(name=f"{expr.obj.name}_tag"),
+                right=ImpANum(value=tag),
+            )
         return None
+
+    def _lower_isinstance_call_bexp(self, expr: PyCall) -> Optional[ImpBExp]:
+        """Lower isinstance(x, T) as a boolean expression via tag comparison."""
+        if len(expr.args) < 2:
+            return ImpBTrue()
+        obj_arg = expr.args[0]
+        type_arg = expr.args[1]
+        if not isinstance(obj_arg, PyName):
+            return ImpBTrue()
+        if isinstance(type_arg, PyAttribute):
+            type_name = f"{type_arg.obj.name}.{type_arg.attr}" if isinstance(type_arg.obj, PyName) else type_arg.attr
+        elif isinstance(type_arg, PyName):
+            type_name = type_arg.name
+        else:
+            return ImpBTrue()
+        if type_name == "int":
+            return ImpBIsVZ(var=obj_arg.name)
+        if type_name == "str":
+            return ImpBIsVString(var=obj_arg.name)
+        if type_name == "float":
+            return ImpBIsVFloat(var=obj_arg.name)
+        tag = self._TYPE_TAG_MAP.get(type_name)
+        if tag is not None:
+            return ImpBEq(
+                left=ImpAVar(name=f"{obj_arg.name}_tag"),
+                right=ImpANum(value=tag),
+            )
+        return ImpBTrue()
 
     # =================================================================
     #  Statements -> ImpCom
@@ -702,6 +766,13 @@ class PyToImpLowerer:
             bexp = self.lower_bexp(stmt.value)
             if bexp:
                 return ImpCAss(target="result", value=ImpABool(bexp=bexp))
+            # Method call in return context: lower as a call that writes to result
+            if isinstance(stmt.value, PyCall) and stmt.value.is_method:
+                cmd = self._lower_method_call(stmt.value)
+            else:
+                cmd = self._lower_call_stmt(stmt.value)
+            if cmd:
+                return ImpCSeq(commands=[cmd, ImpCAss(target="result", value=ImpAVar(name="result"))])
         return ImpCSkip()
 
     def _lower_raise(self, stmt: PyRaise) -> ImpCom:
@@ -795,6 +866,25 @@ class PyToImpLowerer:
             obj = self._call_object(name)
             if obj:
                 return self._build_str_strip(obj)
+
+        # str.replace(old, new) — lowered to CCall to str_replace stub.
+        # The stub's contract (in stubs/builtins.pyi) provides the behaviour;
+        # the lowering only creates the call node with True pre/post, letting
+        # the contract map supply the actual contract during obligation generation.
+        if name.endswith(".replace") and len(args) >= 2:
+            obj = self._call_object(name)
+            if obj:
+                old_val = self.lower_expr(args[0])
+                new_val = self.lower_expr(args[1])
+                if old_val and new_val:
+                    return ImpCCall(
+                        name="str_replace",
+                        args=[ImpAVar(name=obj), old_val, new_val],
+                        precondition="(fun s => True)",
+                        postcondition="(fun s => True)",
+                        writes=["result"],
+                        target="result",
+                    )
 
         # General function call (CCall)
         if not expr.is_method:

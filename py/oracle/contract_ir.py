@@ -522,4 +522,33 @@ class ListEqExpr(BaseModel):
         return f"({self.op} (len {self.name}) {self.n_elements})"
 
 
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, ListEqExpr, ReMatchExpr]
+class StringContainsExpr(BaseModel):
+    """Substring containment: needle in haystack.
+
+    Compiles to Coq's String.index idiom:
+      StringContainsExpr(needle, haystack) → String.index 0 needle haystack <> None
+    The negated form (not in) compiles to: String.index 0 needle haystack = None.
+
+    This is the standard Coq way to test substring membership without
+    defining a separate contains predicate.
+    """
+    kind: Literal["string_contains"] = "string_contains"
+    needle: str    # variable name or string literal, e.g. "old"
+    haystack: str  # variable name, e.g. "s"
+    negated: bool = False  # True for "not in"
+
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        n = f's "{self.needle}"%string' if scoped and self.needle not in unbound else self.needle
+        h = f's "{self.haystack}"%string' if scoped and self.haystack not in unbound else self.haystack
+        n_coq = f'(asString ({n}))' if scoped else self.needle
+        h_coq = f'(asString ({h}))' if scoped else self.haystack
+        op = "=" if self.negated else "<>"
+        return f'(String.index 0 {n_coq} {h_coq} {op} None)'
+
+    def to_smt(self) -> str:
+        # SMT encodes as str.contains haystack needle
+        inner = f'(str.contains {self.haystack} {self.needle})'
+        return f'(not {inner})' if self.negated else inner
+
+
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, ListEqExpr, ReMatchExpr, StringContainsExpr]

@@ -42,7 +42,8 @@ def _escape_field(name: str) -> str:
         requires:
             len(name) >= 0
         ensures:
-            len(result) >= len(name)
+            implies(re_match(name, ".*_.*"), re_match(result, ".*__.*"))
+            implies(not re_match(name, ".*_.*"), result == name)
     """
     return name.replace("_", "__")
 
