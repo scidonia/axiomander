@@ -140,11 +140,38 @@ names (`ProofLevel.UNPROVED` — Axiomander resolves them to integer
 encodings from the AST), `implies()` for each conditional case, and
 `self.level` attribute access (auto-flattened to `self_level: Z`).
 
+A more complex example: `_is_string_param`, the function that determines
+Coq parameter types for every other verified function.  It uses
+`isinstance(annotation, ast.Name)` which Axiomander lowers to an integer
+tag comparison (`annotation_tag = 1`) via the type-tag convention.
+The `annotation.id == "str"` check becomes a heap variable lookup, and
+`_expand_params` automatically adds `annotation_id : string` to the
+Coq forall binders.  The entire decision tree proves at Level 1:
+
+```python
+def _is_string_param(annotation) -> bool:
+    if annotation is None:
+        return False
+    if isinstance(annotation, ast.Name) and annotation.id == "str":
+        return True
+    if isinstance(annotation, ast.Subscript):
+        if isinstance(annotation.value, ast.Name):
+            if annotation.value.id in ("Optional", "Union"):
+                return True
+    return False
+```
+
 Other self-verified functions:
 
 | Function | Level | What it proves |
 |---|---|---|
 | `GoalStatus.is_proved` (real) | 1 | Enum resolution + implies + `not in` tuple body |
+| `_is_string_param` | 1 | isinstance AST dispatch via type-tag lowering |
+| `_is_list_param` | 1 | isinstance + `annotation.value.id` dotted field |
+| `_is_dict_param` | 1 | isinstance + `Optional[dict]` union handling |
+| `_is_float_param` | 1 | isinstance + `Optional[float]` recursion |
+| `_py_type_to_coq` | 1 | Python annotation → Coq type string dispatch |
+| `_coq_type_of_param` | 1 | Suffix-based param type classification |
 | `classify_failure` (real) | 3 | String methods + `in` operator + branch priority |
 | `_escape_field` | 3 | String replacement in body |
 | `_sha256` | 1 | Hash function with black-hole purity warning |
@@ -368,11 +395,13 @@ eval $(opam env)
 PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 ```
 
-124 tests covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, docstring contracts, old-state syntax, reads/modifies frames, range quantifiers, stub integration, tuple/bytes/dict/set/None value comparisons, implication, loop-predicate contract inlining, exception contracts, validate_assignment enforcement, nested Pydantic models, constructor CCalls, and collection fields.
+129 pipeline tests covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, docstring contracts, old-state syntax, reads/modifies frames, range quantifiers, stub integration, tuple/bytes/dict/set/None value comparisons, implication, loop-predicate contract inlining, exception contracts, validate_assignment enforcement, nested Pydantic models, constructor CCalls, isinstance dispatch with type-tag lowering, and collection fields.
 
 Plus **60 dimensional analysis tests** (`py/tests/test_dim_analysis.py`) covering DimVec algebra, expression parsing, constraint checking, and end-to-end violation detection for financial, physical, and cardinality dimensions.
 
 Plus **51 theory-SMT tests** (`py/tests/test_theory_smt.py`) covering regex translation via sre_parse, string contains/prefix dispatch, typed counterexample generation, phone-gate subsumption/contradiction, and two-function CCall regex gating.
+
+Plus **14 case-dispatch tests** (`py/tests/test_case_extractor.py`) covering CIf/CSeq tree extraction, nested conditionals, path-condition accumulation, mutual exclusivity heuristics, and loop rejection.
 
 ## Dependencies
 
