@@ -1,6 +1,22 @@
 # axiomander 🦎
 
-**A gold standard verification system for Python.** Write contracts as ordinary Python `assert` statements or verifier-only `axiomander:` docstring blocks — no runtime imports, decorators, or contract library required. The pipeline lowers Python to an IMP verification language, generates Coq proof obligations, proves the deterministic cases directly, dispatches harder residuals to SMT/Hammer, and falls back to a rocq-piler/LLM oracle.
+**Iterated specification management for Python.**  Axiomander treats
+specifications as the primary artifact and implementations as a
+secondary concern.  The user interacts with a minimal top-level
+contract — a single surface of understanding — and the rest of the
+software's specifications (callee contracts, loop invariants, frame
+conditions, stub axioms) exist in support of it.  The system maintains
+a persistent evidence graph that tracks which contracts are proved,
+which depend on which, and which become stale when a callee changes.
+Verification is not a one-time check; it is a living relationship
+between specifications and code.
+
+Write contracts as ordinary Python `assert` statements or verifier-only
+`axiomander:` docstring blocks — no runtime imports, decorators, or
+contract library required.  The pipeline lowers Python to an IMP
+verification language, generates Coq proof obligations, proves the
+deterministic cases directly, dispatches harder residuals to SMT/Hammer,
+and falls back to a rocq-piler/LLM oracle.
 
 ```
 Python asserts + axiomander docstrings
