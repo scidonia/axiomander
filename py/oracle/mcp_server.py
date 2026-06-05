@@ -5081,7 +5081,9 @@ Qed.
 
 
 def _record_evidence(func_name: str, proof_level: "ProofLevel", method: str,
-                     imp_ir=None, contract_map=None) -> None:
+                     imp_ir=None, contract_map=None,
+                     body_hash: str = "", contract_hash: str = "",
+                     callee_hashes: dict[str, str] | None = None) -> None:
     """Update the global evidence graph with this verification result.
 
     Creates a ContractNode with evidence and edges for every CCall in the
@@ -5142,12 +5144,18 @@ def _record_evidence(func_name: str, proof_level: "ProofLevel", method: str,
             spec=ContractSpec(name=func_name),
             evidence=[Evidence(kind=kind, status=status, notes=method)],
             edges=edges,
+            body_hash=body_hash,
+            contract_hash=contract_hash,
+            callee_contract_hashes=callee_hashes or {},
+            timestamp=time.time(),
         )
 
         if func_name in graph.nodes:
             del graph.nodes[func_name]
         graph.add_node(node)
-        save_graph()  # persist to .axiomander/evidence_graph.json
+        # Invalidate all callers — their proofs now depend on a stale callee
+        affected = graph.mark_stale(func_name)
+        save_graph()
     except Exception:
         pass  # evidence graph is optional — never fail verification
 

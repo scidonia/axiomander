@@ -1,5 +1,43 @@
 {
   "nodes": {
+    "caller_ok": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "stale",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce"
+        }
+      ],
+      "edges": [
+        {
+          "callee": "inc",
+          "target": "",
+          "evidence": [
+            {
+              "kind": "ltac",
+              "status": "stale"
+            }
+          ]
+        }
+      ],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 0.0
+    },
     "inc": {
       "spec": {
         "params": [],
@@ -18,38 +56,14 @@
           "notes": "wp_reduce + conditional split"
         }
       ],
-      "edges": []
-    },
-    "caller_ok": {
-      "spec": {
-        "params": [],
-        "pre": "True",
-        "post": "True",
-        "reads": [],
-        "writes": []
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
       },
-      "evidence": [
-        {
-          "kind": "ltac",
-          "status": "proved_l1_ltac",
-          "query_hash": "",
-          "lemma": "",
-          "coq_file": "",
-          "notes": "wp_reduce"
-        }
-      ],
-      "edges": [
-        {
-          "callee": "inc",
-          "target": "",
-          "evidence": [
-            {
-              "kind": "ltac",
-              "status": "proved_l1_ltac"
-            }
-          ]
-        }
-      ]
+      "timestamp": 0.0
     },
     "add": {
       "spec": {
@@ -69,7 +83,14 @@
           "notes": "wp_reduce + conditional split"
         }
       ],
-      "edges": []
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780661350.2670603
     },
     "clamp": {
       "spec": {
@@ -89,7 +110,14 @@
           "notes": "wp_reduce + conditional split"
         }
       ],
-      "edges": []
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780661354.6671433
     },
     "set_count": {
       "spec": {
@@ -109,7 +137,14 @@
           "notes": "wp_reduce + conditional split + VCG"
         }
       ],
-      "edges": []
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780661357.875357
     },
     "clamp2": {
       "spec": {
@@ -129,7 +164,14 @@
           "notes": "wp_reduce + conditional split"
         }
       ],
-      "edges": []
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780661362.2322485
     },
     "clamp_val": {
       "spec": {
@@ -149,7 +191,14 @@
           "notes": "wp_reduce + conditional split"
         }
       ],
-      "edges": []
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780661366.7410734
     },
     "in_vocab": {
       "spec": {
@@ -169,7 +218,14 @@
           "notes": "wp_reduce + conditional split + VCG"
         }
       ],
-      "edges": []
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780661371.2097988
     },
     "nested_model": {
       "spec": {
@@ -189,7 +245,14 @@
           "notes": "wp_reduce + conditional split"
         }
       ],
-      "edges": []
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780661374.4767115
     }
   }
 }

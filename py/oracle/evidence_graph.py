@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Optional
-import json, os
+import json, os, hashlib
 
 
 # ── Proof status (roadmap model) ──────────────────────────────────
@@ -156,6 +156,24 @@ class ContractNode:
     evidence: list[Evidence] = field(default_factory=list)
     edges: list[ContractEdge] = field(default_factory=list)
 
+    # Hash keys for incremental verification (replaces cache.py FunctionHashes)
+    body_hash: str = ""
+    contract_hash: str = ""
+    local_assert_hash: str = ""
+    callee_contract_hashes: dict[str, str] = field(default_factory=dict)
+    timestamp: float = 0.0  # when last verified
+
+    @property
+    def cache_key(self) -> str:
+        """Deterministic key combining all hash dimensions."""
+        parts = [
+            self.body_hash,
+            self.contract_hash,
+            self.local_assert_hash,
+            json.dumps(dict(sorted(self.callee_contract_hashes.items()))),
+        ]
+        return hashlib.sha256("|".join(parts).encode()).hexdigest()
+
     @property
     def proved(self) -> bool:
         """A node is proved iff it has standalone evidence OR all edges
@@ -261,6 +279,42 @@ class EvidenceGraph:
             if any(e.status.is_assumed for e in node.evidence)
         ]
 
+    # ── STALE propagation ──────────────────────────────────────
+
+    def get_callers(self, callee_name: str) -> list[str]:
+        """Return all nodes that have an edge to [callee_name]."""
+        callers: list[str] = []
+        for name, node in self.nodes.items():
+            for edge in node.edges:
+                if edge.callee_name == callee_name:
+                    callers.append(name)
+                    break
+        return callers
+
+    def mark_stale(self, name: str) -> set[str]:
+        """Mark all transitive callers of [name] as STALE (not [name] itself).
+        Returns the set of node names that were affected."""
+        affected: set[str] = set()
+        for caller in self.get_callers(name):
+            self._mark_stale_recursive(caller, affected)
+        return affected
+
+    def _mark_stale_recursive(self, name: str, affected: set[str]) -> None:
+        if name in affected:
+            return
+        affected.add(name)
+        node = self.nodes.get(name)
+        if node:
+            for e in node.evidence:
+                if e.status.is_proved:
+                    e.status = ProofStatus.STALE
+            for e in node.edges:
+                for ev in e.evidence:
+                    if ev.status.is_proved:
+                        ev.status = ProofStatus.STALE
+        for caller in self.get_callers(name):
+            self._mark_stale_recursive(caller, affected)
+
     def composition_theorem_holds(self) -> bool:
         """True iff the graph is well-founded and all contracts are valid
         under the assumption that leaf evidence is sound."""
@@ -302,6 +356,13 @@ class EvidenceGraph:
                          "evidence": [{"kind": ev.kind.value, "status": ev.status.value} for ev in e.evidence]}
                         for e in node.edges
                     ],
+                    "hashes": {
+                        "body": node.body_hash,
+                        "contract": node.contract_hash,
+                        "local_assert": node.local_assert_hash,
+                        "callee_contracts": node.callee_contract_hashes,
+                    },
+                    "timestamp": node.timestamp,
                 }
                 for name, node in self.nodes.items()
             }
@@ -356,7 +417,16 @@ class EvidenceGraph:
                 )
                 for e in nd.get("edges", [])
             ]
-            graph.nodes[name] = ContractNode(spec=spec, evidence=evidence, edges=edges)
+            hashes = nd.get("hashes", {})
+            node = ContractNode(
+                spec=spec, evidence=evidence, edges=edges,
+                body_hash=hashes.get("body", ""),
+                contract_hash=hashes.get("contract", ""),
+                local_assert_hash=hashes.get("local_assert", ""),
+                callee_contract_hashes=hashes.get("callee_contracts", {}),
+                timestamp=nd.get("timestamp", 0.0),
+            )
+            graph.nodes[name] = node
         return graph
 
 
