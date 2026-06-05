@@ -2576,14 +2576,24 @@ def _expand_params(tree, params, func_node: ast.FunctionDef | None = None):
     if func_node:
         for node in ast.walk(func_node):
             if isinstance(node, ast.Attribute):
-                # Skip attributes that are the target of a call (method calls)
-                if isinstance(node.ctx, ast.Load):
-                    parent = getattr(node, '_parent', None)
                 path = _dotted_path(node)
                 if path and "." in path:
                     root = path.split(".", 1)[0]
                     if root in param_names:
                         dotted_fields.add(path)
+        # Also scan docstring contracts for dotted references
+        from .docstring_contracts import docstring_assert_nodes
+        try:
+            for stmt, _cls in docstring_assert_nodes(func_node):
+                for node in ast.walk(stmt.test):
+                    if isinstance(node, ast.Attribute):
+                        path = _dotted_path(node)
+                        if path and "." in path:
+                            root = path.split(".", 1)[0]
+                            if root in param_names:
+                                dotted_fields.add(path)
+        except Exception:
+            pass
         # Remove method calls: walk again to find Call nodes and remove their func paths
         for node in ast.walk(func_node):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):

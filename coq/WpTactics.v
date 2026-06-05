@@ -184,6 +184,13 @@ Ltac ccall_simpl :=
     [lget (upd ...)] terms inside match-on-outcome branches.  We add an
     early normalization step [unfold lget, upd, updZ; cbn] before the
     pattern-match dispatch so those terms reduce before we recurse. *)
+
+Lemma andb_true_iff : forall a b : bool, andb a b = true <-> a = true /\ b = true.
+Proof. destruct a, b; simpl; intuition. Qed.
+
+Lemma orb_true_iff : forall a b : bool, orb a b = true <-> a = true \/ b = true.
+Proof. destruct a, b; simpl; intuition. Qed.
+
 Ltac wp_prove :=
   wp_reduce;
   try (unfold lget, upd, updZ; cbn -[In clobber Z.leb Z.add Z.mul Z.sub]);
@@ -194,6 +201,10 @@ Ltac wp_prove :=
   | [ H: Z.leb ?a ?b = false |- _ ] => apply Z.leb_gt in H; wp_prove
   | [ H: Z.eqb ?a ?b = true |- _ ] => apply Z.eqb_eq in H; subst; wp_prove
   | [ H: Z.eqb ?a ?b = false |- _ ] => apply Z.eqb_neq in H; wp_prove
+  | [ H: String.eqb ?a ?b = true |- _ ] => apply String.eqb_eq in H; subst; wp_prove
+  | [ H: String.eqb ?a ?b = false |- _ ] => apply String.eqb_neq in H; wp_prove
+  | [ H: andb ?a ?b = true |- _ ] => apply andb_true_iff in H; destruct H; wp_prove
+  | [ H: orb ?a ?b = true |- _ ] => apply orb_true_iff in H; destruct H; wp_prove
   | |- _ /\ _ => repeat split; wp_prove
   | |- _ -> _ => intro; try subst; simpl; wp_prove
   | [ H: _ /\ _ |- _ ] => destruct H; wp_prove

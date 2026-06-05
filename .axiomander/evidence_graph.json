@@ -224,33 +224,6 @@
       },
       "timestamp": 1780681906.9121804
     },
-    "add": {
-      "spec": {
-        "params": [],
-        "pre": "True",
-        "post": "True",
-        "reads": [],
-        "writes": []
-      },
-      "evidence": [
-        {
-          "kind": "ltac",
-          "status": "proved_l1_ltac",
-          "query_hash": "",
-          "lemma": "",
-          "coq_file": "",
-          "notes": "wp_reduce + conditional split"
-        }
-      ],
-      "edges": [],
-      "hashes": {
-        "body": "",
-        "contract": "",
-        "local_assert": "",
-        "callee_contracts": {}
-      },
-      "timestamp": 1780688747.3681052
-    },
     "max_of_two": {
       "spec": {
         "params": [],
@@ -277,33 +250,6 @@
         "callee_contracts": {}
       },
       "timestamp": 1780688751.256226
-    },
-    "clamp": {
-      "spec": {
-        "params": [],
-        "pre": "True",
-        "post": "True",
-        "reads": [],
-        "writes": []
-      },
-      "evidence": [
-        {
-          "kind": "ltac",
-          "status": "proved_l1_ltac",
-          "query_hash": "",
-          "lemma": "",
-          "coq_file": "",
-          "notes": "wp_reduce + conditional split"
-        }
-      ],
-      "edges": [],
-      "hashes": {
-        "body": "",
-        "contract": "",
-        "local_assert": "",
-        "callee_contracts": {}
-      },
-      "timestamp": 1780688755.922231
     },
     "sum_to": {
       "spec": {
@@ -683,33 +629,6 @@
       },
       "timestamp": 1780688808.2500887
     },
-    "set_count": {
-      "spec": {
-        "params": [],
-        "pre": "True",
-        "post": "True",
-        "reads": [],
-        "writes": []
-      },
-      "evidence": [
-        {
-          "kind": "ltac",
-          "status": "proved_l1_ltac",
-          "query_hash": "",
-          "lemma": "",
-          "coq_file": "",
-          "notes": "wp_reduce + conditional split + VCG"
-        }
-      ],
-      "edges": [],
-      "hashes": {
-        "body": "",
-        "contract": "",
-        "local_assert": "",
-        "callee_contracts": {}
-      },
-      "timestamp": 1780688811.6360273
-    },
     "count_ids": {
       "spec": {
         "params": [],
@@ -1007,60 +926,6 @@
       },
       "timestamp": 1780688874.9873924
     },
-    "use_pred": {
-      "spec": {
-        "params": [],
-        "pre": "True",
-        "post": "True",
-        "reads": [],
-        "writes": []
-      },
-      "evidence": [
-        {
-          "kind": "ltac",
-          "status": "proved_l1_ltac",
-          "query_hash": "",
-          "lemma": "",
-          "coq_file": "",
-          "notes": "wp_reduce + conditional split"
-        }
-      ],
-      "edges": [],
-      "hashes": {
-        "body": "",
-        "contract": "",
-        "local_assert": "",
-        "callee_contracts": {}
-      },
-      "timestamp": 1780688878.2716177
-    },
-    "clamp2": {
-      "spec": {
-        "params": [],
-        "pre": "True",
-        "post": "True",
-        "reads": [],
-        "writes": []
-      },
-      "evidence": [
-        {
-          "kind": "ltac",
-          "status": "proved_l1_ltac",
-          "query_hash": "",
-          "lemma": "",
-          "coq_file": "",
-          "notes": "wp_reduce + conditional split"
-        }
-      ],
-      "edges": [],
-      "hashes": {
-        "body": "",
-        "contract": "",
-        "local_assert": "",
-        "callee_contracts": {}
-      },
-      "timestamp": 1780688882.676157
-    },
     "first2": {
       "spec": {
         "params": [],
@@ -1315,33 +1180,6 @@
       },
       "timestamp": 1780688916.8525965
     },
-    "clamp_val": {
-      "spec": {
-        "params": [],
-        "pre": "True",
-        "post": "True",
-        "reads": [],
-        "writes": []
-      },
-      "evidence": [
-        {
-          "kind": "ltac",
-          "status": "proved_l1_ltac",
-          "query_hash": "",
-          "lemma": "",
-          "coq_file": "",
-          "notes": "wp_reduce + conditional split"
-        }
-      ],
-      "edges": [],
-      "hashes": {
-        "body": "",
-        "contract": "",
-        "local_assert": "",
-        "callee_contracts": {}
-      },
-      "timestamp": 1780688921.494929
-    },
     "sum_lt": {
       "spec": {
         "params": [],
@@ -1476,33 +1314,6 @@
         "callee_contracts": {}
       },
       "timestamp": 1780688938.8164537
-    },
-    "in_vocab": {
-      "spec": {
-        "params": [],
-        "pre": "True",
-        "post": "True",
-        "reads": [],
-        "writes": []
-      },
-      "evidence": [
-        {
-          "kind": "ltac",
-          "status": "proved_l1_ltac",
-          "query_hash": "",
-          "lemma": "",
-          "coq_file": "",
-          "notes": "wp_reduce + conditional split + VCG"
-        }
-      ],
-      "edges": [],
-      "hashes": {
-        "body": "",
-        "contract": "",
-        "local_assert": "",
-        "callee_contracts": {}
-      },
-      "timestamp": 1780688943.5123518
     },
     "iso_date": {
       "spec": {
@@ -3650,33 +3461,6 @@
       },
       "timestamp": 1780689268.9302242
     },
-    "nested_model": {
-      "spec": {
-        "params": [],
-        "pre": "True",
-        "post": "True",
-        "reads": [],
-        "writes": []
-      },
-      "evidence": [
-        {
-          "kind": "ltac",
-          "status": "proved_l1_ltac",
-          "query_hash": "",
-          "lemma": "",
-          "coq_file": "",
-          "notes": "wp_reduce + conditional split"
-        }
-      ],
-      "edges": [],
-      "hashes": {
-        "body": "",
-        "contract": "",
-        "local_assert": "",
-        "callee_contracts": {}
-      },
-      "timestamp": 1780689272.477785
-    },
     "collection_field": {
       "spec": {
         "params": [],
@@ -3703,141 +3487,6 @@
         "callee_contracts": {}
       },
       "timestamp": 1780689275.8583145
-    },
-    "isinstance_dispatch": {
-      "spec": {
-        "params": [],
-        "pre": "True",
-        "post": "True",
-        "reads": [],
-        "writes": []
-      },
-      "evidence": [
-        {
-          "kind": "ltac",
-          "status": "proved_l1_ltac",
-          "query_hash": "",
-          "lemma": "",
-          "coq_file": "",
-          "notes": "wp_reduce + conditional split"
-        }
-      ],
-      "edges": [],
-      "hashes": {
-        "body": "",
-        "contract": "",
-        "local_assert": "",
-        "callee_contracts": {}
-      },
-      "timestamp": 1780689281.0715225
-    },
-    "isinstance_dispatch_wrong": {
-      "spec": {
-        "params": [],
-        "pre": "True",
-        "post": "True",
-        "reads": [],
-        "writes": []
-      },
-      "evidence": [
-        {
-          "kind": "ltac",
-          "status": "counterexample_found",
-          "query_hash": "",
-          "lemma": "",
-          "coq_file": "",
-          "notes": ""
-        }
-      ],
-      "edges": [],
-      "hashes": {
-        "body": "",
-        "contract": "",
-        "local_assert": "",
-        "callee_contracts": {}
-      },
-      "timestamp": 1780689286.9053786
-    },
-    "isinstance_builtin": {
-      "spec": {
-        "params": [],
-        "pre": "True",
-        "post": "True",
-        "reads": [],
-        "writes": []
-      },
-      "evidence": [
-        {
-          "kind": "ltac",
-          "status": "proved_l1_ltac",
-          "query_hash": "",
-          "lemma": "",
-          "coq_file": "",
-          "notes": "wp_reduce + conditional split"
-        }
-      ],
-      "edges": [],
-      "hashes": {
-        "body": "",
-        "contract": "",
-        "local_assert": "",
-        "callee_contracts": {}
-      },
-      "timestamp": 1780689291.2158542
-    },
-    "isinstance_none": {
-      "spec": {
-        "params": [],
-        "pre": "True",
-        "post": "True",
-        "reads": [],
-        "writes": []
-      },
-      "evidence": [
-        {
-          "kind": "ltac",
-          "status": "proved_l1_ltac",
-          "query_hash": "",
-          "lemma": "",
-          "coq_file": "",
-          "notes": "wp_reduce + conditional split"
-        }
-      ],
-      "edges": [],
-      "hashes": {
-        "body": "",
-        "contract": "",
-        "local_assert": "",
-        "callee_contracts": {}
-      },
-      "timestamp": 1780689295.7399857
-    },
-    "isinstance_threeway": {
-      "spec": {
-        "params": [],
-        "pre": "True",
-        "post": "True",
-        "reads": [],
-        "writes": []
-      },
-      "evidence": [
-        {
-          "kind": "ltac",
-          "status": "proved_l1_ltac",
-          "query_hash": "",
-          "lemma": "",
-          "coq_file": "",
-          "notes": "wp_reduce + conditional split"
-        }
-      ],
-      "edges": [],
-      "hashes": {
-        "body": "",
-        "contract": "",
-        "local_assert": "",
-        "callee_contracts": {}
-      },
-      "timestamp": 1780689301.7761092
     },
     "use_contains_loop": {
       "spec": {
@@ -3893,6 +3542,384 @@
       },
       "timestamp": 1780691277.8586729
     },
+    "tag_classifier": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split"
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780692431.5401201
+    },
+    "add": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split"
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780692582.164584
+    },
+    "clamp": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split"
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780692586.6680825
+    },
+    "set_count": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split + VCG"
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780692589.945716
+    },
+    "use_pred": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split"
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780692593.2218359
+    },
+    "clamp2": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split"
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780692597.6178534
+    },
+    "clamp_val": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split"
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780692602.070233
+    },
+    "in_vocab": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split + VCG"
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780692606.509645
+    },
+    "nested_model": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split"
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780692609.8586593
+    },
+    "isinstance_dispatch": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split"
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780692614.6899104
+    },
+    "isinstance_dispatch_wrong": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "counterexample_found",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": ""
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780692620.106896
+    },
+    "isinstance_builtin": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split"
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780692624.0601223
+    },
+    "isinstance_none": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split"
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780692628.255002
+    },
+    "isinstance_threeway": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split"
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780692633.9899404
+    },
     "isinstance_full_spec": {
       "spec": {
         "params": [],
@@ -3918,7 +3945,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780691406.391079
+      "timestamp": 1780692669.0249457
     },
     "isinstance_full_wrong": {
       "spec": {
@@ -3945,7 +3972,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780691410.6596913
+      "timestamp": 1780692673.0796776
     }
   }
 }
