@@ -31,6 +31,42 @@ from .reporting import GoalStatus, ProofLevel, Action
 TOOL_VERSION = "0.8.0"
 
 
+# ─── Dependency Graph (delegated to evidence_graph) ──────────────
+
+def _eg():
+    from .evidence_graph import get_graph
+    return get_graph()
+
+def get_callers(name: str) -> list[str]:
+    return _eg().get_callers(name)
+
+def get_transitive_callers(name: str) -> list[str]:
+    return _eg().get_transitive_callers(name)
+
+def get_callees(name: str) -> list[str]:
+    return _eg().get_callees(name)
+
+def get_contract_hash(name: str) -> str:
+    node = _eg().nodes.get(name)
+    return node.contract_hash if node else ""
+
+def update_dependencies(name: str, contract_hash: str, callees: list[str],
+                        callee_contract_hashes: dict[str, str]) -> None:
+    from .evidence_graph import ContractNode, ContractSpec, ContractEdge, Evidence, EvidenceKind, save_graph
+    graph = _eg()
+    node = graph.nodes.get(name)
+    if node is None:
+        node = ContractNode(spec=ContractSpec(name=name))
+    else:
+        del graph.nodes[name]
+    graph.add_node(node)
+    node.contract_hash = contract_hash
+    node.callee_contract_hashes = callee_contract_hashes
+    for callee in callees:
+        node.edges.append(ContractEdge(callee_name=callee, callee_spec=ContractSpec(name=callee)))
+    save_graph()
+
+
 # ─── Data structures ───────────────────────────────────────────────
 
 @dataclass
@@ -394,7 +430,6 @@ class VerificationCache:
         self.cache_dir = Path(cache_dir)
         self.entries_dir = self.cache_dir / "entries"
         self.entries_dir.mkdir(parents=True, exist_ok=True)
-        self.graph = DependencyGraph(self.cache_dir / "graph.json")
 
     # ── Entry management ────────────────────────────────────────
 
@@ -475,8 +510,8 @@ class VerificationCache:
         )
         entry = CacheEntry.from_goal_status(hashes, result, cache_key)
         self.put(entry)
-        self.graph.update(hashes.name, hashes.contract_hash, hashes.callees)
-        self.graph.save()
+        update_dependencies(hashes.name, hashes.contract_hash, hashes.callees,
+                            hashes.callee_contract_hashes)
 
     def store_proof(self, hashes: FunctionHashes, proof: str) -> None:
         """Store an AI-generated proof script in the cache.
@@ -503,8 +538,8 @@ class VerificationCache:
         )
         entry.ai_proof = proof
         self.put(entry)
-        self.graph.update(hashes.name, hashes.contract_hash, hashes.callees)
-        self.graph.save()
+        update_dependencies(hashes.name, hashes.contract_hash, hashes.callees,
+                            hashes.callee_contract_hashes)
 
     def lookup_proof(self, hashes: FunctionHashes) -> str | None:
         """Look up a cached AI proof for a function.
@@ -538,7 +573,7 @@ class VerificationCache:
         contract_changed: list[str] = []
 
         for name, h in current_hashes.items():
-            node = self.graph.nodes.get(name)
+            node = _eg().nodes.get(name)
             if node is None:
                 # New function — treat as both changed
                 body_changed.append(name)
@@ -580,7 +615,7 @@ class VerificationCache:
         # Contract-changed functions affect themselves + transitive callers
         for name in contract_changed:
             to_reverify.add(name)
-            for caller in self.graph.get_transitive_callers(name):
+            for caller in get_transitive_callers(name):
                 to_reverify.add(caller)
 
         result = to_reverify, set(body_changed), set(contract_changed)
@@ -596,7 +631,7 @@ class VerificationCache:
         )
         entry = self.get(cache_key)
 
-        node = self.graph.nodes.get(func_name)
+        node = _eg().nodes.get(func_name)
         old_contract = node.contract_hash if node else "?"
         old_callees = node.callees if node else []
 
@@ -634,10 +669,10 @@ class VerificationCache:
 
         lines.append("")
         lines.append("## Callers (will re-verify if my contract changes)")
-        callers = self.graph.get_callers(func_name)
+        callers = get_callers(func_name)
         if callers:
             for c in callers:
-                transitive = self.graph.get_transitive_callers(func_name)
+                transitive = get_transitive_callers(func_name)
                 lines.append(f"- `{c}`")
         else:
             lines.append("- (none)")

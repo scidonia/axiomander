@@ -291,6 +291,25 @@ class EvidenceGraph:
                     break
         return callers
 
+    def get_transitive_callers(self, name: str) -> list[str]:
+        """Return all transitive callers (direct + indirect). Excludes [name]."""
+        visited: set[str] = set()
+        stack = list(self.get_callers(name))
+        while stack:
+            current = stack.pop()
+            if current in visited:
+                continue
+            visited.add(current)
+            for caller in self.get_callers(current):
+                if caller not in visited:
+                    stack.append(caller)
+        return list(visited)
+
+    def get_callees(self, name: str) -> list[str]:
+        """Return direct callees of [name]."""
+        node = self.nodes.get(name)
+        return [e.callee_name for e in node.edges] if node else []
+
     def mark_stale(self, name: str) -> set[str]:
         """Mark all transitive callers of [name] as STALE (not [name] itself).
         Returns the set of node names that were affected."""

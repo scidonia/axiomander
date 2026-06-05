@@ -35,6 +35,7 @@ from .cache import (
     VerificationCache, FunctionHashes,
     compute_body_hash, compute_contract_hash, compute_local_assert_hash,
     compute_cache_key,
+    get_contract_hash, get_transitive_callers,
 )
 from .contract_linter import ContractLinter, AssertInfo
 from .purity_analyzer import (
@@ -246,7 +247,7 @@ def _compute_hashes(source: str, func_name: str, tree: "ast.Module | None" = Non
             callee_contract_hashes[callee] = compute_contract_hash(cpre, cpost)
         else:
             # Use last known contract hash from graph for external/library callees
-            gh = _cache.graph.get_contract_hash(callee)
+            gh = get_contract_hash(callee)
             if gh:
                 callee_contract_hashes[callee] = gh
 
@@ -682,7 +683,7 @@ def tool_verify_changed(args: dict) -> str:
     if contract_set:
         impacted = set()
         for name in contract_set:
-            impacted |= set(_cache.graph.get_transitive_callers(name))
+            impacted |= set(get_transitive_callers(name))
         lines.append(f"**Contract changed** ({len(contract_set)}): {', '.join(sorted(contract_set))}")
         if impacted:
             lines.append(f"  → re-verifying callers: {', '.join(sorted(impacted))}")
@@ -801,7 +802,7 @@ def tool_verify_impacted(args: dict) -> str:
             # Find which changed function triggered this
             triggered_by = []
             for changed_name in contract_set:
-                if name in _cache.graph.get_transitive_callers(changed_name):
+                if name in get_transitive_callers(changed_name):
                     triggered_by.append(changed_name)
             triggered = ", ".join(triggered_by) if triggered_by else "contract propagation"
             lines.append(f"- `{name}` (caller of {triggered})")
