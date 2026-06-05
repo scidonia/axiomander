@@ -1008,15 +1008,13 @@ def collection_field(basket: Basket) -> int:
     ("isinstance_threeway", "def isinstance_threeway(x) -> bool:\n assert True\n if isinstance(x, ast.Name): return True\n if isinstance(x, ast.Subscript): return True\n if isinstance(x, ast.Attribute): return True\n return False"),
 
     # ── User-defined predicates ─────────────────────────────────────
-    # Loop predicate: for x in xs: if x == target: return True → existsb
-    ("use_contains", "def contains(xs, x: int) -> bool:\n for item in xs:\n  if item == x:\n   return True\n return False\n\ndef use_contains(xs, target: int) -> bool:\n \"\"\"\n axiomander:\n  ensures:\n   implies(contains(xs, target), result == True)\n \"\"\"\n assert True\n result = False\n for item in xs:\n  if item == target:\n   result = True\n return result"),
+    # Loop predicate via comprehension: any(x == target for x in xs) → AnyExpr
+    ("use_contains_comp", "def contains_comp(xs, x: int) -> bool:\n return any(item == x for item in xs)\n\ndef use_contains_comp(xs, target: int) -> bool:\n \"\"\"\n axiomander:\n  ensures:\n   implies(contains_comp(xs, target), result == True)\n \"\"\"\n assert True\n result = False\n for item in xs:\n  if item == target:\n   result = True\n return result"),
 ]
 
 NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail", "all_positive", "use_wrong", "user_no_post", "inv_body_violation",     "bad_pass_str", "bad_call_str", "bad_int_to_bool", "frame_fail_pop",
     # isinstance lowering negative tests
     "isinstance_dispatch_wrong",
-    # predicate lowering — IMP list bridge not yet complete
-    "use_contains",
     # Weak stub postconditions can't support callers that need
     # return-value info (pop returns any int, CCall frame too deep)
     "frame_stub_pop", "frame_stub_disjoint", "modifies_blocks_frame",
