@@ -1007,6 +1007,12 @@ def collection_field(basket: Basket) -> int:
     ("isinstance_none", "def isinstance_none(annotation) -> bool:\n assert True\n if annotation is None: return True\n elif isinstance(annotation, ast.Name): return True\n return False"),
     ("isinstance_threeway", "def isinstance_threeway(x) -> bool:\n assert True\n if isinstance(x, ast.Name): return True\n if isinstance(x, ast.Subscript): return True\n if isinstance(x, ast.Attribute): return True\n return False"),
 
+    # ── Strong contracts (Coq-quality) ──────────────────────────────
+    # Full bidirectional spec: characterizes ALL inputs
+    ("isinstance_full_spec", "def isinstance_full_spec(annotation) -> bool:\n \"\"\"\n axiomander:\n  ensures:\n   implies(annotation_tag == 1 and annotation_id == \"str\", result == True)\n   implies(annotation_tag != 1, result == False)\n   implies(result == True, annotation_tag == 1 and annotation_id == \"str\")\n \"\"\"\n result = False\n if annotation is None: result = False\n elif isinstance(annotation, ast.Name) and annotation.id == \"str\": result = True\n return result"),
+    # Strong negative: bidirectional spec catches the missing True return
+    ("isinstance_full_wrong", "def isinstance_full_wrong(annotation) -> bool:\n \"\"\"\n axiomander:\n  ensures:\n   implies(annotation_tag == 1 and annotation_id == \"str\", result == True)\n   implies(annotation_tag != 1, result == False)\n   implies(result == True, annotation_tag == 1 and annotation_id == \"str\")\n \"\"\"\n result = False\n return result"),
+
     # ── User-defined predicates ─────────────────────────────────────
     # Loop predicate with docstring postcondition: inlined at call site
     ("use_contains_loop", "def contains(xs, x: int) -> bool:\n \"\"\"\n axiomander:\n  ensures:\n   implies(result == True, any(item == x for item in xs))\n \"\"\"\n for item in xs:\n  if item == x:\n   return True\n return False\n\ndef use_contains_loop(xs, target: int) -> bool:\n \"\"\"\n axiomander:\n  ensures:\n   implies(contains(xs, target), result == True)\n \"\"\"\n assert True\n result = False\n for item in xs:\n  if item == target:\n   result = True\n return result"),
@@ -1015,6 +1021,8 @@ def collection_field(basket: Basket) -> int:
 NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail", "all_positive", "use_wrong", "user_no_post", "inv_body_violation",     "bad_pass_str", "bad_call_str", "bad_int_to_bool", "frame_fail_pop",
     # isinstance lowering negative tests
     "isinstance_dispatch_wrong",
+    # Strong contracts — negative test (body doesn't match spec)
+    "isinstance_full_wrong",
     # Weak stub postconditions can't support callers that need
     # return-value info (pop returns any int, CCall frame too deep)
     "frame_stub_pop", "frame_stub_disjoint", "modifies_blocks_frame",
