@@ -40,6 +40,8 @@ PURE_BUILTINS = frozenset({
     "get", "list", "dict",
     "lower", "upper", "startswith", "endswith",
     "re_match",   # regex membership: s.re_match("[0-9]+")
+    "is_shape",   # Pydantic shape predicate
+    "field",      # field(obj, "name", var) → flat-field access
 })
 
 PURE_MODULE_FUNCTIONS = frozenset({
@@ -244,6 +246,19 @@ class ContractLinter(ast.NodeVisitor):
                 if obj and type_name:
                     cls = IsShape if name == "is_shape" else IsValid
                     return cls(obj=obj, model_type=type_name)
+            return None
+        if name == "field":
+            # field(obj, "field_name", var) → var == obj_field_name
+            if len(node.args) == 3:
+                obj = self._extract_name(node.args[0])
+                field_name = node.args[1].value if isinstance(node.args[1], ast.Constant) else None
+                var = self.visit(node.args[2])
+                if obj and field_name and var:
+                    from .contract_ir import BinOp, Var, IntLit
+                    # _escape_field convention: literal underscores → double underscores
+                    safe_field = field_name.replace("_", "__")
+                    flat_key = f"{obj}_{safe_field}"
+                    return BinOp(op="=", left=var, right=Var(name=flat_key))
             return None
         # s.re_match("pattern") -- regex membership predicate.
         # AST: Call(func=Attribute(value=Name(id=subject), attr="re_match"),
