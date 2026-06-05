@@ -3097,6 +3097,14 @@ def _collect_predicates(tree) -> dict[str, tuple[list[str], "ast.expr | None", l
             return False
         if any(_mutates(n) for n in ast.walk(node)):
             continue
+        # Try to detect a loop pattern that maps to a recursor combinator.
+        # If found, store the recursor kind + lambda so the contract linter
+        # can inline the appropriate forallb/existsb/countb/fold_left call.
+        from .predicate_lowering import detect_loop_pattern, Recursor
+        recursor, lam = detect_loop_pattern(node)
+        if recursor != Recursor.NONE:
+            predicates[node.name] = (params, None, [], recursor, lam)
+            continue
         non_doc = [s for s in node.body
                    if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant))]
         if len(non_doc) == 1 and isinstance(non_doc[0], ast.Return) and non_doc[0].value:

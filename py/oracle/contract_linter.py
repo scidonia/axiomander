@@ -287,12 +287,18 @@ class ContractLinter(ast.NodeVisitor):
         return self._translate_pure_call(node, name)
 
     def _expand_predicate(self, node: ast.Call, name: str) -> Optional[Expr]:
-        """Expand a call to a user-defined pure predicate by inlining its body."""
+        """Expand a call to a user-defined pure predicate by inlining its body.
+
+        For simple predicates, inlines the return expression.
+        For loop predicates, applies the detected recursor combinator.
+        """
         import ast as ast_module
         entry = self.predicates[name]
         param_names = entry[0]
         body_expr = entry[1]
         post_asserts = entry[2] if len(entry) > 2 else []
+        recursor = entry[3] if len(entry) > 3 else None
+        lam = entry[4] if len(entry) > 4 else None
         if len(node.args) != len(param_names):
             self._violation(node, ExprKind.IMPURE_CALL,
                           f"Predicate '{name}' expects {len(param_names)} args, got {len(node.args)}")
