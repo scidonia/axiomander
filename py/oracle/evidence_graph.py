@@ -364,22 +364,50 @@ class EvidenceGraph:
 
 _GRAPHS: dict[str, EvidenceGraph] = {}
 
+_ROOT_MARKERS = ["pyproject.toml"]
+
+def find_project_root(start: str | Path = ".") -> Path:
+    """Walk up from [start] until a project-root marker is found.
+    Falls back to the starting directory if no marker found."""
+    current = Path(start).resolve()
+    # If start is a file, begin search from its parent directory
+    if current.is_file():
+        current = current.parent
+    for _ in range(20):  # max depth
+        for marker in _ROOT_MARKERS:
+            if (current / marker).exists():
+                return current
+        parent = current.parent
+        if parent == current:  # filesystem root
+            break
+        current = parent
+    return Path(start).resolve()
+
 def get_graph(project_root: str | Path = ".") -> EvidenceGraph:
     """Return the evidence graph for [project_root], loading from disk if
-    a persisted copy exists at <project_root>/.axiomander/evidence_graph.json.
-    Creates an empty graph if none found."""
-    root = str(Path(project_root).resolve())
-    if root not in _GRAPHS:
-        path = Path(root) / ".axiomander" / "evidence_graph.json"
-        _GRAPHS[root] = EvidenceGraph.load(path)
-    return _GRAPHS[root]
+    a persisted copy exists at <root>/.axiomander/evidence_graph.json.
+    If [project_root] is not a known project (no pyproject.toml above it),
+    returns an in-memory-only graph (not persisted)."""
+    root = find_project_root(project_root)
+    is_project = (root / "pyproject.toml").exists()
+    cache_key = str(root) if is_project else f"_mem_{id(root)}"
+    if cache_key not in _GRAPHS:
+        if is_project:
+            path = root / ".axiomander" / "evidence_graph.json"
+            _GRAPHS[cache_key] = EvidenceGraph.load(path)
+        else:
+            _GRAPHS[cache_key] = EvidenceGraph()
+    return _GRAPHS[cache_key]
 
 def save_graph(project_root: str | Path = ".") -> None:
-    """Persist the evidence graph for [project_root] to disk."""
-    root = str(Path(project_root).resolve())
-    graph = _GRAPHS.get(root)
+    """Persist the evidence graph to disk.  No-op for non-project roots."""
+    root = find_project_root(project_root)
+    if not (root / "pyproject.toml").exists():
+        return  # temporary / outside project — not persisted
+    cache_key = str(root)
+    graph = _GRAPHS.get(cache_key)
     if graph is None:
         return
-    dir_path = Path(root) / ".axiomander"
+    dir_path = root / ".axiomander"
     dir_path.mkdir(parents=True, exist_ok=True)
     graph.save(dir_path / "evidence_graph.json")
