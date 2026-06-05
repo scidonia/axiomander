@@ -159,6 +159,14 @@ class ContractLinter(ast.NodeVisitor):
                     left = IntLit(value=1 if left.value else 0)
                 if isinstance(right, BoolLit):
                     right = IntLit(value=1 if right.value else 0)
+                # String comparison: Var == "literal" → String.eqb form
+                # so it unifies with body's BEq(AVar, AString) via wp_prove.
+                if op in ("=", "!=") and isinstance(left, Var) and isinstance(right, StrLitExpr):
+                    from .contract_ir import StringEqualsExpr
+                    return StringEqualsExpr(var=left.name, literal=right.value, negated=(op == "!="))
+                if op in ("=", "!=") and isinstance(right, Var) and isinstance(left, StrLitExpr):
+                    from .contract_ir import StringEqualsExpr
+                    return StringEqualsExpr(var=right.name, literal=left.value, negated=(op == "!="))
                 return BinOp(op=op, left=left, right=right)
             return None
         # Chained: a < b < c → (a < b) /\ (b < c)

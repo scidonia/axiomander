@@ -3488,33 +3488,6 @@
       },
       "timestamp": 1780689275.8583145
     },
-    "use_contains_loop": {
-      "spec": {
-        "params": [],
-        "pre": "True",
-        "post": "True",
-        "reads": [],
-        "writes": []
-      },
-      "evidence": [
-        {
-          "kind": "ltac",
-          "status": "proved_l1_ltac",
-          "query_hash": "",
-          "lemma": "",
-          "coq_file": "",
-          "notes": "wp_reduce + conditional split + VCG"
-        }
-      ],
-      "edges": [],
-      "hashes": {
-        "body": "",
-        "contract": "",
-        "local_assert": "",
-        "callee_contracts": {}
-      },
-      "timestamp": 1780689305.28153
-    },
     "_is_list_param": {
       "spec": {
         "params": [],
@@ -3569,6 +3542,33 @@
       },
       "timestamp": 1780692431.5401201
     },
+    "str_eq_direct": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split"
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780694397.9630733
+    },
     "add": {
       "spec": {
         "params": [],
@@ -3594,7 +3594,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780692582.164584
+      "timestamp": 1780694477.84297
     },
     "clamp": {
       "spec": {
@@ -3621,7 +3621,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780692586.6680825
+      "timestamp": 1780694482.407097
     },
     "set_count": {
       "spec": {
@@ -3648,7 +3648,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780692589.945716
+      "timestamp": 1780694485.6904404
     },
     "use_pred": {
       "spec": {
@@ -3675,7 +3675,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780692593.2218359
+      "timestamp": 1780694488.9383461
     },
     "clamp2": {
       "spec": {
@@ -3702,7 +3702,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780692597.6178534
+      "timestamp": 1780694493.4124098
     },
     "clamp_val": {
       "spec": {
@@ -3729,7 +3729,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780692602.070233
+      "timestamp": 1780694497.9130454
     },
     "in_vocab": {
       "spec": {
@@ -3756,7 +3756,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780692606.509645
+      "timestamp": 1780694502.4441504
     },
     "nested_model": {
       "spec": {
@@ -3783,7 +3783,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780692609.8586593
+      "timestamp": 1780694505.7942235
     },
     "isinstance_dispatch": {
       "spec": {
@@ -3810,7 +3810,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780692614.6899104
+      "timestamp": 1780694510.6636405
     },
     "isinstance_dispatch_wrong": {
       "spec": {
@@ -3837,7 +3837,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780692620.106896
+      "timestamp": 1780694516.074992
     },
     "isinstance_builtin": {
       "spec": {
@@ -3864,7 +3864,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780692624.0601223
+      "timestamp": 1780694520.1512902
     },
     "isinstance_none": {
       "spec": {
@@ -3891,7 +3891,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780692628.255002
+      "timestamp": 1780694524.3664978
     },
     "isinstance_threeway": {
       "spec": {
@@ -3918,7 +3918,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780692633.9899404
+      "timestamp": 1780694530.072957
     },
     "isinstance_full_spec": {
       "spec": {
@@ -3945,7 +3945,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780692669.0249457
+      "timestamp": 1780694533.10417
     },
     "isinstance_full_wrong": {
       "spec": {
@@ -3972,7 +3972,34 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780692673.0796776
+      "timestamp": 1780694536.0618267
+    },
+    "use_contains_loop": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split + VCG"
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780694539.2459826
     }
   }
 }

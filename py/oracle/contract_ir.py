@@ -570,4 +570,26 @@ class RecursorExpr(BaseModel):
         return f"{self.recursor}_{self.arg}"
 
 
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, ListEqExpr, ReMatchExpr, StringContainsExpr, RecursorExpr]
+class StringEqualsExpr(BaseModel):
+    """String equality: var == \"literal\" compiles to String.eqb form.
+
+    This matches the body's BEq(AVar, AString) lowering, which produces
+    String.eqb in the WP proof.  Using the same form in contracts makes
+    them unifiable by wp_prove's String.eqb_eq pattern.
+    """
+    kind: Literal["string_eq"] = "string_eq"
+    var: str       # variable name, e.g. "annotation_id"
+    literal: str   # string literal, e.g. "str"
+    negated: bool = False
+
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        v = f'asString (s "{self.var}"%string)' if scoped and self.var not in unbound else self.var
+        op = "<>" if self.negated else "="
+        return f'(String.eqb {v} "{self.literal}"%string {op} true)'
+
+    def to_smt(self) -> str:
+        inner = f'(= {self.var} "{self.literal}")'
+        return f'(not {inner})' if self.negated else inner
+
+
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, ListEqExpr, ReMatchExpr, StringContainsExpr, StringEqualsExpr, RecursorExpr]
