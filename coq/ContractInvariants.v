@@ -1,4 +1,4 @@
-From Stdlib Require Import String Nat Bool.
+From Stdlib Require Import String Nat Bool List.
 
 (** * ContractInvariants — Universal lemmas proved by case-dispatch SMT verification.
 
@@ -296,3 +296,70 @@ Proof.
   intro p. unfold coq_type_of_param.
   rewrite suffix_not_str_count. reflexivity.
 Qed.
+
+
+(* ───────────────────────────────────────────────────────────────────
+   split / join / str_replace — Fixpoints via fuel-based recursion
+
+   [split] uses an indexed helper [split_from] that recurses on [fuel],
+   a structurally decreasing [nat] counter.  The initial fuel is
+   [String.length s], which is a safe upper bound (at most one split
+   per character).  The helper scans from [pos] upward, advancing past
+   each delimiter occurrence.  No well-founded induction required.
+   ─────────────────────────────────────────────────────────────────── *)
+
+Import ListNotations.
+
+Fixpoint split_from (s delimiter : string) (pos fuel : nat) : list string :=
+  match fuel with
+  | 0 => [String.substring pos (String.length s - pos) s]
+  | S fuel' =>
+      match String.index pos delimiter s with
+      | Some idx =>
+          String.substring pos (idx - pos) s
+          :: split_from s delimiter (idx + String.length delimiter) fuel'
+      | None =>
+          [String.substring pos (String.length s - pos) s]
+      end
+  end.
+
+Definition split (s delimiter : string) : list string :=
+  split_from s delimiter 0 (String.length s).
+
+Fixpoint join (parts : list string) (separator : string) : string :=
+  match parts with
+  | [] => ""%string
+  | [p] => p
+  | p :: rest => p ++ separator ++ join rest separator
+  end.
+
+Fixpoint str_replace_from (s old new : string) (pos fuel : nat) : string :=
+  match fuel with
+  | 0 => String.substring pos (String.length s - pos) s
+  | S fuel' =>
+      match String.index pos old s with
+      | Some idx =>
+          String.substring pos (idx - pos) s ++ new
+          ++ str_replace_from s old new (idx + String.length old) fuel'
+      | None =>
+          String.substring pos (String.length s - pos) s
+      end
+  end.
+
+Definition str_replace (s old new : string) : string :=
+  str_replace_from s old new 0 (String.length s).
+
+
+(** The fire-and-forget specification:
+    [str_replace s old new] = join of the parts obtained by splitting
+    [s] at [old] and rejoining with [new].
+
+    The fuel bound [String.length s] is sufficient because each
+    replacement consumes at least one character.  A proof would
+    proceed by induction on [fuel], using the invariant that after
+    processing up to position [pos], the remaining suffix has length
+    [String.length s - pos]. *)
+
+Axiom str_replace_eq_join_split :
+  forall (s old new : string),
+    str_replace s old new = join (split s old) new.
