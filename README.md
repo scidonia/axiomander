@@ -412,7 +412,7 @@ eval $(opam env)
 PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
 ```
 
-129 pipeline tests covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, docstring contracts, old-state syntax, reads/modifies frames, range quantifiers, stub integration, tuple/bytes/dict/set/None value comparisons, implication, loop-predicate contract inlining, exception contracts, validate_assignment enforcement, nested Pydantic models, constructor CCalls, isinstance dispatch with type-tag lowering, and collection fields.
+130 pipeline tests covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, docstring contracts, old-state syntax, reads/modifies frames, range quantifiers, stub integration, tuple/bytes/dict/set/None value comparisons, implication, loop-predicate contract inlining, user-defined predicates, exception contracts, validate_assignment enforcement, nested Pydantic models, constructor CCalls, isinstance dispatch with type-tag lowering, and collection fields.
 
 Plus **60 dimensional analysis tests** (`py/tests/test_dim_analysis.py`) covering DimVec algebra, expression parsing, constraint checking, and end-to-end violation detection for financial, physical, and cardinality dimensions.
 

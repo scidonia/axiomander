@@ -28,7 +28,7 @@ from typing import Optional
 from .reporting import GoalStatus, ProofLevel, Action
 
 
-TOOL_VERSION = "0.8.0"
+TOOL_VERSION = "0.9.0"
 
 
 # ─── Dependency Graph (delegated to evidence_graph) ──────────────
