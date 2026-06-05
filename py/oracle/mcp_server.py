@@ -3102,11 +3102,16 @@ def _collect_predicates(tree) -> dict[str, tuple[list[str], "ast.expr | None", l
         if len(non_doc) == 1 and isinstance(non_doc[0], ast.Return) and non_doc[0].value:
             predicates[node.name] = (params, non_doc[0].value, [])
         else:
-            # Multi-statement/looping predicate: extract postcondition asserts
+            # Multi-statement/looping predicate: extract postcondition asserts.
+            # Check both body asserts and docstring ensures.
             post_asserts = []
             for s in non_doc:
                 if isinstance(s, ast.Assert) and _classify_assert(node, s) == "postcondition":
                     post_asserts.append(s)
+            # Also collect docstring ensures:
+            for stmt, cls in docstring_assert_nodes(node):
+                if cls == "postcondition":
+                    post_asserts.append(stmt)
             predicates[node.name] = (params, None, post_asserts)
     return predicates
 
