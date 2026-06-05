@@ -511,6 +511,33 @@
         "callee_contracts": {}
       },
       "timestamp": 1780667250.4978971
+    },
+    "use_contains": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "unknown",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": ""
+        }
+      ],
+      "edges": [],
+      "hashes": {
+        "body": "",
+        "contract": "",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780667541.6462698
     }
   }
 }

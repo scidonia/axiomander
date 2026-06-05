@@ -551,4 +551,23 @@ class StringContainsExpr(BaseModel):
         return f'(not {inner})' if self.negated else inner
 
 
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, ListEqExpr, ReMatchExpr, StringContainsExpr]
+class RecursorExpr(BaseModel):
+    """User-defined predicate lowered to a recursor combinator.
+
+    Examples: existsb(fun item => item == x)(xs), forallb, countb, fold_left.
+    Expands to a Coq call at the verification level — the recursor
+    library (ListPredicates.v) provides the Fixpoint + lemmas.
+    """
+    kind: Literal["recursor"] = "recursor"
+    recursor: str          # "forallb" | "existsb" | "countb" | "fold_left" | "filterb"
+    arg: str               # the list variable name, e.g. "xs"
+    predicate: str         # the lambda expression string, e.g. "(fun item => Z.eqb item x)"
+
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        return f"({self.recursor} {self.predicate} {self.arg})"
+
+    def to_smt(self) -> str:
+        return f"{self.recursor}_{self.arg}"
+
+
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, ListEqExpr, ReMatchExpr, StringContainsExpr, RecursorExpr]

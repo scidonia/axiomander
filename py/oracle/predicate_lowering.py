@@ -98,6 +98,38 @@ def _classify_while_loop(
     return Recursor.NONE, None  # TODO
 
 
-def _extract_lambda(loop_var: str, test: ast.expr) -> Optional[str]:
-    """Extract a lambda string from an AST test that references the loop variable."""
-    return ast.unparse(test) if test else None
+def _extract_lambda(loop_var: str, test: ast.expr) -> str:
+    """Translate a Python AST test to a Coq lambda string.
+
+    Python `item == x` → Coq `(fun item => Z.eqb item x)`
+    Python `item > 0`  → Coq `(fun item => Z.gtb item 0)`
+    """
+    if isinstance(test, ast.Compare):
+        left = _py_expr_to_coq(test.left)
+        op = test.ops[0]
+        right = _py_expr_to_coq(test.comparators[0])
+        if isinstance(op, ast.Eq):
+            op_str = "Z.eqb"
+        elif isinstance(op, ast.NotEq):
+            op_str = "fun a b => negb (Z.eqb a b)"
+        elif isinstance(op, ast.Gt):
+            op_str = "Z.gtb"
+        elif isinstance(op, ast.Lt):
+            op_str = "Z.ltb"
+        elif isinstance(op, ast.GtE):
+            op_str = "Z.geb"
+        elif isinstance(op, ast.LtE):
+            op_str = "Z.leb"
+        else:
+            return f"(fun {loop_var} => {ast.unparse(test)})"
+        return f"(fun {loop_var} => {op_str} {left} {right})"
+    return f"(fun {loop_var} => {ast.unparse(test)})"
+
+
+def _py_expr_to_coq(node: ast.expr) -> str:
+    """Translate a simple Python AST expr to a Coq identifier."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Constant):
+        return str(node.value)
+    return ast.unparse(node)

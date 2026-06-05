@@ -299,6 +299,22 @@ class ContractLinter(ast.NodeVisitor):
         post_asserts = entry[2] if len(entry) > 2 else []
         recursor = entry[3] if len(entry) > 3 else None
         lam = entry[4] if len(entry) > 4 else None
+
+        if recursor is not None and lam is not None:
+            # Loop predicate → recursor combinator with arg substitution
+            from .predicate_lowering import Recursor as R
+            rname = {R.EXISTSb: "existsb", R.FORALLB: "forallb",
+                     R.COUNTB: "countb", R.FOLD_LEFT: "fold_left",
+                     R.FILTERB: "filterb"}.get(recursor, "existsb")
+            from .contract_ir import RecursorExpr
+            list_arg = node.args[0].id if isinstance(node.args[0], ast.Name) else "xs"
+            # Substitute call-site arguments into the lambda
+            lam_subst = lam
+            for i, p in enumerate(param_names):
+                if i < len(node.args):
+                    actual = node.args[i].id if isinstance(node.args[i], ast.Name) else str(node.args[i])
+                    lam_subst = lam_subst.replace(p, actual)
+            return RecursorExpr(recursor=rname, arg=list_arg, predicate=lam_subst)
         if len(node.args) != len(param_names):
             self._violation(node, ExprKind.IMPURE_CALL,
                           f"Predicate '{name}' expects {len(param_names)} args, got {len(node.args)}")
