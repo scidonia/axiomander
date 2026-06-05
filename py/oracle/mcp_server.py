@@ -107,7 +107,45 @@ def _gen_imp_body(tree, func_node, contract_map=None) -> "tuple[str, object]":
         contract_map=contract_map,
     )
     imp_ir = lowerer.lower_function(py_func)
+
+    from oracle.imp_ir import ImpCCall
+    def _has_any_ccall(node) -> bool:
+        if isinstance(node, ImpCCall): return True
+        if hasattr(node, 'commands'):
+            return any(_has_any_ccall(c) for c in node.commands)
+        if hasattr(node, 'then_branch'):
+            return _has_any_ccall(node.then_branch) or _has_any_ccall(node.else_branch)
+        if hasattr(node, 'body'):
+            return _has_any_ccall(node.body)
+        return False
+    has_ccalls = _has_any_ccall(imp_ir)
+
+    if has_ccalls:
+        # CCall functions: re-lower with emit_return_raises=False so
+        # returns are just assignments, not CRaise("...Return...").
+        # Stage-proof decomposition can't handle CRaise inside the body.
+        lowerer = PyToImpLowerer(
+            func_name=func_node.name,
+            record_fields=class_fields,
+            param_types=param_types,
+            annot_guard_mode=True,
+            contract_map=contract_map,
+            emit_return_raises=False,
+        )
+        imp_ir = lowerer.lower_function(py_func)
+
     coq_str = imp_ir.to_coq() if hasattr(imp_ir, 'to_coq') else "CSkip"
+
+    if not has_ccalls:
+        # Non-CCall: wrap in CTry so CRaise("...Return...") terminates early.
+        exc_var = lowerer._fresh_var("_exc")
+        return_exc = lowerer._return_exc_name()
+        coq_str = (
+            f'(CTry {coq_str} "{exc_var}"%string '
+            f'(CIf (BEq (AVar "{exc_var}"%string) (AString "{return_exc}"%string)) '
+            f'CSkip (CRaise (AVar "{exc_var}"%string))))'
+        )
+
     return coq_str, imp_ir
 
 

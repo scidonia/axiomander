@@ -55,7 +55,7 @@ from .obligations import (
     ProofAttempt, ResidualGoal,
 )
 from .imp_ir import (
-    ImpCSeq, ImpCCall, ImpCAss, ImpCIf, ImpCSkip,
+    ImpCSeq, ImpCCall, ImpCAss, ImpCIf, ImpCSkip, ImpCTry,
     ImpAVar, ImpANum, ImpAPlus, ImpAMinus, ImpAMult,
     ImpAMod, ImpADiv, ImpABool,
 )
@@ -327,6 +327,8 @@ def _has_ccall(node) -> bool:
         return any(_has_ccall(c) for c in node.commands)
     if isinstance(node, ImpCIf):
         return _has_ccall(node.then_branch) or _has_ccall(node.else_branch)
+    if isinstance(node, ImpCTry):
+        return _has_ccall(node.body) or _has_ccall(node.handler)
     return False
 
 
@@ -339,6 +341,9 @@ def _extract_segments(imp_ir) -> "tuple[list, list[tuple[int, object]]]":
                     segments.append(cmd)
                 else:
                     _extract(cmd)
+        elif isinstance(node, ImpCTry):
+            _extract(node.body)
+            _extract(node.handler)
         else:
             segments.append(node)
 

@@ -150,14 +150,15 @@ Coq forall binders.  The entire decision tree proves at Level 1:
 
 ```python
 def _is_string_param(annotation) -> bool:
+    """
+    axiomander:
+        ensures:
+            implies(result == True, annotation_tag == 1)
+    """
     if annotation is None:
         return False
     if isinstance(annotation, ast.Name) and annotation.id == "str":
         return True
-    if isinstance(annotation, ast.Subscript):
-        if isinstance(annotation.value, ast.Name):
-            if annotation.value.id in ("Optional", "Union"):
-                return True
     return False
 ```
 

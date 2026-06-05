@@ -47,13 +47,14 @@ class PyToImpLowerer:
 
     def __init__(self, func_name: str = "", record_fields: dict[str, list[str]] | None = None,
                  param_types: dict[str, str] | None = None, annot_guard_mode: bool = True,
-                 contract_map: dict | None = None):
+                 contract_map: dict | None = None, emit_return_raises: bool = True):
         self._func_name = func_name
         self._record_fields = record_fields or {}
         self._param_types = param_types or {}
         self._vc = 0
         self._annot_guard_mode = annot_guard_mode
         self._contract_map = contract_map or {}
+        self._emit_return_raises = emit_return_raises
 
     def _type_of(self, expr: PyExpr) -> Optional[str]:
         if isinstance(expr, PyName):
@@ -758,21 +759,36 @@ class PyToImpLowerer:
         loop = ImpCWhile(condition=cond, invariant=inv_str, body=loop_body)
         return ImpCSeq(commands=[init, loop])
 
+    # Reserved exception name for return simulation.
+    # Scoped by function name to avoid CCall collisions:
+    #   callee raises "callee.__axiomander_Return__"
+    #   caller catches "caller.__axiomander_Return__"
+    #   → different strings, never confused.
+    _RETURN_EXC_SUFFIX = ".__axiomander_Return__"
+
+    def _return_exc_name(self) -> str:
+        return f"{self._func_name}{self._RETURN_EXC_SUFFIX}"
+
     def _lower_return(self, stmt: PyReturn) -> Optional[ImpCom]:
         if stmt.value:
             val = self.lower_expr(stmt.value)
             if val:
+                if self._emit_return_raises:
+                    return ImpCSeq(commands=[
+                        ImpCAss(target="result", value=val),
+                        ImpCRaise(exc=ImpAString(value=self._return_exc_name())),
+                    ])
                 return ImpCAss(target="result", value=val)
             bexp = self.lower_bexp(stmt.value)
             if bexp:
+                if self._emit_return_raises:
+                    return ImpCSeq(commands=[
+                        ImpCAss(target="result", value=ImpABool(bexp=bexp)),
+                        ImpCRaise(exc=ImpAString(value=self._return_exc_name())),
+                    ])
                 return ImpCAss(target="result", value=ImpABool(bexp=bexp))
-            # Method call in return context: lower as a call that writes to result
-            if isinstance(stmt.value, PyCall) and stmt.value.is_method:
-                cmd = self._lower_method_call(stmt.value)
-            else:
-                cmd = self._lower_call_stmt(stmt.value)
-            if cmd:
-                return ImpCSeq(commands=[cmd, ImpCAss(target="result", value=ImpAVar(name="result"))])
+        if self._emit_return_raises:
+            return ImpCRaise(exc=ImpAString(value=self._return_exc_name()))
         return ImpCSkip()
 
     def _lower_raise(self, stmt: PyRaise) -> ImpCom:
@@ -1346,6 +1362,13 @@ class PyToImpLowerer:
         return cmds
 
     def lower_function(self, func: PyFunction) -> ImpCom:
+        """Lower a function body.
+
+        The CTry wrapper for early-return support is applied during
+        Coq generation (_generate_coq), not here, because the
+        obligation generator decomposes CCall bodies and would
+        split the CTry into fragments.
+        """
         return self.lower_body(func.body)
 
     # =================================================================
