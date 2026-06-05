@@ -58,6 +58,9 @@ PROJECT_ROOT = Path(os.environ.get(
 BUILD_DIR = PROJECT_ROOT / "_build" / "default" / "coq"
 AI_PROVE_PATH = Path("/tmp/axiomander_ai_prove.v")
 
+from .evidence_graph import EvidenceGraph, ContractNode, ContractEdge, ContractSpec
+from .evidence_graph import Evidence, EvidenceKind, ProofStatus, get_graph, save_graph
+
 _cache = VerificationCache()
 
 
@@ -1411,6 +1414,8 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
 
             purity_note = _compute_purity_note(tree, func_node, imp_body)
 
+            _record_evidence(func_name, proof_level, method, imp_ir, _build_contract_map(tree))
+
             return GoalStatus(name=func_name,
                             goal_statement=f"wp {func_name}_body ...",
                             level=proof_level,
@@ -1508,6 +1513,10 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
             error += "\n\nFailure: " + failure_class
         if tactic_trace:
             error += "\nTactic: " + tactic_trace
+
+        _record_evidence(func_name,
+                         ProofLevel.COUNTEREXAMPLE if ce_dict else ProofLevel.UNPROVED,
+                         "", imp_ir, _build_contract_map(tree))
 
         return GoalStatus(name=func_name,
                         goal_statement=f"wp {func_name}_body ...",
@@ -5069,6 +5078,78 @@ Proof.
 {proof_block}
 Qed.
 {vcg_section}"""
+
+
+def _record_evidence(func_name: str, proof_level: "ProofLevel", method: str,
+                     imp_ir=None, contract_map=None) -> None:
+    """Update the global evidence graph with this verification result.
+
+    Creates a ContractNode with evidence and edges for every CCall in the
+    IMP IR, so that changing a callee's contract invalidates the caller's
+    proof (status → STALE).
+    """
+    try:
+        from .imp_ir import ImpCCall
+        graph = get_graph()
+
+        if proof_level == ProofLevel.COUNTEREXAMPLE:
+            status = ProofStatus.COUNTEREXAMPLE_FOUND
+        elif proof_level == ProofLevel.UNPROVED:
+            status = ProofStatus.UNKNOWN
+        elif proof_level == ProofLevel.LEVEL1_LTAC:
+            status = ProofStatus.PROVED_L1_LTAC
+        elif proof_level == ProofLevel.LEVEL2B_SMT_THEORY:
+            status = ProofStatus.PROVED_L2B_THEORY
+        elif proof_level == ProofLevel.LEVEL3_LLM:
+            status = ProofStatus.PROVED_L3_ORACLE
+        else:
+            status = ProofStatus.UNKNOWN
+
+        kind = EvidenceKind.LTAC
+
+        # Extract callees from IMP IR
+        edges: list = []
+        callee_names: set[str] = set()
+        def _collect(node):
+            if isinstance(node, ImpCCall):
+                callee_names.add(node.name)
+            if hasattr(node, 'commands'):
+                for c in node.commands: _collect(c)
+            if hasattr(node, 'then_branch'): _collect(node.then_branch); _collect(node.else_branch)
+            if hasattr(node, 'body'): _collect(node.body)
+        if imp_ir is not None:
+            _collect(imp_ir)
+
+        # Build edges for each callee
+        if contract_map:
+            for callee in callee_names:
+                entry = contract_map.get(callee)
+                if entry:
+                    params, pre, post, reads, writes = entry
+                    callee_spec = ContractSpec(
+                        name=callee, params=list(params),
+                        pre_coq=pre, post_coq=post,
+                        reads=list(reads), writes=list(writes),
+                    )
+                    edge = ContractEdge(
+                        callee_name=callee,
+                        callee_spec=callee_spec,
+                        evidence=[Evidence(kind=EvidenceKind.LTAC, status=status)],
+                    )
+                    edges.append(edge)
+
+        node = ContractNode(
+            spec=ContractSpec(name=func_name),
+            evidence=[Evidence(kind=kind, status=status, notes=method)],
+            edges=edges,
+        )
+
+        if func_name in graph.nodes:
+            del graph.nodes[func_name]
+        graph.add_node(node)
+        save_graph()  # persist to .axiomander/evidence_graph.json
+    except Exception:
+        pass  # evidence graph is optional — never fail verification
 
 
 # ═══════════════════════════════════════════════════════════════════
