@@ -4339,6 +4339,44 @@
       },
       "timestamp": 1780784106.7529664
     },
+    "_find_field": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split"
+        }
+      ],
+      "edges": [
+        {
+          "callee": "_find_field",
+          "target": "",
+          "evidence": []
+        },
+        {
+          "callee": "isinstance",
+          "target": "",
+          "evidence": []
+        }
+      ],
+      "hashes": {
+        "body": "",
+        "contract": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780784408.8578143
+    },
     "add": {
       "spec": {
         "params": [],
@@ -4364,7 +4402,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780784268.8618946
+      "timestamp": 1780784431.7680812
     },
     "clamp": {
       "spec": {
@@ -4391,7 +4429,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780784273.2390895
+      "timestamp": 1780784436.2330806
     },
     "set_count": {
       "spec": {
@@ -4418,7 +4456,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780784276.5123453
+      "timestamp": 1780784439.5286164
     },
     "clamp2": {
       "spec": {
@@ -4445,7 +4483,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780784281.0144715
+      "timestamp": 1780784444.0028617
     },
     "clamp_val": {
       "spec": {
@@ -4472,7 +4510,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780784285.4836311
+      "timestamp": 1780784448.5000055
     },
     "in_vocab": {
       "spec": {
@@ -4499,7 +4537,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780784289.9383245
+      "timestamp": 1780784452.9604208
     },
     "nested_model": {
       "spec": {
@@ -4526,7 +4564,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780784293.2348073
+      "timestamp": 1780784456.2509987
     }
   }
 }
