@@ -1225,6 +1225,24 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
                           suggested_action=Action.REFACTOR,
                           suggestion_text="Fix lint errors in assertions.")
 
+    # Resource classification — detect owns(x) predicates for Iris backend prototype
+    from .resources.classify import classify as classify_resource, ContractClass
+    classification, owned_var = classify_resource(lint_results)
+    if classification != ContractClass.PURE_ONLY:
+        return GoalStatus(
+            name=func_name,
+            goal_statement=f"wp {func_name}_body ...",
+            level=ProofLevel.UNPROVED,
+            error_detail=(
+                f"Resource contract detected: owns({owned_var}).\n"
+                f"Classification: {classification.value}.\n"
+                f"Resource lowering is experimental (iris-backend-prototype branch).\n"
+                f"Pure existing pipeline skipped — this function needs the Iris backend."
+            ),
+            suggested_action=Action.ADD_LEMMA,
+            suggestion_text=f"Resource contract ({classification.value}) — Iris backend prototype.",
+        )
+
     # Generate IMP via PyIR -> ImpIR
     imp_body, imp_ir = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
 
