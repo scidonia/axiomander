@@ -160,13 +160,15 @@ class ContractLinter(ast.NodeVisitor):
                 if isinstance(right, BoolLit):
                     right = IntLit(value=1 if right.value else 0)
                 # String comparison: Var == "literal" → String.eqb form
-                # so it unifies with body's BEq(AVar, AString) via wp_prove.
+                # Only when the Var is a known string type.
                 if op in ("=", "!=") and isinstance(left, Var) and isinstance(right, StrLitExpr):
                     from .contract_ir import StringEqualsExpr
-                    return StringEqualsExpr(var=left.name, literal=right.value, negated=(op == "!="))
+                    if self.var_types.get(left.name) in ("str", "string"):
+                        return StringEqualsExpr(var=left.name, literal=right.value, negated=(op == "!="))
                 if op in ("=", "!=") and isinstance(right, Var) and isinstance(left, StrLitExpr):
                     from .contract_ir import StringEqualsExpr
-                    return StringEqualsExpr(var=right.name, literal=left.value, negated=(op == "!="))
+                    if self.var_types.get(right.name) in ("str", "string"):
+                        return StringEqualsExpr(var=right.name, literal=left.value, negated=(op == "!="))
                 return BinOp(op=op, left=left, right=right)
             return None
         # Chained: a < b < c → (a < b) /\ (b < c)
@@ -530,6 +532,24 @@ class ContractLinter(ast.NodeVisitor):
             return IntLit(value=0)
         if name in ("all", "any"):
             return self._translate_quantifier(node, name)
+        if name == "isinstance":
+            # isinstance(obj, SomeType) → obj_tag == TYPE_TAG
+            if len(node.args) == 2 and isinstance(node.args[0], ast.Name):
+                obj_name = node.args[0].id
+                type_arg = node.args[1]
+                type_name = None
+                if isinstance(type_arg, ast.Attribute):
+                    from oracle.mcp_server import _dotted_path
+                    type_name = _dotted_path(type_arg)
+                elif isinstance(type_arg, ast.Name):
+                    type_name = type_arg.id
+                if type_name:
+                    from oracle.py_to_imp import PyToImpLowerer
+                    tag = PyToImpLowerer._TYPE_TAG_MAP.get(type_name)
+                    if tag is not None:
+                        tag_var = f"{obj_name}_tag"
+                        return BinOp(op="=", left=Var(name=tag_var), right=IntLit(value=tag))
+            return IntLit(value=1)
         return IntLit(value=0)
 
     def _translate_quantifier(self, node: ast.Call, name: str) -> Optional[Expr]:

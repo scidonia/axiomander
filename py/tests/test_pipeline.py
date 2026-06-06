@@ -17,7 +17,7 @@ import pytest
 from oracle.contract_linter import ContractLinter, AssertInfo
 from oracle.python_to_imp import python_to_imp
 from oracle.mcp_server import (
-    _generate_coq, _classify_assert, _expand_params,
+    _generate_coq, _classify_assert, _expand_params, _infer_var_types,
     _verify_function,
 )
 from oracle.reporting import GoalStatus, ProofLevel
@@ -34,6 +34,15 @@ def run_verification(source: str, func_name: str) -> GoalStatus | None:
     )
     params = [arg.arg for arg in func_node.args.args]
     expanded, _, _, _, _ = _expand_params(tree, params, func_node)
+    # Add dotted field flat keys to var_types so string comparisons are lowered
+    # to String.eqb form (matching body's BEq(AVar, AString)).
+    var_types = _infer_var_types(func_node)
+    param_set = set(params)
+    _STRING_FIELD_SUFFIXES = frozenset({'_id', '_name', '_value', '_attr', '_str'})
+    for k in expanded:
+        if k not in param_set and k not in var_types:
+            if any(k.endswith(s) for s in _STRING_FIELD_SUFFIXES):
+                var_types[k] = 'string'
     linter_pre = ContractLinter(expanded, "precondition")
     linter_post = ContractLinter(expanded, "postcondition")
     lint_results = []
@@ -1001,7 +1010,7 @@ def collection_field(basket: Basket) -> int:
     return result"""),
 
     # ── isinstance -> tag lowering ──────────────────────────────────
-    ("isinstance_dispatch", "def isinstance_dispatch(annotation) -> bool:\n assert True\n result = False\n if isinstance(annotation, ast.Name): result = True\n elif isinstance(annotation, ast.Subscript): result = True\n assert implies(result == 1, annotation_tag == 1 or annotation_tag == 2)\n return result"),
+    ("isinstance_dispatch", "def isinstance_dispatch(annotation) -> bool:\n assert True\n result = False\n if isinstance(annotation, ast.Name): result = True\n elif isinstance(annotation, ast.Subscript): result = True\n assert implies(result == True, isinstance(annotation, ast.Name) or isinstance(annotation, ast.Subscript))\n return result"),
     ("isinstance_dispatch_wrong", "def isinstance_dispatch_wrong(annotation) -> bool:\n assert True\n result = False\n if isinstance(annotation, ast.Name): result = True\n elif isinstance(annotation, ast.Subscript): result = True\n assert result == 0\n return result"),
     ("isinstance_builtin", "def isinstance_builtin(x: int) -> bool:\n assert x >= 0\n result = False\n if isinstance(x, int): result = True\n assert implies(result == 1, x >= 0)\n return result"),
     ("isinstance_none", "def isinstance_none(annotation) -> bool:\n assert True\n if annotation is None: return True\n elif isinstance(annotation, ast.Name): return True\n return False"),
