@@ -4180,6 +4180,165 @@
       },
       "timestamp": 1780783934.0071151
     },
+    "_walk": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split"
+        }
+      ],
+      "edges": [
+        {
+          "callee": "_walk",
+          "target": "",
+          "evidence": []
+        },
+        {
+          "callee": "append",
+          "target": "",
+          "evidence": []
+        },
+        {
+          "callee": "isinstance",
+          "target": "",
+          "evidence": []
+        },
+        {
+          "callee": "str",
+          "target": "",
+          "evidence": []
+        }
+      ],
+      "hashes": {
+        "body": "",
+        "contract": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780784097.029924
+    },
+    "format_resource_json": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split"
+        }
+      ],
+      "edges": [
+        {
+          "callee": "_walk",
+          "target": "",
+          "evidence": []
+        },
+        {
+          "callee": "append",
+          "target": "",
+          "evidence": []
+        },
+        {
+          "callee": "isinstance",
+          "target": "",
+          "evidence": []
+        },
+        {
+          "callee": "pre.get",
+          "target": "",
+          "evidence": []
+        },
+        {
+          "callee": "str",
+          "target": "",
+          "evidence": []
+        }
+      ],
+      "hashes": {
+        "body": "",
+        "contract": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780784102.7324424
+    },
+    "infer_resource_footprint": {
+      "spec": {
+        "params": [],
+        "pre": "True",
+        "post": "True",
+        "reads": [],
+        "writes": []
+      },
+      "evidence": [
+        {
+          "kind": "ltac",
+          "status": "proved_l1_ltac",
+          "query_hash": "",
+          "lemma": "",
+          "coq_file": "",
+          "notes": "wp_reduce + conditional split + VCG"
+        }
+      ],
+      "edges": [
+        {
+          "callee": "RField",
+          "target": "",
+          "evidence": []
+        },
+        {
+          "callee": "ROwn",
+          "target": "",
+          "evidence": []
+        },
+        {
+          "callee": "RPure",
+          "target": "",
+          "evidence": []
+        },
+        {
+          "callee": "RSep",
+          "target": "",
+          "evidence": []
+        },
+        {
+          "callee": "fields.append",
+          "target": "",
+          "evidence": []
+        },
+        {
+          "callee": "mod.split",
+          "target": "",
+          "evidence": []
+        }
+      ],
+      "hashes": {
+        "body": "",
+        "contract": "2b490437a7a6a582967530bd4ccc41d58b6ebd8893e955e26fd8e5a3ec972fda",
+        "local_assert": "",
+        "callee_contracts": {}
+      },
+      "timestamp": 1780784106.7529664
+    },
     "add": {
       "spec": {
         "params": [],
@@ -4205,7 +4364,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780783956.7629848
+      "timestamp": 1780784121.386077
     },
     "clamp": {
       "spec": {
@@ -4232,7 +4391,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780783961.0773582
+      "timestamp": 1780784125.676669
     },
     "set_count": {
       "spec": {
@@ -4259,7 +4418,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780783964.3728406
+      "timestamp": 1780784128.8464863
     },
     "clamp2": {
       "spec": {
@@ -4286,7 +4445,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780783968.6396348
+      "timestamp": 1780784133.20718
     },
     "clamp_val": {
       "spec": {
@@ -4313,7 +4472,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780783972.9016075
+      "timestamp": 1780784137.7691357
     },
     "in_vocab": {
       "spec": {
@@ -4340,7 +4499,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780783977.1948178
+      "timestamp": 1780784142.3519237
     },
     "nested_model": {
       "spec": {
@@ -4367,7 +4526,7 @@
         "local_assert": "",
         "callee_contracts": {}
       },
-      "timestamp": 1780783980.5064838
+      "timestamp": 1780784145.660835
     }
   }
 }
