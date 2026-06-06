@@ -592,4 +592,21 @@ class StringEqualsExpr(BaseModel):
         return f'(not {inner})' if self.negated else inner
 
 
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, ListEqExpr, ReMatchExpr, StringContainsExpr, StringEqualsExpr, RecursorExpr]
+class ROwnExpr(BaseModel):
+    """Resource ownership predicate: owns(x) — marks x as an owned resource.
+
+    Compiles to no Coq expression (resource-only, not pure logic).
+    Its presence in the contract classification triggers the resource
+    footprint extraction and Iris lowering path.
+    """
+    kind: Literal["rown"] = "rown"
+    obj: str    # variable name, e.g. "box"
+
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        return "True"  # resource contract — pure side is vacuous
+
+    def to_smt(self) -> str:
+        return "true"
+
+
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, ListEqExpr, ReMatchExpr, StringContainsExpr, StringEqualsExpr, RecursorExpr, ROwnExpr]

@@ -42,6 +42,7 @@ PURE_BUILTINS = frozenset({
     "re_match",   # regex membership: s.re_match("[0-9]+")
     "is_shape",   # Pydantic shape predicate
     "field",      # field(obj, "name", var) → flat-field access
+    "owns",       # resource ownership: owns(box) → separation-logic footprint
 })
 
 PURE_MODULE_FUNCTIONS = frozenset({
@@ -549,6 +550,12 @@ class ContractLinter(ast.NodeVisitor):
                     if tag is not None:
                         tag_var = f"{obj_name}_tag"
                         return BinOp(op="=", left=Var(name=tag_var), right=IntLit(value=tag))
+            return IntLit(value=1)
+        if name == "owns":
+            # owns(x) → resource ownership predicate
+            if node.args and isinstance(node.args[0], ast.Name):
+                from .contract_ir import ROwnExpr
+                return ROwnExpr(obj=node.args[0].id)
             return IntLit(value=1)
         return IntLit(value=0)
 
