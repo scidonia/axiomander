@@ -123,7 +123,24 @@ class STry:
     kind: Literal["try"] = "try"
 
 
-SExpr = SLit | SVar | SBinOp | SLoad | SStore | SLet | SIf | SReturn | SApp | SSeq | SFork | SFAA | SRaise | STry
+@dataclass
+class SDictGet:
+    """Dict lookup: d[key] → gmap lookup.  Pure, no heap mutation."""
+    loc: str
+    key: SExpr
+    kind: Literal["dict_get"] = "dict_get"
+
+
+@dataclass
+class SDictSet:
+    """Dict set: d[key] = val → gmap insert.  Pure, no heap mutation."""
+    loc: str
+    key: SExpr
+    value: SExpr
+    kind: Literal["dict_set"] = "dict_set"
+
+
+SExpr = SLit | SVar | SBinOp | SLoad | SStore | SLet | SIf | SReturn | SApp | SSeq | SFork | SFAA | SRaise | STry | SDictGet | SDictSet
 
 
 # ── Resource layer ───────────────────────────────────────────────
@@ -287,10 +304,13 @@ def _emit_body(lines: list[str], expr: SExpr, indent: int = 2) -> None:
         # Raise as proof obligation — encoded in WP outcome
         lines.append(f"{sp}(* raise — encoded as ORaise in WP outcome *)")
     elif isinstance(expr, STry):
-        # Try/except — wp_catch or wp_bind with outcome dispatch
         lines.append(f"{sp}(* try/catch — outcome dispatch in WP *)")
         _emit_body(lines, expr.body, indent)
         lines.append(f"{sp}(* if ORaise -> handler *)")
         _emit_body(lines, expr.handler, indent)
+    elif isinstance(expr, SDictGet):
+        lines.append(f"{sp}(* dict lookup — pure, gmap functional *)")
+    elif isinstance(expr, SDictSet):
+        lines.append(f"{sp}(* dict insert — pure, gmap functional *)")
     else:
         lines.append(f"{sp}(* {type(expr).__name__} *)")

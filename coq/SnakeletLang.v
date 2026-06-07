@@ -19,6 +19,16 @@ Module SnakeletLang.
 Definition loc := heap_lang.loc.
 Definition val := heap_lang.val.
 
+(** Dictionary model: abstract [gmap string val] stored in a heap cell.
+    Dict operations are pure functional lookups/inserts on the gmap.
+    The gmap itself is stored as a heapLang value at location [l]. *)
+
+Definition dict_empty : val := LitV LitUnit.  (* TODO: proper gmap encoding *)
+
+Definition dict_lookup (k : val) (d : val) : val := LitV LitUnit.   (* TODO *)
+Definition dict_insert (k v : val) (d : val) : val := d.             (* TODO *)
+Definition dict_has (k : val) (d : val) : bool := false.              (* TODO *)
+
 (** Extended expression type *)
 Inductive expr :=
   | HeapLang (e : heap_lang.expr)
@@ -27,7 +37,11 @@ Inductive expr :=
   | SListLength (l : expr)
   | SListIndex (l i : expr)
   | SRaise (e : expr)
-  | STry (body handler : expr).
+  | STry (body handler : expr)
+  (* Dicts — proof-level, no heap mutation *)
+  | SDictGet (l key : expr)
+  | SDictSet (l key val : expr)
+  | SDictHas (l key : expr).
 
 (** Values are just heapLang values *)
 Definition of_val (v : val) : expr := HeapLang (heap_lang.of_val v).
@@ -54,6 +68,19 @@ Inductive pure_step : expr → expr → Prop :=
   | PureTryReturn v :
       pure_step (STry (HeapLang (heap_lang.Return v)) handler)
                 (HeapLang (heap_lang.Return v)).
+  (* Dict operations — purely functional (gmap lookup/insert). *)
+  | PureDictGet l k v (σ : state) :
+      σ !! l = Some v →   (* v is the dict gmap *)
+      pure_step (SDictGet (of_val l) (of_val k))
+                (of_val (dict_lookup k v)).
+  | PureDictSet l k val v (σ : state) :
+      σ !! l = Some v →   (* v is the old gmap *)
+      pure_step (SDictSet (of_val l) (of_val k) (of_val val))
+                (of_val (dict_insert k val v)).
+  | PureDictHas l k v (σ : state) :
+      σ !! l = Some v →
+      pure_step (SDictHas (of_val l) (of_val k))
+                (of_val (LitV (LitBool (dict_has k v)))).
 
 (** Head steps — heapLang operations plus our custom stateful ones *)
 Inductive head_step : expr → state → expr → state → list expr → Prop :=
