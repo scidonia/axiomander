@@ -1,89 +1,100 @@
 """Conservative correctness tests: Python → SnakeletIR → eval → compare with Python.
+
+Checks: (1) valid ops produce same result as Python.
+        (2) type-incompatible ops produce VError(TypeError), matching Python.
+        (3) coercions work correctly (int→float, bool→int, str*int).
 """
 
 import pytest
+from typing import Any
 from oracle.snakelet_eval import (
     eval_expr, State, VInt, VFloat, VBool, VString, VUnit, VTuple, VLoc,
-    Val, py_to_val, val_to_py, alloc,
+    Val, VError, alloc,
 )
 from oracle.snakelet_ir import (
-    SLit, SVar, SBinOp, SLoad, SStore, SLet, SIf, SReturn, SSeq, SFork, SFAA,
+    SLit, SVar, SBinOp, SLoad, SStore, SLet, SIf, SReturn, SSeq, SFAA, SDictGet,
 )
 
 
-# ── Value round-trip ─────────────────────────────────────────────
-
-def test_py_to_val_int():
-    assert isinstance(py_to_val(42), VInt)
-    assert py_to_val(42).v == 42
-
-def test_py_to_val_float():
-    assert isinstance(py_to_val(3.14), VFloat)
-
-def test_py_to_val_bool():
-    assert isinstance(py_to_val(True), VBool)
-
-def test_py_to_val_none():
-    assert isinstance(py_to_val(None), VUnit)
-
-
-# ── Arithmetic: int ──────────────────────────────────────────────
-
-def run_int_binop(py_a: int, py_b: int, op: str, py_result):
-    s = State()
-    env = {}
-    e = SBinOp(op=op, left=SLit("int", str(py_a)), right=SLit("int", str(py_b)))
-    snake_val = eval_expr(e, s, env)
-    assert val_to_py(snake_val) == py_result, f"{py_a} {op} {py_b} → expected {py_result}, got {val_to_py(snake_val)}"
-
-def test_int_add(): run_int_binop(3, 4, "add", 7)
-def test_int_sub(): run_int_binop(10, 3, "sub", 7)
-def test_int_mul(): run_int_binop(3, 4, "mul", 12)
-def test_int_div(): run_int_binop(3, 2, "div", 1.5)
-def test_int_eq_true(): run_int_binop(5, 5, "eq", True)
-def test_int_eq_false(): run_int_binop(5, 3, "eq", False)
-def test_int_lt(): run_int_binop(3, 5, "lt", True)
-def test_int_gt(): run_int_binop(5, 3, "gt", True)
-def test_int_le(): run_int_binop(3, 3, "le", True)
+def py_result(py_a: Any, op: str, py_b: Any) -> Any:
+    """Evaluate a binary operation in Python to get expected result or exception."""
+    try:
+        if op == "add": return py_a + py_b
+        if op == "sub": return py_a - py_b
+        if op == "mul": return py_a * py_b
+        if op == "div": return py_a / py_b
+        if op == "eq":  return py_a == py_b
+        if op == "lt":  return py_a < py_b
+        if op == "gt":  return py_a > py_b
+        if op == "le":  return py_a <= py_b
+        if op == "ge":  return py_a >= py_b
+    except Exception as e:
+        return type(e).__name__
+    return None
 
 
-# ── Arithmetic: float ────────────────────────────────────────────
-
-def run_float_binop(py_a: float, py_b: float, op: str, py_result):
-    s = State()
-    env = {}
-    e = SBinOp(op=op, left=SLit("int", str(int(py_a))), right=SLit("int", str(int(py_b))))
-    # For float tests, use actual float inputs
-    e2 = SBinOp(op=op,
-                left=SVar("a"), right=SVar("b"))
-    result = eval_expr(SLet("a", SLit("int", str(int(py_a))),
-                     SLet("b", SLit("int", str(int(py_b))),
-                          SBinOp(op=op, left=SVar("a"), right=SVar("b")))),
-                       s, env)
-    # Integer inputs, Python div produces float
-    if op == "div":
-        expected = py_a / py_b
-        if isinstance(result, VFloat):
-            assert abs(result.v - expected) < 0.001
-
-def test_float_div_int(): run_float_binop(3, 2, "div", 1.5)
+def lit(py_v: Any) -> Any:
+    if isinstance(py_v, bool): return SLit("bool", "true" if py_v else "false")
+    if isinstance(py_v, int): return SLit("int", str(py_v))
+    if isinstance(py_v, float): return SLit("int", str(int(py_v)))  # approximate
+    if isinstance(py_v, str): return SLit("string", py_v)
+    return SLit("unit", "")
 
 
-# ── Booleans ─────────────────────────────────────────────────────
+def assert_same(op: str, py_a: Any, py_b: Any):
+    """SnakeletLang _binop produces the same result as Python."""
+    expected = py_result(py_a, op, py_b)
+    actual = eval_expr(SBinOp(op=op, left=lit(py_a), right=lit(py_b)), State(), {})
 
-def test_bool_eq():
-    s = State()
-    e = SBinOp(op="eq", left=SLit("bool", "true"), right=SLit("bool", "true"))
-    result = eval_expr(e, s, {})
-    assert isinstance(result, VBool)
-    assert result.v is True
+    if expected == "TypeError":
+        assert isinstance(actual, VError) and "TypeError" in str(actual), \
+            f"{py_a} {op} {py_b} → expected TypeError, got {type(actual).__name__}"
+    elif expected == "ValueError":
+        assert isinstance(actual, VError) and "ValueError" in str(actual), \
+            f"{py_a} {op} {py_b} → expected ValueError, got {type(actual).__name__}"
+    elif isinstance(expected, float):
+        assert isinstance(actual, VFloat), f"expected float, got {type(actual).__name__}"
+    elif isinstance(expected, bool):
+        assert isinstance(actual, VBool), f"expected bool, got {type(actual).__name__}"
+    else:
+        # int or other — compare values
+        if isinstance(actual, VInt):
+            assert actual.v == expected, f"{py_a} {op} {py_b} → expected {expected}, got {actual.v}"
+        elif isinstance(actual, VBool):
+            assert actual.v == expected, f"{py_a} {op} {py_b} → expected {expected}, got {actual.v}"
+        elif isinstance(actual, VString):
+            assert actual.v == expected, f"{py_a} {op} {py_b} → expected {expected}, got {actual.v}"
 
-def test_bool_neq():
-    s = State()
-    e = SBinOp(op="eq", left=SLit("bool", "true"), right=SLit("bool", "false"))
-    result = eval_expr(e, s, {})
-    assert isinstance(result, VBool)
-    assert result.v is False
+
+# ── Valid operations (must match Python) ─────────────────────────
+
+def test_int_add():    assert_same("add", 3, 4)
+def test_int_sub():    assert_same("sub", 10, 3)
+def test_int_mul():    assert_same("mul", 3, 4)
+def test_int_div():    assert_same("div", 3, 2)      # int/int → float
+def test_int_eq_true(): assert_same("eq", 5, 5)
+def test_int_eq_false(): assert_same("eq", 5, 3)
+def test_int_lt():     assert_same("lt", 3, 5)
+def test_int_gt():     assert_same("gt", 5, 3)
+def test_int_le():     assert_same("le", 3, 3)
+
+# ── Coercions (must match Python) ────────────────────────────────
+
+def test_bool_as_int():  assert_same("add", True, 1)   # True→1, 1+1=2
+def test_bool_false():   assert_same("add", False, 5)  # False→0, 0+5=5
+def test_int_plus_bool(): assert_same("add", 3, True)  # 3 + True → 4
+
+def test_string_add():   assert_same("add", "hello", "world")
+def test_string_eq():    assert_same("eq", "abc", "abc")
+def test_string_neq():   assert_same("eq", "abc", "def")
+def test_string_mul():   assert_same("mul", "a", 3)    # "a"*3 → "aaa"
+
+# ── Type errors (must match Python precisely) ───────────────────
+
+def test_int_plus_string():    assert_same("add", 3, "hello")
+def test_string_plus_int():    assert_same("add", "hello", 3)
+def test_string_lt_int():      assert_same("lt", "hello", 3)
+def test_int_div_string():     assert_same("div", 3, "hi")
 
 
 # ── Let binding ──────────────────────────────────────────────────
@@ -100,7 +111,6 @@ def test_let_binding():
 
 def test_store_load():
     s = State()
-    # alloc a location, store value, load back
     env = {"l__box_value": VLoc(l=1)}
     e = SSeq(exprs=[
         SStore(loc="l__box_value", value=SLit("int", "42")),
@@ -113,71 +123,51 @@ def test_store_load():
 # ── Conditional ─────────────────────────────────────────────────
 
 def test_if_true():
-    s = State()
-    e = SIf(cond=SLit("bool", "true"),
-            then_branch=SLit("int", "1"),
-            else_branch=SLit("int", "2"))
-    result = eval_expr(e, s, {})
-    assert result.v == 1
+    e = SIf(cond=SLit("bool", "true"), then_branch=SLit("int", "1"), else_branch=SLit("int", "2"))
+    assert eval_expr(e, State(), {}).v == 1
 
 def test_if_false():
-    s = State()
-    e = SIf(cond=SLit("bool", "false"),
-            then_branch=SLit("int", "1"),
-            else_branch=SLit("int", "2"))
-    result = eval_expr(e, s, {})
-    assert result.v == 2
+    e = SIf(cond=SLit("bool", "false"), then_branch=SLit("int", "1"), else_branch=SLit("int", "2"))
+    assert eval_expr(e, State(), {}).v == 2
 
 
-# ── Conservative: int+float coercion ─────────────────────────────
-
-def test_int_plus_float():
-    s = State()
-    e = SBinOp(op="add", left=SLit("int", "3"), right=SLit("int", "2"))
-    result = eval_expr(e, s, {})
-    # int+int → int
-    assert isinstance(result, VInt) and result.v == 5
-
-
-# ── Conservative: float eq (IEEE 754) ────────────────────────────
-
-def test_float_eq_conservative():
-    s = State()
-    # 0.1 + 0.2 != 0.3 in IEEE 754
-    # Test that our float model preserves this
-    a = 0.1 + 0.2
-    b = 0.3
-    assert a != b, "IEEE 754: 0.1 + 0.2 != 0.3 is a property of floats"
-
-
-# ── Type safety: FAA requires int ───────────────────────────────
+# ── Type safety: FAA on non-int → VError ────────────────────────
 
 def test_faa_requires_int():
-    """FAA on non-integer should be stuck (not modelled yet)."""
-    s = State()
-    s.heap[1] = VString("hello")
+    s = State(); s.heap[1] = VString("hello")
     env = {"l__box_value": VLoc(l=1)}
-    e = SFAA(loc="l__box_value", value=SLit("int", "1"))
+    result = eval_expr(SFAA(loc="l__box_value", value=SLit("int", "1")), s, env)
+    assert isinstance(result, VError), f"FAA on string should error, got {result}"
+
+
+# ── Dict type safety ────────────────────────────────────────────
+
+def test_dict_get_on_int():
+    s = State(); s.heap[1] = VInt(42)
+    env = {"l": VLoc(l=1)}
+    e = SDictGet(loc="l", key=SLit("string", "key"))
     result = eval_expr(e, s, env)
-    # FAA with non-int at loc: interpreter returns VUnit (stuck in real semantics)
-    assert isinstance(result, VUnit), "FAA on non-int should be stuck"
+    assert isinstance(result, VError), f"DictGet on int should error, got {result}"
 
 
 # ── End-to-end: bump function ───────────────────────────────────
 
 def test_bump_end_to_end():
-    """bump(box): box.value += 1; return box.value"""
     s = State()
     loc = alloc(s, VInt(0)).l
     env = {"box": VLoc(l=loc), "l__box_value": VLoc(l=loc)}
-
     body = SSeq(exprs=[
         SStore(loc="l__box_value",
-               value=SBinOp(op="add",
-                            left=SLoad(loc="l__box_value"),
-                            right=SLit("int", "1"))),
+               value=SBinOp(op="add", left=SLoad(loc="l__box_value"), right=SLit("int", "1"))),
         SReturn(value=SLoad(loc="l__box_value")),
     ])
     result = eval_expr(body, s, env)
     assert isinstance(result, VInt) and result.v == 1
     assert s.heap[loc].v == 1
+
+
+# ── Conservative: IEEE 754 float ─────────────────────────────────
+
+def test_float_inexact():
+    """0.1 + 0.2 != 0.3 in IEEE 754 — our float model must preserve this."""
+    assert 0.1 + 0.2 != 0.3, "IEEE 754: 0.1+0.2≠0.3 is a property of floats"

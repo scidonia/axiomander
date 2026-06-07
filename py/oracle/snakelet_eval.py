@@ -1,8 +1,6 @@
 """SnakeletLang interpreter in Python — mirrors Coq SnakeletLang semantics.
 
-Used for testing: Python expr → SnakeletIR → eval → compare with Python eval.
-Conservative: if SnakeletLang produces the same result as Python, the lowering
-is correct. If they differ, SnakeletLang is wrong.
+Conservative: TypeError/ValueError produced precisely when Python would.
 """
 
 from __future__ import annotations
@@ -19,12 +17,7 @@ class Val:
 @dataclass
 class VInt(Val): v: int
 @dataclass
-class VFloat(Val):
-    v: float
-    def __eq__(self, other):
-        if isinstance(other, VFloat):
-            return struct.pack('d', self.v) == struct.pack('d', other.v)
-        return False
+class VFloat(Val): v: float
 @dataclass
 class VBool(Val): v: bool
 @dataclass
@@ -35,6 +28,19 @@ class VUnit(Val): pass
 class VTuple(Val): vs: list[Val]
 @dataclass
 class VLoc(Val): l: int
+
+@dataclass
+class VError(Val):
+    kind: str    # "TypeError", "ValueError", "KeyError", etc.
+    msg: str = ""
+
+    @staticmethod
+    def type_error(msg: str = "") -> "VError":
+        return VError("TypeError", msg)
+
+    @staticmethod
+    def value_error(msg: str = "") -> "VError":
+        return VError("ValueError", msg)
 
 
 # ── Interpreter ──────────────────────────────────────────────────
@@ -60,13 +66,82 @@ def store(s: State, l: int, v: Val) -> None:
     s.heap[l] = v
 
 
+# ── Binary operations (mirrors Coq binop_eval with Python coercions) ──
+
+def _binop(op: str, l: Val, r: Val) -> Val:
+    """Python-side binop_eval. Conservative: errors match Python precisely."""
+
+    # bool → int coercion (Python: True→1, False→0 in arithmetic)
+    if isinstance(l, VBool):
+        l = VInt(1 if l.v else 0)
+    if isinstance(r, VBool):
+        r = VInt(1 if r.v else 0)
+
+    # String operations
+    if isinstance(l, VString) and isinstance(r, VString):
+        if op == "add": return VString(l.v + r.v)
+        if op == "eq":  return VBool(l.v == r.v)
+        return VError.type_error(f"unsupported string op: {op}")
+
+    if isinstance(l, VString) and isinstance(r, VInt) and op == "mul":
+        return VString(l.v * r.v)
+
+    # Integer operations
+    if isinstance(l, VInt) and isinstance(r, VInt):
+        return _int_binop(op, l.v, r.v)
+
+    # Float coercion: int+float → float, int/float → float
+    # Only convert numerics, not strings
+    if isinstance(l, (VInt, VFloat)) and isinstance(r, (VInt, VFloat)):
+        a = l.v if isinstance(l, VFloat) else float(getattr(l, 'v', 0))
+        b = r.v if isinstance(r, VFloat) else float(getattr(r, 'v', 0))
+        return _float_binop(op, a, b)
+
+    return VError.type_error(
+        f"unsupported operand types for {op}: {type(l).__name__} and {type(r).__name__}"
+    )
+
+
+def _to_float(v: Val) -> Val:
+    if isinstance(v, VInt): return VFloat(float(v.v))
+    if isinstance(v, VFloat): return v
+    return v
+
+
+def _int_binop(op: str, a: int, b: int) -> Val:
+    if op == "add": return VInt(a + b)
+    if op == "sub": return VInt(a - b)
+    if op == "mul": return VInt(a * b)
+    if op == "div": return VFloat(a / b)       # Python: int/int → float
+    if op == "eq":  return VBool(a == b)
+    if op == "le":  return VBool(a <= b)
+    if op == "lt":  return VBool(a < b)
+    if op == "gt":  return VBool(a > b)
+    if op == "ge":  return VBool(a >= b)
+    return VError.type_error(f"unknown int op: {op}")
+
+
+def _float_binop(op: str, a: Val, b: Val) -> Val:
+    fa = a.v if isinstance(a, VFloat) else float(getattr(a, 'v', 0))
+    fb = b.v if isinstance(b, VFloat) else float(getattr(b, 'v', 0))
+    if op == "add": return VFloat(fa + fb)
+    if op == "sub": return VFloat(fa - fb)
+    if op == "mul": return VFloat(fa * fb)
+    if op == "div": return VFloat(fa / fb)
+    if op == "eq":  return VBool(fa == fb)
+    if op == "le":  return VBool(fa <= fb)
+    if op == "lt":  return VBool(fa < fb)
+    if op == "gt":  return VBool(fa > fb)
+    if op == "ge":  return VBool(fa >= fb)
+    return VError.type_error(f"unknown float op: {op}")
+
+
 # ── Expression evaluator ─────────────────────────────────────────
 
 def eval_expr(e: Any, s: State, env: dict[str, Val]) -> Val:
-    """Evaluate a SnakeletIR SExpr node."""
     from oracle.snakelet_ir import (
         SLit, SVar, SBinOp, SLoad, SStore, SLet, SIf, SReturn,
-        SSeq, SApp, SFork, SFAA, SDictGet, SDictSet,
+        SSeq, SFAA, SDictGet, SDictSet,
     )
 
     if isinstance(e, SLit):
@@ -79,7 +154,7 @@ def eval_expr(e: Any, s: State, env: dict[str, Val]) -> Val:
         return VUnit()
 
     if isinstance(e, SVar):
-        return env.get(e.name, VUnit())
+        return env.get(e.name, VError("NameError", f"{e.name} not defined"))
 
     if isinstance(e, SLet):
         v = eval_expr(e.value, s, env)
@@ -98,23 +173,17 @@ def eval_expr(e: Any, s: State, env: dict[str, Val]) -> Val:
             loc_val = env.get(loc_str)
             if isinstance(loc_val, VLoc):
                 return load(s, loc_val.l)
-        return VUnit()
+        return VError.value_error(f"invalid load location: {loc_str}")
 
     if isinstance(e, SStore):
         v = eval_expr(e.value, s, env)
         loc_str = e.loc
-        # Resolve string loc name from env or use directly
         if isinstance(loc_str, str):
             loc_val = env.get(loc_str)
             if isinstance(loc_val, VLoc):
                 store(s, loc_val.l, v)
                 return VUnit()
-            # Try evaluating loc as expression
-            l = eval_expr(SLit("string", loc_str), s, env)
-            if isinstance(l, VLoc):
-                store(s, l.l, v)
-                return VUnit()
-        return VUnit()
+        return VError.value_error(f"invalid store location: {loc_str}")
 
     if isinstance(e, SIf):
         c = eval_expr(e.cond, s, env)
@@ -126,86 +195,44 @@ def eval_expr(e: Any, s: State, env: dict[str, Val]) -> Val:
         return eval_expr(e.value, s, env)
 
     if isinstance(e, SSeq):
-        result = VUnit()
+        result: Val = VUnit()
         for expr in e.exprs:
             result = eval_expr(expr, s, env)
         return result
 
+    if isinstance(e, SFAA):
+        loc_val = env.get(e.loc)
+        if isinstance(loc_val, VLoc):
+            cell = load(s, loc_val.l)
+            if isinstance(cell, VInt):
+                v = eval_expr(e.value, s, env)
+                if isinstance(v, VInt):
+                    store(s, loc_val.l, VInt(cell.v + v.v))
+                    return cell  # FAA returns OLD value
+        return VError.type_error("FAA requires integer heap cell")
+
     if isinstance(e, SDictGet):
-        # Stub — dict lookup from heap
-        loc = eval_expr(e.loc, s, env)
+        loc_val = env.get(e.loc) if isinstance(e.loc, str) else eval_expr(e.loc, s, env)
         key = eval_expr(e.key, s, env)
-        if isinstance(loc, VLoc):
-            d = load(s, loc.l)
+        if isinstance(loc_val, VLoc):
+            d = load(s, loc_val.l)
             if isinstance(d, dict):
-                return d.get(str(key), VUnit())
-        return VUnit()
+                k = str(key)
+                return d.get(k, VError("KeyError", k))
+        return VError.type_error("DictGet on non-dict")
 
     if isinstance(e, SDictSet):
-        loc = eval_expr(e.loc, s, env)
+        loc_val = env.get(e.loc) if isinstance(e.loc, str) else eval_expr(e.loc, s, env)
         key = eval_expr(e.key, s, env)
         v = eval_expr(e.value, s, env)
-        if isinstance(loc, VLoc):
-            d = load(s, loc.l)
+        if isinstance(loc_val, VLoc):
+            d = load(s, loc_val.l)
             if isinstance(d, dict):
                 d[str(key)] = v
-                store(s, loc.l, d)
-        return VUnit()
+                store(s, loc_val.l, d)
+                return VUnit()
+            store(s, loc_val.l, {str(key): v})
+            return VUnit()
+        return VError.type_error("DictSet on non-dict heap cell")
 
     return VUnit()
-
-
-def _binop(op: str, l: Val, r: Val) -> Val:
-    """Python-side binop_eval — mirrors Coq SnakeletLang.binop_eval."""
-    # int + int
-    if isinstance(l, VInt) and isinstance(r, VInt):
-        a, b = l.v, r.v
-        if op == "add": return VInt(a + b)
-        if op == "sub": return VInt(a - b)
-        if op == "mul": return VInt(a * b)
-        if op == "div": return VFloat(a / b)
-        if op == "eq": return VBool(a == b)
-        if op == "le": return VBool(a <= b)
-        if op == "lt": return VBool(a < b)
-        if op == "gt": return VBool(a > b)
-        if op == "ge": return VBool(a >= b)
-
-    # float ops
-    if isinstance(l, VFloat) or isinstance(r, VFloat):
-        a = l.v if isinstance(l, VFloat) else float(getattr(l, 'v', 0))
-        b = r.v if isinstance(r, VFloat) else float(getattr(r, 'v', 0))
-        if op == "add": return VFloat(a + b)
-        if op == "sub": return VFloat(a - b)
-        if op == "mul": return VFloat(a * b)
-        if op == "div": return VFloat(a / b)
-        if op == "eq": return VBool(a == b)  # IEEE 754 exact
-        if op == "le": return VBool(a <= b)
-        if op == "lt": return VBool(a < b)
-        if op == "gt": return VBool(a > b)
-        if op == "ge": return VBool(a >= b)
-
-    # bool eq
-    if isinstance(l, VBool) and isinstance(r, VBool):
-        if op == "eq": return VBool(l.v == r.v)
-
-    return VUnit()
-
-
-# ── Python expression → SnakeletIR lowering (inline for tests) ───
-
-def py_to_val(v: Any) -> Val:
-    if isinstance(v, bool): return VBool(v)
-    if isinstance(v, int): return VInt(v)
-    if isinstance(v, float): return VFloat(v)
-    if isinstance(v, str): return VString(v)
-    if v is None: return VUnit()
-    return VUnit()
-
-
-def val_to_py(v: Val) -> Any:
-    if isinstance(v, VInt): return v.v
-    if isinstance(v, VFloat): return v.v
-    if isinstance(v, VBool): return v.v
-    if isinstance(v, VString): return v.v
-    if isinstance(v, VUnit): return None
-    return str(v)
