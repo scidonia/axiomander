@@ -92,7 +92,7 @@ class SSeq:
     kind: Literal["seq"] = "seq"
 
 
-SExpr = SLit | SVar | SBinOp | SLoad | SLet | SIf | SReturn | SApp | SSeq
+SExpr = SLit | SVar | SBinOp | SLoad | SStore | SLet | SIf | SReturn | SApp | SSeq
 
 
 # ── Resource layer ───────────────────────────────────────────────
