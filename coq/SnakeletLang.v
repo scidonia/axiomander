@@ -27,8 +27,10 @@ Qed.
 (** * Values *)
 Inductive val :=
   | LitInt (n : Z)
+  | LitFloat (f : Z)          (* scaled integer: f/100 is the Python float *)
   | LitBool (b : bool)
   | LitLoc (l : loc)
+  | LitString (s : string)
   | LitUnit.
 
 Definition LitV (v : val) : val := v.
@@ -47,8 +49,17 @@ Inductive expr :=
   | If (e0 e1 e2 : expr)
   | FAA (e1 e2 : expr)
   | Fork (e : expr)
+  (* Strings *)
+  | StringEq (e1 e2 : expr)
+  | StringConcat (e1 e2 : expr)
+  | StringLength (e : expr)
+  (* Sets *)
+  | SetAdd (l e : expr)
+  | SetHas (l e : expr)
+  (* Dicts *)
   | DictGet (l key : expr)
   | DictSet (l key val : expr)
+  (* Exceptions *)
   | Raise (e : expr)
   | Try (body handler : expr).
 
@@ -74,6 +85,11 @@ Fixpoint subst (x : string) (v : val) (e : expr) : expr :=
   | Fork e => Fork (subst x v e)
   | DictGet l key => DictGet (subst x v l) (subst x v key)
   | DictSet l key v' => DictSet (subst x v l) (subst x v key) (subst x v v')
+  | StringEq e1 e2 => StringEq (subst x v e1) (subst x v e2)
+  | StringConcat e1 e2 => StringConcat (subst x v e1) (subst x v e2)
+  | StringLength e => StringLength (subst x v e)
+  | SetAdd l e => SetAdd (subst x v l) (subst x v e)
+  | SetHas l e => SetHas (subst x v l) (subst x v e)
   | Raise e => Raise (subst x v e)
   | Try body handler => Try (subst x v body) (subst x v handler)
   end.
@@ -102,6 +118,15 @@ Inductive pure_step : expr → expr → Prop :=
   | PureIfTrue e1 e2 : pure_step (If (Val (LitBool true)) e1 e2) e1
   | PureIfFalse e1 e2 : pure_step (If (Val (LitBool false)) e1 e2) e2
   | PureTryReturn v handler : pure_step (Try (Val v) handler) (Val v).
+  (* String operations are pure — functional, no heap mutation *)
+  | PureStringEq s1 s2 :
+      pure_step (StringEq (Val s1) (Val s2))
+                (Val (LitBool (bool_decide (s1 = s2))))
+  | PureStringConcat s1 s2 :
+      pure_step (StringConcat (Val s1) (Val s2))
+                (Val (LitString (s1 ++ s2)))
+  | PureStringLength s :
+      pure_step (StringLength (Val s)) (Val (LitInt (Z.of_nat (String.length s)))).
 
 Definition binop_eval (op : binop) (v1 v2 : val) : val :=
   match v1, v2 with
