@@ -107,7 +107,23 @@ class SFAA:
     kind: Literal["faa"] = "faa"
 
 
-SExpr = SLit | SVar | SBinOp | SLoad | SStore | SLet | SIf | SReturn | SApp | SSeq | SFork | SFAA
+@dataclass
+class SRaise:
+    """Raise exception.  Encoded as ORaise outcome in WP."""
+    exc: SExpr
+    kind: Literal["raise"] = "raise"
+
+
+@dataclass
+class STry:
+    """Try/except.  Encoded as ORaise match in WP."""
+    body: SExpr
+    exc_var: str
+    handler: SExpr
+    kind: Literal["try"] = "try"
+
+
+SExpr = SLit | SVar | SBinOp | SLoad | SStore | SLet | SIf | SReturn | SApp | SSeq | SFork | SFAA | SRaise | STry
 
 
 # ── Resource layer ───────────────────────────────────────────────
@@ -254,7 +270,14 @@ def _emit_body(lines: list[str], expr: SExpr, indent: int = 2) -> None:
         lines.append(f"{sp}wp_fork.")
     elif isinstance(expr, SFAA):
         lines.append(f"{sp}wp_faa.")
-    elif isinstance(expr, SLit):
-        pass  # literal values don't generate tactics
+    elif isinstance(expr, SRaise):
+        # Raise as proof obligation — encoded in WP outcome
+        lines.append(f"{sp}(* raise — encoded as ORaise in WP outcome *)")
+    elif isinstance(expr, STry):
+        # Try/except — wp_catch or wp_bind with outcome dispatch
+        lines.append(f"{sp}(* try/catch — outcome dispatch in WP *)")
+        _emit_body(lines, expr.body, indent)
+        lines.append(f"{sp}(* if ORaise -> handler *)")
+        _emit_body(lines, expr.handler, indent)
     else:
         lines.append(f"{sp}(* {type(expr).__name__} *)")

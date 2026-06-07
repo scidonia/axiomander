@@ -18,6 +18,7 @@ from .py_ir import (
 from .snakelet_ir import (
     SExpr, SLit, SVar, SBinOp, SLoad, SStore, SLet, SIf, SReturn, SApp, SSeq,
     SField, SOwns, SPure, SFunction,
+    SRaise, STry, SFork, SFAA,
 )
 
 
@@ -222,9 +223,10 @@ class IrisLowerer:
             return None
         return SReturn(value=val)
 
-    def _lower_raise(self, stmt: PyRaise) -> Optional[SExpr]:
-        """Raise — not yet fully supported.  Stub as proof obligation."""
-        return SApp(func="__raise__", args=[])
+    def _lower_raise(self, stmt: "PyRaise") -> Optional[SExpr]:
+        """Raise exception — becomes SRaise in SnakeletIR."""
+        exc_type = getattr(stmt, 'exc_type', 'Exception')
+        return SRaise(exc=SLit(lit_type="string", value=exc_type))
 
     def _lower_body(self, stmts: list[PyStmt]) -> SExpr:
         exprs = [s for s in (self.lower_stmt(s) for s in stmts) if s is not None]
