@@ -161,6 +161,7 @@ class SFunction:
     pre_pure: list[SPure]     # pure preconditions
     post_pure: list[SPure]    # pure postconditions / side conditions
     modifies: list[str]       # field names written
+    raises: list[str] = field(default_factory=list)   # exception names
     classification: str = "mixed_pure_resource"
 
 
@@ -196,7 +197,7 @@ def emit_iris_snakelet(fn: SFunction) -> str:
     if not pre_sep:
         pre_sep = "True"
 
-    # Postcondition
+    # Postcondition — normal return
     post_heap = " ∗ ".join(
         f"{f.loc} ↦ ({f.old_var} + 1)"
         for f in fn.pre_fields
@@ -209,11 +210,23 @@ def emit_iris_snakelet(fn: SFunction) -> str:
     if not post_sep:
         post_sep = "True"
 
+    # Exception postcondition — ORaise case
+    raise_post = " | ".join(
+        f"ORaise (LitString \"{e}\") σ ; l__box_value ↦ old_box_value"
+        for e in fn.raises
+    ) if hasattr(fn, 'raises') and fn.raises else ""
+
     lines.append(f"Lemma {fn.name}_spec {' '.join(fn.params)} :")
     lines.append(f"  {{{{{{ {pre_sep} }}}}}}")
     lines.append(f"    {fn.name}_core {' '.join(fn.params)}")
     lines.append(f"  {{{{{{ result, RET result;")
-    lines.append(f"      {post_sep} }}}}}}.")
+    lines.append(f"      {post_sep} }}}}}}")
+    if raise_post:
+        lines.append(f"  {{{{{{ e σ, ORaise e σ;")
+        lines.append(f"      {raise_post} }}}}}}.")
+    else:
+        lines.append(".")
+
     lines.append(f"Proof.")
     lines.append(f"  iIntros (Φ) \"({', '.join(f'H{f.loc}' for f in fn.pre_fields)}) HΦ\".")
 
