@@ -219,17 +219,26 @@ def emit_iris_snakelet(fn: SFunction) -> str:
 
 
 def _emit_body(lines: list[str], expr: SExpr, indent: int = 2) -> None:
-    """Recursively emit Iris tactics for SnakeletIR expressions."""
+    """Recursively emit Iris tactics for SnakeletIR expressions.
+
+    SnakeletIR maps directly to heapLang, so each constructor emits
+    the heapLang expression code plus its corresponding wp_ tactic.
+    """
     sp = " " * indent
     if isinstance(expr, SLet):
-        lines.append(f"{sp}wp_let.")
+        lines.append(f"{sp}(* let {expr.var} = ... *)")
         _emit_body(lines, expr.value, indent)
+        lines.append(f"{sp}wp_let.")
         _emit_body(lines, expr.body, indent)
     elif isinstance(expr, SBinOp):
+        _emit_body(lines, expr.left, indent)
+        _emit_body(lines, expr.right, indent)
         lines.append(f"{sp}wp_pures.  (* {expr.op} *)")
     elif isinstance(expr, SLoad):
         lines.append(f"{sp}wp_load.")
     elif isinstance(expr, SStore):
+        # Emit the value expression first, then wp_store
+        _emit_body(lines, expr.value, indent)
         lines.append(f"{sp}wp_store.")
     elif isinstance(expr, SIf):
         lines.append(f"{sp}wp_if.")
@@ -239,10 +248,13 @@ def _emit_body(lines: list[str], expr: SExpr, indent: int = 2) -> None:
         for e in expr.exprs:
             _emit_body(lines, e, indent)
     elif isinstance(expr, SApp):
-        lines.append(f"{sp}wp_app.")
+        lines.append(f"{sp}wp_apply ({expr.func}_spec).")
     elif isinstance(expr, SFork):
-        lines.append(f"{sp}wp_fork.  (* concurrent *)")
+        _emit_body(lines, expr.expr, indent)
+        lines.append(f"{sp}wp_fork.")
     elif isinstance(expr, SFAA):
-        lines.append(f"{sp}wp_faa.  (* atomic *)")
+        lines.append(f"{sp}wp_faa.")
+    elif isinstance(expr, SLit):
+        pass  # literal values don't generate tactics
     else:
         lines.append(f"{sp}(* {type(expr).__name__} *)")
