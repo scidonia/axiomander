@@ -120,4 +120,56 @@ Abort.
 (* Once proved, we get: *)
 (* Global Instance snakelet_lang : language := Language snakelet_mixin. *)
 
+
+(* ───────────────────────────────────────────────────────────────────
+   Iris WP lemmas for SnakeletLang custom operations
+   ───────────────────────────────────────────────────────────────────
+
+   Each lemma follows the same pattern as heapLang's wp_load/wp_store:
+   prove a head_step, lift to WP via wp_lift_atomic_head_step.
+   The proofs are one-liners once the LanguageMixin is established.
+*)
+
+(* Lemma wp_dict_get l k d :
+  {{{ l ↦ d }}}
+    SDictGet (of_val l) (of_val k) @ E
+  {{{ v, RET v; ⌜v = dict_lookup k d⌝ ∗ l ↦ d }}}.
+Proof.
+  (* wp_lift_atomic_head_step; apply HeadDictGet *)
+Abort.
+
+Lemma wp_dict_set l k v d :
+  {{{ l ↦ d }}}
+    SDictSet (of_val l) (of_val k) (of_val v) @ E
+  {{{ RET LitUnit; l ↦ dict_insert k v d }}}.
+Proof.
+  (* wp_lift_atomic_head_step; apply HeadDictSet *)
+Abort.
+
+Lemma wp_dict_has l k d :
+  {{{ l ↦ d }}}
+    SDictHas (of_val l) (of_val k) @ E
+  {{{ b, RET LitV (LitBool b); ⌜b = dict_has k d⌝ ∗ l ↦ d }}}.
+Proof.
+  (* wp_lift_atomic_head_step; apply HeadDictHas; the pure_step
+     provides the reduction automatically via wp_pures *)
+Abort.
+
+Lemma wp_string_eq s1 s2 :
+  {{{ True }}}
+    SStringEq (of_val s1) (of_val s2) @ E
+  {{{ b, RET LitV (LitBool b); ⌜b = bool_decide (s1 = s2)⌝ }}}.
+Proof.
+  (* wp_pures; exact: PureStringEq *)
+Abort.
+
+Lemma wp_list_append l len v σ :
+  σ !! l = Some (LitV (LitInt len)) →
+  {{{ l ↦ LitV (LitInt len) ∗ (l + len) ↦ ??? }}}
+    SListAppend (of_val l) (of_val v) @ E
+  {{{ RET LitUnit; l ↦ LitV (LitInt (len + 1)) ∗ (l + len) ↦ v }}}.
+Proof.
+  (* wp_lift_atomic_head_step; apply HeadListAppend *)
+Abort. *)
+
 End SnakeletLang.

@@ -10,15 +10,16 @@ from typing import Optional
 from .py_ir import (
     PyExpr, PyStmt, PyFunction,
     PyName, PyConstant, PyBinaryOp, PyUnaryOp,
-    PyAssign, PyStoreAttr, PyAugAssign,
+    PyAssign,     PyStoreAttr, PyAugAssign,
     PyIf, PyWhile, PyFor, PyReturn, PyRaise, PyTry,
-    PyCall, PySubscript, PyAttribute, PyCompare,
+    PyCall, PySubscript, PyAttribute, PyCompare, PyStoreSubscript,
     PyBooleanOp, PyListComp,
 )
 from .snakelet_ir import (
     SExpr, SLit, SVar, SBinOp, SLoad, SStore, SLet, SIf, SReturn, SApp, SSeq,
     SField, SOwns, SPure, SFunction,
     SRaise, STry, SFork, SFAA,
+    SDictGet, SDictSet,
 )
 
 
@@ -26,10 +27,11 @@ class IrisLowerer:
     """Lower PyIR functions to SnakeletIR functions for Iris verification."""
 
     def __init__(self, loc_map: dict[str, str], func_name: str = "",
-                 contract_map: dict | None = None):
+                 contract_map: dict | None = None, param_types: dict[str, str] | None = None):
         self.loc_map = loc_map      # "box.value" → "l__box_value"
         self._func_name = func_name
         self._contract_map = contract_map or {}
+        self._param_types = param_types or {}
         self._vc = 0
         self._pure_conditions: list[SPure] = []
 
@@ -98,14 +100,18 @@ class IrisLowerer:
         return inner
 
     def _lower_subscript(self, expr: PySubscript) -> Optional[SExpr]:
-        """obj[field] → heap load from location."""
+        """obj[field] or d[key] → heap load or dict lookup."""
         obj_name = self._extract_name(expr.container)
-        if obj_name:
-            # Simple subscript: box.value → load from l__box_value
-            loc = self._loc_of(obj_name)
-            return SLoad(loc=loc)
-        # Indexed: xs[i] — not yet supported
-        return None
+        key = self.lower_expr(expr.key)
+        if obj_name is None or key is None:
+            return None
+        # Dict access
+        if self._param_types.get(obj_name) == "dict":
+            loc = self.loc_map.get(obj_name, f"l__{obj_name}")
+            return SDictGet(loc=loc, key=key)
+        # Field access: box.value → load from l__box_value
+        loc = self._loc_of(obj_name)
+        return SLoad(loc=loc)
 
     def _lower_attribute(self, expr: "PyAttribute") -> Optional[SExpr]:
         """obj.attr → heap load from obj.attr location."""
@@ -166,6 +172,8 @@ class IrisLowerer:
             return self._lower_assign(stmt)
         if isinstance(stmt, PyStoreAttr):
             return self._lower_store_attr(stmt)
+        if isinstance(stmt, PyStoreSubscript):
+            return self._lower_store_subscript(stmt)
         if isinstance(stmt, PyAugAssign):
             return self._lower_augassign(stmt)
         if isinstance(stmt, PyIf):
@@ -191,6 +199,19 @@ class IrisLowerer:
         if obj_name is None or val is None:
             return None
         loc = self._loc_of(obj_name, stmt.attr)
+        return SStore(loc=loc, value=val)
+
+    def _lower_store_subscript(self, stmt: PyStoreSubscript) -> Optional[SExpr]:
+        """d[key] = val → dict set.  obj[field] = val → heap store."""
+        obj_name = self._extract_name(stmt.container)
+        key = self.lower_expr(stmt.key)
+        val = self.lower_expr(stmt.value)
+        if obj_name is None or key is None or val is None:
+            return None
+        if self._param_types.get(obj_name) == "dict":
+            loc = self.loc_map.get(obj_name, f"l__{obj_name}")
+            return SDictSet(loc=loc, key=key, value=val)
+        loc = self._loc_of(obj_name)
         return SStore(loc=loc, value=val)
 
     def _lower_augassign(self, stmt: PyAugAssign) -> Optional[SExpr]:
