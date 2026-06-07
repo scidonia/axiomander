@@ -539,15 +539,36 @@ class ImpCListPopTo(ImpCom):
         return f'(CListPopTo "{self.name}"%string "{self.target}"%string)'
 
 
+class ImpCHeapUpdate(ImpCom):
+    """Core: write to heap.  CHeapUpdate name field value.
+    hupd s name field (aeval value s).
+    Replaces CListAppend, CDictSet, CSetAdd etc. which are now
+    compound definitions in Coq built from CHeapUpdate. """
+
+    kind: Literal["cheapupdate"] = "cheapupdate"
+    name: str
+    field: ImpAExp    # heap key, e.g. len_f, elem_f i, smem_f key
+    value: ImpAExp
+
+    def to_coq(self) -> str:
+        return f'(CHeapUpdate "{self.name}"%string {self.field.to_coq()} {self.value.to_coq()})'
+
+
 class ImpCSetAdd(ImpCom):
-    """String-keyed set insert (idempotent): CSetAdd name key."""
+    """Set insert — desugars to CHeapUpdate on smem_f(key)."""
 
     kind: Literal["csetadd"] = "csetadd"
     name: str
     key: ImpAExp
 
     def to_coq(self) -> str:
-        return f'(CSetAdd "{self.name}"%string {self.key.to_coq()})'
+        from .imp_ir import ImpANum, ImpAString, ImpAVar
+        field = ImpAString(value=self.key.to_coq()) if isinstance(self.key, ImpAVar) else self.key
+        return (
+            f'(CHeapUpdate "{self.name}"%string '
+            f'(smem_f (asString (aeval {self.key.to_coq()} s))) '
+            f'(ANum 1))'
+        )
 
 
 class ImpCSetDiscard(ImpCom):
