@@ -92,7 +92,22 @@ class SSeq:
     kind: Literal["seq"] = "seq"
 
 
-SExpr = SLit | SVar | SBinOp | SLoad | SStore | SLet | SIf | SReturn | SApp | SSeq
+@dataclass
+class SFork:
+    """Fork a thread.  Iris: wp_fork."""
+    expr: "SExpr"
+    kind: Literal["fork"] = "fork"
+
+
+@dataclass
+class SFAA:
+    """Fetch-and-add: atomic x += v.  Iris: wp_faa."""
+    loc: str
+    value: "SExpr"
+    kind: Literal["faa"] = "faa"
+
+
+SExpr = SLit | SVar | SBinOp | SLoad | SStore | SLet | SIf | SReturn | SApp | SSeq | SFork | SFAA
 
 
 # ── Resource layer ───────────────────────────────────────────────
@@ -225,5 +240,9 @@ def _emit_body(lines: list[str], expr: SExpr, indent: int = 2) -> None:
             _emit_body(lines, e, indent)
     elif isinstance(expr, SApp):
         lines.append(f"{sp}wp_app.")
+    elif isinstance(expr, SFork):
+        lines.append(f"{sp}wp_fork.  (* concurrent *)")
+    elif isinstance(expr, SFAA):
+        lines.append(f"{sp}wp_faa.  (* atomic *)")
     else:
         lines.append(f"{sp}(* {type(expr).__name__} *)")
