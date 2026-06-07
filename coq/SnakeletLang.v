@@ -118,6 +118,20 @@ Fixpoint subst (x : string) (v : val) (e : expr) : expr :=
   | SetHas l e => SetHas (subst x v l) (subst x v e)
   | Raise e => Raise (subst x v e)
   | Try body handler => Try (subst x v body) (subst x v handler)
+  | TupleCons es => TupleCons (map (subst x v) es)
+  | TupleProj e i => TupleProj (subst x v e) i
+  | ListAlloc e => ListAlloc (subst x v e)
+  | ListIndex e i => ListIndex (subst x v e) (subst x v i)
+  | ListAppend e1 e2 => ListAppend (subst x v e1) (subst x v e2)
+  | ListLength e => ListLength (subst x v e)
+  | DictHas l key => DictHas (subst x v l) (subst x v key)
+  | SetAlloc es => SetAlloc (map (subst x v) es)
+  | BytesCons es => BytesCons (map (subst x v) es)
+  | BytesIndex e i => BytesIndex (subst x v e) (subst x v i)
+  | BytesLength e => BytesLength (subst x v e)
+  | ComplexCons re im => ComplexCons (subst x v re) (subst x v im)
+  | ComplexRe e => ComplexRe (subst x v e)
+  | ComplexIm e => ComplexIm (subst x v e)
   end.
 
 (** * Pure steps *)
@@ -154,22 +168,6 @@ Inductive pure_step : expr → expr → Prop :=
   | PureStringLength s :
       pure_step (StringLength (Val s)) (Val (LitInt (Z.of_nat (String.length s)))).
 
-Definition binop_eval (op : binop) (v1 v2 : val) : val :=
-  match v1, v2 with
-  | LitInt n1, LitInt n2 =>
-      match op with
-      | AddOp => LitInt (n1 + n2)
-      | SubOp => LitInt (n1 - n2)
-      | MulOp => LitInt (n1 * n2)
-      | DivOp => LitInt (Z.div n1 n2)
-      | EqOp  => LitBool (bool_decide (n1 = n2))
-      | LeOp  => LitBool (bool_decide (n1 <= n2))
-      | LtOp  => LitBool (bool_decide (n1 < n2))
-      end
-  | _, _ => LitUnit
-  end.
-
-(** * Head steps *)
 Inductive head_step : expr → state → expr → state → list expr → Prop :=
   | HeadLoad l v σ :
       σ !! l = Some v →

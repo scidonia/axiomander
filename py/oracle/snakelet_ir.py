@@ -30,6 +30,12 @@ class SBinOp:
     right: "SExpr"
     kind: Literal["binop"] = "binop"
 
+    def to_coq(self) -> str:
+        op_map = {"add": "AddOp", "sub": "SubOp", "mul": "MulOp", "div": "DivOp",
+                  "eq": "EqOp", "le": "LeOp", "lt": "LtOp", "gt": "LtOp", "ge": "LeOp"}
+        coq_op = op_map.get(self.op, "AddOp")
+        return f"(BinOp {coq_op} {self.left.to_coq()} {self.right.to_coq()})"
+
 
 @dataclass
 class SLoad:
@@ -65,9 +71,16 @@ class SReturn:
 @dataclass
 class SLit:
     """Literal.  Iris: LitV (LitInt n) / LitV (LitLoc l)."""
-    lit_type: str    # "int" | "bool" | "loc" | "unit"
+    lit_type: str    # "int" | "bool" | "loc" | "unit" | "string"
     value: str       # "42" | "true" | "l__box_value"
     kind: Literal["lit"] = "lit"
+
+    def to_coq(self) -> str:
+        if self.lit_type == "int": return f"(Val (LitInt {self.value}))"
+        if self.lit_type == "bool": return f"(Val (LitBool {'true' if self.value.lower() == 'true' else 'false'}))"
+        if self.lit_type == "string": return f'(Val (LitString "{self.value}"))'
+        if self.lit_type == "unit": return "(Val LitUnit)"
+        return "(Val LitUnit)"
 
 
 @dataclass
