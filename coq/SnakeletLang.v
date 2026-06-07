@@ -176,6 +176,7 @@ Inductive head_step : expr → state → expr → state → list expr → Prop :
       head_step (Load (Val (LitLoc l))) σ (Val v) σ []
   | HeadStore l v w σ :
       is_Some (σ !! l) →
+      (* Any value type allowed — Store preserves the type of l *)
       head_step (Store (Val (LitLoc l)) (Val v)) σ
                 (Val LitUnit) (<[l:=v]> σ) []
   | HeadAlloc v σ l :
@@ -183,15 +184,35 @@ Inductive head_step : expr → state → expr → state → list expr → Prop :
       head_step (Alloc (Val v)) σ (Val (LitLoc l))
                 (<[l:=v]> σ) []
   | HeadFAA l v z σ :
-      σ !! l = Some (LitInt z) →
+      σ !! l = Some (LitInt z) →   (* FAA only on integers *)
       head_step (FAA (Val (LitLoc l)) (Val v)) σ
                 (Val (LitInt z)) (<[l:=LitInt (z + lit_as_z v)]> σ) []
   | HeadFork e σ :
       head_step (Fork e) σ (Val LitUnit) σ [e]
+  | HeadListIndex l i z σ :
+      σ !! l = Some (LitTuple vs) →   (* list at l is encoded as LitTuple *)
+      vs !! i = Some v →
+      head_step (ListIndex (Val (LitLoc l)) (Val (LitInt z))) σ
+                (Val v) σ []
+  | HeadListAppend l v vs σ :
+      σ !! l = Some (LitTuple vs) →
+      head_step (ListAppend (Val (LitLoc l)) (Val v)) σ
+                (Val LitUnit) (<[l:=LitTuple (vs ++ [v])]> σ) []
+  | HeadDictGet l k (m : gmap string val) σ :
+      σ !! l = Some (LitLoc l) →  (* TODO: proper gmap encoding in val *)
+      head_step (DictGet (Val (LitLoc l)) (Val k)) σ (Val LitUnit) σ []
   | HeadDictSet l k v σ :
-      is_Some (σ !! l) →   (* TODO: proper gmap encoding *)
-      head_step (DictSet (Val l) (Val k) (Val v)) σ
+      is_Some (σ !! l) →   (* dict at l *)
+      head_step (DictSet (Val (LitLoc l)) (Val k) (Val v)) σ
                 (Val LitUnit) σ []
+  | HeadSetAdd l v σ :
+      is_Some (σ !! l) →   (* set at l *)
+      head_step (SetAdd (Val (LitLoc l)) (Val v)) σ
+                (Val LitUnit) σ []
+  | HeadSetHas l v (s : gset val) σ :
+      σ !! l = Some (LitUnit) →   (* TODO: proper gset encoding *)
+      head_step (SetHas (Val (LitLoc l)) (Val v)) σ
+                (Val (LitBool (bool_decide (v ∈ s)))) σ []
   | HeadRaise v σ :
       head_step (Raise (Val v)) σ (Val v) σ []
   | HeadTryBody body σ body' σ' efs :
