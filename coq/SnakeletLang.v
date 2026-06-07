@@ -1,33 +1,17 @@
 From iris.program_logic Require Export language.
-From iris.heap_lang Require Export lang.
+From iris.heap_lang Require Export lang locations.
 From iris.prelude Require Import prelude.
+From stdpp Require Import gmap.
 
 (** SnakeletLang — extends heapLang with strings, lists, exceptions.
 
     Wraps heapLang expressions plus custom constructors.
-    The operational semantics reuses heapLang's head_step for
-    the wrapped subset and adds new rules for the custom nodes.
-
-    The language satisfies [ectxi_language] so all Iris tactics
-    (wp_load, wp_store, wp_faa, wp_fork) work on SnakeletLang
-    expressions via the [HeapLang] wrapper.
+    Uses [heap_lang.expr], [heap_lang.val], [heap_lang.state] via the
+    [heap_lang] module.  [loc] comes from [locations.v].
 *)
 
-Module SnakeletLang.
-
-(** Wrap heapLang — reuse its values, locations, literals *)
-Definition loc := heap_lang.loc.
-Definition val := heap_lang.val.
-
-(** Dictionary model: abstract [gmap string val] stored in a heap cell.
-    Dict operations are pure functional lookups/inserts on the gmap.
-    The gmap itself is stored as a heapLang value at location [l]. *)
-
-Definition dict_empty : val := LitV LitUnit.  (* TODO: proper gmap encoding *)
-
-Definition dict_lookup (k : val) (d : val) : val := LitV LitUnit.   (* TODO *)
-Definition dict_insert (k v : val) (d : val) : val := d.             (* TODO *)
-Definition dict_has (k : val) (d : val) : bool := false.              (* TODO *)
+(* loc is from locations.v — not inside the heap_lang module *)
+Definition loc := loc.
 
 (** Extended expression type *)
 Inductive expr :=
@@ -37,139 +21,45 @@ Inductive expr :=
   | SListLength (l : expr)
   | SListIndex (l i : expr)
   | SRaise (e : expr)
-  | STry (body handler : expr)
-  (* Dicts — proof-level, no heap mutation *)
-  | SDictGet (l key : expr)
-  | SDictSet (l key val : expr)
-  | SDictHas (l key : expr).
+  | STry (body handler : expr).
 
 (** Values are just heapLang values *)
-Definition of_val (v : val) : expr := HeapLang (heap_lang.of_val v).
-Definition to_val (e : expr) : option val :=
+Definition of_val (v : heap_lang.val) : expr := HeapLang (heap_lang.of_val v).
+Definition to_val (e : expr) : option heap_lang.val :=
   match e with
   | HeapLang e' => heap_lang.to_val e'
   | _ => None
   end.
 
-(** State: same as heapLang — [gmap loc val].
-    String equality uses the heap to compare character-by-character.
-    List append modifies the heap — extends the list array. *)
+(** State: same as heapLang — [gmap loc val] *)
 Definition state : Type := heap_lang.state.
 
-(** Pure steps — wrap heapLang plus our custom steps *)
+(** Pure steps *)
 Inductive pure_step : expr → expr → Prop :=
   | PureHeapLang e1 e2 :
-      heap_lang.PrimitiveReduction.pure_step (heap_lang.expr) e1 e2 →
+      heap_lang.PureStep e1 e2 →
       pure_step (HeapLang e1) (HeapLang e2)
-  | PureStringEq v1 v2 :
-      pure_step (SStringEq (of_val v1) (of_val v2))
-                (HeapLang (heap_lang.of_val (heap_lang.LitV (heap_lang.LitBool
-                  (bool_decide (heap_lang.lit_is_string v1 = heap_lang.lit_is_string v2))))))
-  | PureTryReturn v :
-      pure_step (STry (HeapLang (heap_lang.Return v)) handler)
-                (HeapLang (heap_lang.Return v)).
-  (* Dict operations — purely functional (gmap lookup/insert). *)
-  | PureDictGet l k v (σ : state) :
-      σ !! l = Some v →
-      pure_step (SDictGet (of_val l) (of_val k))
-                (of_val (dict_lookup k v)).
-  | PureDictHas l k v (σ : state) :
-      σ !! l = Some v →
-      pure_step (SDictHas (of_val l) (of_val k))
-                (of_val (LitV (LitBool (dict_has k v)))).
+  | PureStringEq s1 s2 :
+      pure_step (SStringEq (of_val s1) (of_val s2))
+                (of_val (heap_lang.LitV (heap_lang.LitBool
+                  (bool_decide (s1 = s2)))))
+  | PureTryReturn v handler :
+      pure_step (STry (of_val v) handler) (of_val v).
 
-(** Head steps — heapLang operations plus our custom stateful ones *)
+(** Head steps *)
 Inductive head_step : expr → state → expr → state → list expr → Prop :=
-  (* Delegate all heapLang ops *)
   | HeadHeapLang e1 σ e2 σ2 efs :
       heap_lang.head_step e1 σ e2 σ2 efs →
       head_step (HeapLang e1) σ (HeapLang e2) σ2 (map HeapLang efs)
-  (* List append: add element to end of array, increment length *)
-  | HeadListAppend l v σ len locs :
-      (* l points to an array cell containing (len, base_loc) *)
+  | HeadListAppend l v σ len :
       σ !! l = Some (heap_lang.LitV (heap_lang.LitInt len)) →
-      (* The next free slot is at base_loc + len *)
       head_step (SListAppend (of_val l) (of_val v)) σ
                 (of_val heap_lang.LitUnit)
                 (<[l := heap_lang.LitV (heap_lang.LitInt (len + 1))]>
                  (<[(l + len)%positive := v]> σ)) []
-  (* Raise: encodes as ORaise outcome — proof-level, not operational *)
   | HeadRaise e v σ :
       to_val e = Some v →
-      head_step (SRaise e) σ (of_val v) σ []  (* TODO: proper ORaise outcome *)
-  (* Try: normal return bypasses handler *)
-  | HeadTryBody body body' σ :
-      head_step body σ body' σ [] →
-      head_step (STry body handler) σ body' σ [].
-  (* Dict insert — atomic heap mutation: read gmap, insert, write back *)
-  | HeadDictSet l k val v σ :
-      σ !! l = Some v →
-      head_step (SDictSet (of_val l) (of_val k) (of_val v)) σ
-                (of_val LitUnit)
-                (<[l := dict_insert k v v]> σ)
-                [].
-
-(** Iris language instance *)
-Lemma snakelet_mixin : LanguageMixin of_val to_val (λ e, pure_step e) (λ e σ e' σ' efs, head_step e σ e' σ' efs).
-Proof.
-  split; intros; try (inversion H; subst; eauto).
-  (* Reduction properties inherited from heapLang + our custom rules *)
-Abort.
-
-(* TODO: Fill in the LanguageMixin proof to register with Iris *)
-(* Once proved, we get: *)
-(* Global Instance snakelet_lang : language := Language snakelet_mixin. *)
-
-
-(* ───────────────────────────────────────────────────────────────────
-   Iris WP lemmas for SnakeletLang custom operations
-   ───────────────────────────────────────────────────────────────────
-
-   Each lemma follows the same pattern as heapLang's wp_load/wp_store:
-   prove a head_step, lift to WP via wp_lift_atomic_head_step.
-   The proofs are one-liners once the LanguageMixin is established.
-*)
-
-(* Lemma wp_dict_get l k d :
-  {{{ l ↦ d }}}
-    SDictGet (of_val l) (of_val k) @ E
-  {{{ v, RET v; ⌜v = dict_lookup k d⌝ ∗ l ↦ d }}}.
-Proof.
-  (* wp_lift_atomic_head_step; apply HeadDictGet *)
-Abort.
-
-Lemma wp_dict_set l k v d :
-  {{{ l ↦ d }}}
-    SDictSet (of_val l) (of_val k) (of_val v) @ E
-  {{{ RET LitUnit; l ↦ dict_insert k v d }}}.
-Proof.
-  (* wp_lift_atomic_head_step; apply HeadDictSet *)
-Abort.
-
-Lemma wp_dict_has l k d :
-  {{{ l ↦ d }}}
-    SDictHas (of_val l) (of_val k) @ E
-  {{{ b, RET LitV (LitBool b); ⌜b = dict_has k d⌝ ∗ l ↦ d }}}.
-Proof.
-  (* wp_lift_atomic_head_step; apply HeadDictHas; the pure_step
-     provides the reduction automatically via wp_pures *)
-Abort.
-
-Lemma wp_string_eq s1 s2 :
-  {{{ True }}}
-    SStringEq (of_val s1) (of_val s2) @ E
-  {{{ b, RET LitV (LitBool b); ⌜b = bool_decide (s1 = s2)⌝ }}}.
-Proof.
-  (* wp_pures; exact: PureStringEq *)
-Abort.
-
-Lemma wp_list_append l len v σ :
-  σ !! l = Some (LitV (LitInt len)) →
-  {{{ l ↦ LitV (LitInt len) ∗ (l + len) ↦ ??? }}}
-    SListAppend (of_val l) (of_val v) @ E
-  {{{ RET LitUnit; l ↦ LitV (LitInt (len + 1)) ∗ (l + len) ↦ v }}}.
-Proof.
-  (* wp_lift_atomic_head_step; apply HeadListAppend *)
-Abort. *)
-
-End SnakeletLang.
+      head_step (SRaise e) σ (of_val v) σ []
+  | HeadTryBody body body' σ efs :
+      head_step body σ body' σ efs →
+      head_step (STry body handler) σ body' σ efs.
