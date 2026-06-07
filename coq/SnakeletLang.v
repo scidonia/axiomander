@@ -1,6 +1,7 @@
 From stdpp Require Export strings gmap.
 From stdpp Require Import countable decidable.
 From iris.program_logic Require Export language.
+From Stdlib Require Import PrimFloat.
 Open Scope Z_scope.
 
 (** SnakeletLang — standalone Iris language for Axiomander verification.
@@ -27,7 +28,7 @@ Qed.
 (** * Values *)
 Inductive val :=
   | LitInt (n : Z)
-  | LitFloat (f : Z)          (* scaled integer: f/100 is the Python float *)
+  | LitFloat (f : float)      (* IEEE 754 — conservative Python float model *)
   | LitBool (b : bool)
   | LitLoc (l : loc)
   | LitString (s : string)
