@@ -70,13 +70,9 @@ Inductive pure_step : expr → expr → Prop :=
                 (HeapLang (heap_lang.Return v)).
   (* Dict operations — purely functional (gmap lookup/insert). *)
   | PureDictGet l k v (σ : state) :
-      σ !! l = Some v →   (* v is the dict gmap *)
+      σ !! l = Some v →
       pure_step (SDictGet (of_val l) (of_val k))
                 (of_val (dict_lookup k v)).
-  | PureDictSet l k val v (σ : state) :
-      σ !! l = Some v →   (* v is the old gmap *)
-      pure_step (SDictSet (of_val l) (of_val k) (of_val val))
-                (of_val (dict_insert k val v)).
   | PureDictHas l k v (σ : state) :
       σ !! l = Some v →
       pure_step (SDictHas (of_val l) (of_val k))
@@ -105,6 +101,13 @@ Inductive head_step : expr → state → expr → state → list expr → Prop :
   | HeadTryBody body body' σ :
       head_step body σ body' σ [] →
       head_step (STry body handler) σ body' σ [].
+  (* Dict insert — atomic heap mutation: read gmap, insert, write back *)
+  | HeadDictSet l k val v σ :
+      σ !! l = Some v →
+      head_step (SDictSet (of_val l) (of_val k) (of_val v)) σ
+                (of_val LitUnit)
+                (<[l := dict_insert k v v]> σ)
+                [].
 
 (** Iris language instance *)
 Lemma snakelet_mixin : LanguageMixin of_val to_val (λ e, pure_step e) (λ e σ e' σ' efs, head_step e σ e' σ' efs).

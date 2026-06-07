@@ -309,8 +309,10 @@ def _emit_body(lines: list[str], expr: SExpr, indent: int = 2) -> None:
         lines.append(f"{sp}(* if ORaise -> handler *)")
         _emit_body(lines, expr.handler, indent)
     elif isinstance(expr, SDictGet):
-        lines.append(f"{sp}(* dict lookup — pure, gmap functional *)")
+        lines.append(f"{sp}(* dict lookup — pure *)")
     elif isinstance(expr, SDictSet):
-        lines.append(f"{sp}(* dict insert — pure, gmap functional *)")
+        lines.append(f"{sp}(* dict insert — atomic, like Store *)")
+        _emit_body(lines, expr.value, indent)
+        lines.append(f"{sp}wp_dict_set.")
     else:
         lines.append(f"{sp}(* {type(expr).__name__} *)")
