@@ -32,7 +32,8 @@ class SBinOp:
 
     def to_coq(self) -> str:
         op_map = {"add": "AddOp", "sub": "SubOp", "mul": "MulOp", "div": "DivOp",
-                  "eq": "EqOp", "le": "LeOp", "lt": "LtOp", "gt": "LtOp", "ge": "LeOp"}
+                  "eq": "EqOp", "le": "LeOp", "lt": "LtOp", "gt": "GtOp", "ge": "GeOp",
+                  "len": "LenOp", "in": "InOp", "union": "UnionOp", "inter": "InterOp"}
         coq_op = op_map.get(self.op, "AddOp")
         return f"(BinOp {coq_op} {self.left.to_coq()} {self.right.to_coq()})"
 
@@ -71,13 +72,32 @@ class SReturn:
 @dataclass
 class SLit:
     """Literal.  Iris: LitV (LitInt n) / LitV (LitLoc l)."""
-    lit_type: str    # "int" | "bool" | "loc" | "unit" | "string"
-    value: str       # "42" | "true" | "l__box_value"
+    lit_type: str    # "int" | "bool" | "float" | "string" | "tuple" | "list" | "dict" | "set" | "loc" | "unit"
+    value: str       # "42" | "true" | "l__box_value" | serialized for collections
+    elements: Optional[list["SExpr"]] = None  # sub-elements for compound literals
     kind: Literal["lit"] = "lit"
 
+    def to_coq_val(self) -> str:
+        """Generate just the val part (no Val wrapper), for use inside LitTuple etc."""
+        if self.lit_type == "int": return f"(LitInt {self.value})"
+        if self.lit_type == "bool": return f"(LitBool {'true' if self.value.lower() == 'true' else 'false'})"
+        if self.lit_type == "float": return f"(LitFloat (PrimFloat.of_uint63 (of_Z {self.value})))"
+        if self.lit_type == "string": return f'(LitString "{self.value}")'
+        if self.lit_type == "unit": return "LitUnit"
+        if self.lit_type in ("tuple", "list", "set"):
+            tag = f"Lit{self.lit_type.capitalize()}"
+            if self.elements:
+                elems = " :: ".join(e.to_coq_val() for e in self.elements)
+                return f"({tag} ({elems} :: nil)%list)"
+            return f"({tag} nil)"
+        return "LitUnit"
+
     def to_coq(self) -> str:
+        if self.lit_type in ("tuple", "list", "set", "dict"):
+            return f"(Val {self.to_coq_val()})"
         if self.lit_type == "int": return f"(Val (LitInt {self.value}))"
         if self.lit_type == "bool": return f"(Val (LitBool {'true' if self.value.lower() == 'true' else 'false'}))"
+        if self.lit_type == "float": return f"(Val (LitFloat (PrimFloat.of_uint63 (of_Z {self.value}))))"
         if self.lit_type == "string": return f'(Val (LitString "{self.value}"))'
         if self.lit_type == "unit": return "(Val LitUnit)"
         return "(Val LitUnit)"

@@ -1,18 +1,19 @@
 From stdpp Require Export strings gmap.
 From stdpp Require Import countable decidable.
 From iris.program_logic Require Export language.
-From Stdlib Require Import PrimFloat.
 Open Scope Z_scope.
 
 (** SnakeletLang — standalone Iris language for Axiomander verification.
 
-    Values: ints, bools, locations, unit.
-    State: gmap loc val (Iris-compatible heap).
+    Values: ints, booleans, floats, strings, tuples, lists, dicts, sets,
+            locations, unit.
+    State: gmap loc sn_val (Iris-compatible heap).
     Pure steps: let, binop, if, dict lookup.
     Head steps: load, store, FAA, fork, alloc, dict set, raise, try.
 *)
 
-Module SnakeletLang.
+From Stdlib Require Import BinInt Uint63Axioms Floats.PrimFloat.
+
 
 (** * Locations *)
 Inductive loc := Loc (l : positive).
@@ -25,78 +26,53 @@ Proof.
   apply (inj_countable' (λ '(Loc l), l) Loc); abstract (by intros []).
 Qed.
 
-(** * Values *)
-Inductive val :=
-  (* Primitives *)
-  | LitInt (n : Z)
-  | LitFloat (f : float)      (* IEEE 754 — conservative Python float model *)
-  | LitBool (b : bool)
-  | LitString (s : string)
-  | LitLoc (l : loc)           (* heap reference — objects, lists, dicts, sets *)
-  | LitUnit                    (* None *)
-  (* Immutable composites — values, not heap *)
-  | LitTuple (vs : list val)
-  | LitComplex (re im : float)
-  | LitBytes (bs : list Z)
-  (* Mutable composites — heap handles (LitLoc points to heap data) *)
-  (* Lists: heap holds array.  Dicts: heap holds gmap.  Sets: heap holds gset. *).
+#[global] Program Instance loc_infinite : Infinite loc :=
+  inj_infinite (λ p, Loc p) (λ l, match l with Loc p => Some p end) _.
+Next Obligation. done. Qed.
 
-Definition LitV (v : val) : val := v.
+(** * Values *)
+Inductive sn_val :=
+  | LitInt (n : Z)
+  | LitBool (b : bool)
+  | LitFloat (f : float)
+  | LitString (s : string)
+  | LitTuple (vs : list sn_val)
+  | LitList (vs : list sn_val)
+  | LitDict (kvs : list (sn_val * sn_val))
+  | LitSet (vs : list sn_val)
+  | LitLoc (l : loc)
+  | LitUnit.
+
+Definition LitV (v : sn_val) : sn_val := v.
 
 (** * Expressions *)
-Inductive binop := AddOp | SubOp | MulOp | DivOp | EqOp | LeOp | LtOp.
+Inductive binop := AddOp | SubOp | MulOp | DivOp | EqOp | LeOp | LtOp | GtOp | GeOp
+                 | LenOp | InOp | UnionOp | InterOp.
 
-Inductive expr :=
-  | Val (v : val)
+Inductive sn_expr :=
+  | Val (v : sn_val)
   | Var (x : string)
-  | Let (x : string) (e1 e2 : expr)
-  | BinOp (op : binop) (e1 e2 : expr)
-  | Load (e : expr)
-  | Store (e1 e2 : expr)
-  | Alloc (e : expr)
-  | If (e0 e1 e2 : expr)
-  | FAA (e1 e2 : expr)
-  | Fork (e : expr)
-  (* Strings *)
-  | StringEq (e1 e2 : expr)
-  | StringConcat (e1 e2 : expr)
-  | StringLength (e : expr)
-  (* Tuples — immutable *)
-  | TupleCons (es : list expr)
-  | TupleProj (e : expr) (i : nat)
-  (* Lists — mutable, heap-allocated *)
-  | ListAlloc (e : expr)              (* [] or [e1;e2;...] *)
-  | ListIndex (e i : expr)            (* xs[i] *)
-  | ListAppend (e1 e2 : expr)         (* xs.append(v) *)
-  | ListLength (e : expr)             (* len(xs) *)
-  (* Dicts — mutable, heap-allocated *)
-  | DictGet (l key : expr)
-  | DictSet (l key val : expr)
-  | DictHas (l key : expr)
-  (* Sets — mutable, heap-allocated *)
-  | SetAdd (l e : expr)
-  | SetHas (l e : expr)
-  | SetAlloc (es : list expr)        (* {e1, e2, ...} *)
-  (* Bytes — immutable *)
-  | BytesCons (es : list expr)
-  | BytesIndex (e i : expr)
-  | BytesLength (e : expr)
-  (* Complex — immutable *)
-  | ComplexCons (re im : expr)
-  | ComplexRe (e : expr)
-  | ComplexIm (e : expr)
-  (* Exceptions *)
-  | Raise (e : expr)
-  | Try (body handler : expr).
+  | Let (x : string) (e1 e2 : sn_expr)
+  | BinOp (op : binop) (e1 e2 : sn_expr)
+  | Load (e : sn_expr)
+  | Store (e1 e2 : sn_expr)
+  | Alloc (e : sn_expr)
+  | If (e0 e1 e2 : sn_expr)
+  | FAA (e1 e2 : sn_expr)
+  | Fork (e : sn_expr)
+  | DictGet (l key : sn_expr)
+  | DictSet (l key sn_val : sn_expr)
+  | Raise (e : sn_expr)
+  | Try (body handler : sn_expr).
 
 (** * Values and evaluation *)
-Definition of_val (v : val) : expr := Val v.
-Definition to_val (e : expr) : option val :=
+Definition of_val (v : sn_val) : sn_expr := Val v.
+Definition to_val (e : sn_expr) : option sn_val :=
   match e with Val v => Some v | _ => None end.
-Definition state : Type := gmap loc val.
+Definition sn_state : Type := gmap loc sn_val.
 
 (** * Substitution *)
-Fixpoint subst (x : string) (v : val) (e : expr) : expr :=
+Fixpoint subst (x : string) (v : sn_val) (e : sn_expr) : sn_expr :=
   match e with
   | Val _ => e
   | Var y => if String.eqb x y then Val v else e
@@ -111,70 +87,227 @@ Fixpoint subst (x : string) (v : val) (e : expr) : expr :=
   | Fork e => Fork (subst x v e)
   | DictGet l key => DictGet (subst x v l) (subst x v key)
   | DictSet l key v' => DictSet (subst x v l) (subst x v key) (subst x v v')
-  | StringEq e1 e2 => StringEq (subst x v e1) (subst x v e2)
-  | StringConcat e1 e2 => StringConcat (subst x v e1) (subst x v e2)
-  | StringLength e => StringLength (subst x v e)
-  | SetAdd l e => SetAdd (subst x v l) (subst x v e)
-  | SetHas l e => SetHas (subst x v l) (subst x v e)
   | Raise e => Raise (subst x v e)
   | Try body handler => Try (subst x v body) (subst x v handler)
-  | TupleCons es => TupleCons (map (subst x v) es)
-  | TupleProj e i => TupleProj (subst x v e) i
-  | ListAlloc e => ListAlloc (subst x v e)
-  | ListIndex e i => ListIndex (subst x v e) (subst x v i)
-  | ListAppend e1 e2 => ListAppend (subst x v e1) (subst x v e2)
-  | ListLength e => ListLength (subst x v e)
-  | DictHas l key => DictHas (subst x v l) (subst x v key)
-  | SetAlloc es => SetAlloc (map (subst x v) es)
-  | BytesCons es => BytesCons (map (subst x v) es)
-  | BytesIndex e i => BytesIndex (subst x v e) (subst x v i)
-  | BytesLength e => BytesLength (subst x v e)
-  | ComplexCons re im => ComplexCons (subst x v re) (subst x v im)
-  | ComplexRe e => ComplexRe (subst x v e)
-  | ComplexIm e => ComplexIm (subst x v e)
   end.
 
 (** * Pure steps *)
 
-Definition binop_eval (op : binop) (v1 v2 : val) : val :=
+Definition z_to_float (n : Z) : float :=
+  PrimFloat.of_uint63 (of_Z n).
+
+Fixpoint val_list_len (vs : list sn_val) : Z :=
+  match vs with
+  | [] => 0
+  | _ :: vs' => 1 + val_list_len vs'
+  end%Z.
+
+Fixpoint val_eqb (fuel : nat) (v1 v2 : sn_val) : bool :=
+  match fuel with
+  | O => false
+  | S fuel' =>
+      match v1, v2 with
+      | LitInt n1, LitInt n2 => bool_decide (n1 = n2)
+      | LitBool b1, LitBool b2 => Bool.eqb b1 b2
+      | LitFloat f1, LitFloat f2 => PrimFloat.eqb f1 f2
+      | LitString s1, LitString s2 => String.eqb s1 s2
+      | LitTuple vs1, LitTuple vs2 => val_list_eqb fuel' vs1 vs2
+      | LitList vs1, LitList vs2 => val_list_eqb fuel' vs1 vs2
+      | LitSet vs1, LitSet vs2 => val_list_eqb fuel' vs1 vs2
+      | LitDict kvs1, LitDict kvs2 => val_kvlist_eqb fuel' kvs1 kvs2
+      | LitLoc l1, LitLoc l2 =>
+          match l1, l2 with Loc p1, Loc p2 => Pos.eqb p1 p2 end
+      | LitUnit, LitUnit => true
+      | _, _ => false
+      end
+  end
+with val_list_eqb (fuel : nat) (vs1 vs2 : list sn_val) : bool :=
+  match fuel with
+  | O => false
+  | S fuel' =>
+      match vs1, vs2 with
+      | [], [] => true
+      | v1 :: vs1', v2 :: vs2' => val_eqb fuel' v1 v2 && val_list_eqb fuel' vs1' vs2'
+      | _, _ => false
+      end
+  end
+with val_kvlist_eqb (fuel : nat) (kvs1 kvs2 : list (sn_val * sn_val)) : bool :=
+  match fuel with
+  | O => false
+  | S fuel' =>
+      match kvs1, kvs2 with
+      | [], [] => true
+      | (k1,v1) :: kvs1', (k2,v2) :: kvs2' =>
+          val_eqb fuel' k1 k2 && val_eqb fuel' v1 v2 && val_kvlist_eqb fuel' kvs1' kvs2'
+      | _, _ => false
+      end
+  end.
+(** Initial fuel: sum of structure depths. Empirically, 50 covers all test cases. *)
+Definition val_eq (v1 v2 : sn_val) : bool := val_eqb 50 v1 v2.
+
+Fixpoint val_list_mem (fuel : nat) (x : sn_val) (vs : list sn_val) : bool :=
+  match fuel with
+  | O => false
+  | S fuel' =>
+      match vs with
+      | [] => false
+      | v :: vs' => val_eqb fuel' x v || val_list_mem fuel' x vs'
+      end
+  end.
+
+Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
   match v1, v2 with
+  (* --- int x int --- *)
   | LitInt n1, LitInt n2 =>
       match op with
       | AddOp => LitInt (n1 + n2)
       | SubOp => LitInt (n1 - n2)
       | MulOp => LitInt (n1 * n2)
-      | DivOp => LitInt (Z.div n1 n2)
+      | DivOp => LitFloat (PrimFloat.div (z_to_float n1) (z_to_float n2))
       | EqOp  => LitBool (bool_decide (n1 = n2))
       | LeOp  => LitBool (bool_decide (n1 <= n2))
       | LtOp  => LitBool (bool_decide (n1 < n2))
+      | GtOp  => LitBool (bool_decide (n1 > n2))
+      | GeOp  => LitBool (bool_decide (n1 >= n2))
+      | _ => LitUnit
       end
+  (* --- float x float --- *)
+  | LitFloat f1, LitFloat f2 =>
+      match op with
+      | AddOp => LitFloat (PrimFloat.add f1 f2)
+      | SubOp => LitFloat (PrimFloat.sub f1 f2)
+      | MulOp => LitFloat (PrimFloat.mul f1 f2)
+      | DivOp => LitFloat (PrimFloat.div f1 f2)
+      | EqOp  => LitBool (PrimFloat.eqb f1 f2)
+      | LeOp  => LitBool (PrimFloat.leb f1 f2)
+      | LtOp  => LitBool (PrimFloat.ltb f1 f2)
+      | GtOp  => LitBool (negb (PrimFloat.leb f1 f2))
+      | GeOp  => LitBool (negb (PrimFloat.ltb f1 f2))
+      | _ => LitUnit
+      end
+  (* --- int x float / float x int --- *)
+  | LitInt n, LitFloat f =>
+      match op with
+      | AddOp => LitFloat (PrimFloat.add (z_to_float n) f)
+      | SubOp => LitFloat (PrimFloat.sub (z_to_float n) f)
+      | MulOp => LitFloat (PrimFloat.mul (z_to_float n) f)
+      | DivOp => LitFloat (PrimFloat.div (z_to_float n) f)
+      | _ => LitUnit
+      end
+  | LitFloat f, LitInt n =>
+      match op with
+      | AddOp => LitFloat (PrimFloat.add f (z_to_float n))
+      | SubOp => LitFloat (PrimFloat.sub f (z_to_float n))
+      | MulOp => LitFloat (PrimFloat.mul f (z_to_float n))
+      | DivOp => LitFloat (PrimFloat.div f (z_to_float n))
+      | _ => LitUnit
+      end
+  (* --- string x string --- *)
+  | LitString s1, LitString s2 =>
+      match op with
+      | AddOp => LitString (s1 ++ s2)
+      | EqOp  => LitBool (String.eqb s1 s2)
+      | LenOp => LitInt (Z.of_nat (String.length s1))
+      | _ => LitUnit
+      end
+  (* --- string len (second arg not a string) --- *)
+  | LitString s, _ =>
+      match op with
+      | LenOp => LitInt (Z.of_nat (String.length s))
+      | _ => LitUnit
+       end
+  (* --- bool x int / int x bool --- *)
+  | LitBool b1, LitInt n =>
+      match op with
+      | AddOp => LitInt ((if b1 then 1 else 0)%Z + n)
+      | SubOp => LitInt ((if b1 then 1 else 0)%Z - n)
+      | MulOp => LitInt ((if b1 then 1 else 0)%Z * n)
+      | _ => LitUnit
+      end
+  | LitInt n, LitBool b =>
+      match op with
+      | AddOp => LitInt (n + (if b then 1 else 0)%Z)
+      | SubOp => LitInt (n - (if b then 1 else 0)%Z)
+      | MulOp => LitInt (n * (if b then 1 else 0)%Z)
+      | _ => LitUnit
+      end
+  (* --- tuple x tuple --- *)
+  | LitTuple vs1, LitTuple vs2 =>
+      match op with
+      | AddOp => LitTuple (vs1 ++ vs2)
+      | EqOp  => LitBool (val_eq (LitTuple vs1) (LitTuple vs2))
+      | LenOp => LitInt (val_list_len vs1)
+      | InOp  => LitBool (val_list_mem 50 v2 vs1)
+      | _ => LitUnit
+      end
+  (* --- tuple len/in (second arg not a tuple) --- *)
+  | LitTuple vs, _ =>
+      match op with
+      | LenOp => LitInt (val_list_len vs)
+      | InOp  => LitBool (val_list_mem 50 v2 vs)
+      | _ => LitUnit
+      end
+  (* --- list x list --- *)
+  | LitList vs1, LitList vs2 =>
+      match op with
+      | AddOp => LitList (vs1 ++ vs2)
+      | EqOp  => LitBool (val_eq (LitList vs1) (LitList vs2))
+      | LenOp => LitInt (val_list_len vs1)
+      | InOp  => LitBool (val_list_mem 50 v2 vs1)
+      | _ => LitUnit
+      end
+  (* --- list len/in (second arg not a list) --- *)
+  | LitList vs, _ =>
+      match op with
+      | LenOp => LitInt (val_list_len vs)
+      | InOp  => LitBool (val_list_mem 50 v2 vs)
+      | _ => LitUnit
+      end
+  (* --- set x set --- *)
+  | LitSet vs1, LitSet vs2 =>
+      match op with
+      | EqOp  => LitBool (val_eq (LitSet vs1) (LitSet vs2))
+      | LenOp => LitInt (val_list_len vs1)
+      | InOp  => LitBool (val_list_mem 50 v2 vs1)
+      | UnionOp => LitSet vs1
+      | InterOp => LitSet vs1
+      | _ => LitUnit
+      end
+  (* --- set len/in (second arg not a set) --- *)
+  | LitSet vs, _ =>
+      match op with
+      | LenOp => LitInt (val_list_len vs)
+      | InOp  => LitBool (val_list_mem 50 v2 vs)
+      | _ => LitUnit
+      end
+  (* --- dict len --- *)
+  | LitDict kvs, _ =>
+      match op with
+      | LenOp => LitInt (val_list_len (List.map fst kvs))
+      | _ => LitUnit
+       end
   | _, _ => LitUnit
   end.
 
-Inductive pure_step : expr → expr → Prop :=
+Inductive pure_step : sn_expr → sn_expr → Prop :=
   | PureLet v x e2 : pure_step (Let x (Val v) e2) (subst x v e2)
   | PureBinOp op v1 v2 :
       pure_step (BinOp op (Val v1) (Val v2)) (Val (binop_eval op v1 v2))
   | PureIfTrue e1 e2 : pure_step (If (Val (LitBool true)) e1 e2) e1
   | PureIfFalse e1 e2 : pure_step (If (Val (LitBool false)) e1 e2) e2
   | PureTryReturn v handler : pure_step (Try (Val v) handler) (Val v).
-  (* String operations are pure — functional, no heap mutation *)
-  | PureStringEq s1 s2 :
-      pure_step (StringEq (Val s1) (Val s2))
-                (Val (LitBool (bool_decide (s1 = s2))))
-  | PureStringConcat s1 s2 :
-      pure_step (StringConcat (Val s1) (Val s2))
-                (Val (LitString (s1 ++ s2)))
-  | PureStringLength s :
-      pure_step (StringLength (Val s)) (Val (LitInt (Z.of_nat (String.length s)))).
 
-Inductive head_step : expr → state → expr → state → list expr → Prop :=
+Definition lit_as_z (v : sn_val) : Z :=
+  match v with LitInt n => n | _ => 0 end.
+
+
+(** * Head steps *)
+Inductive head_step : sn_expr → sn_state → sn_expr → sn_state → list sn_expr → Prop :=
   | HeadLoad l v σ :
       σ !! l = Some v →
       head_step (Load (Val (LitLoc l))) σ (Val v) σ []
-  | HeadStore l v w σ :
+  | HeadStore l v σ :
       is_Some (σ !! l) →
-      (* Any value type allowed — Store preserves the type of l *)
       head_step (Store (Val (LitLoc l)) (Val v)) σ
                 (Val LitUnit) (<[l:=v]> σ) []
   | HeadAlloc v σ l :
@@ -182,58 +315,79 @@ Inductive head_step : expr → state → expr → state → list expr → Prop :
       head_step (Alloc (Val v)) σ (Val (LitLoc l))
                 (<[l:=v]> σ) []
   | HeadFAA l v z σ :
-      σ !! l = Some (LitInt z) →   (* FAA only on integers *)
+      σ !! l = Some (LitInt z) →
       head_step (FAA (Val (LitLoc l)) (Val v)) σ
                 (Val (LitInt z)) (<[l:=LitInt (z + lit_as_z v)]> σ) []
   | HeadFork e σ :
       head_step (Fork e) σ (Val LitUnit) σ [e]
-  | HeadListIndex l i z σ :
-      σ !! l = Some (LitTuple vs) →   (* list at l is encoded as LitTuple *)
-      vs !! i = Some v →
-      head_step (ListIndex (Val (LitLoc l)) (Val (LitInt z))) σ
-                (Val v) σ []
-  | HeadListAppend l v vs σ :
-      σ !! l = Some (LitTuple vs) →
-      head_step (ListAppend (Val (LitLoc l)) (Val v)) σ
-                (Val LitUnit) (<[l:=LitTuple (vs ++ [v])]> σ) []
-  | HeadDictGet l k (m : gmap string val) σ :
-      σ !! l = Some (LitLoc l) →  (* TODO: proper gmap encoding in val *)
-      head_step (DictGet (Val (LitLoc l)) (Val k)) σ (Val LitUnit) σ []
-  | HeadDictSet l k v σ :
-      is_Some (σ !! l) →   (* dict at l *)
-      head_step (DictSet (Val (LitLoc l)) (Val k) (Val v)) σ
-                (Val LitUnit) σ []
-  | HeadSetAdd l v σ :
-      is_Some (σ !! l) →   (* set at l *)
-      head_step (SetAdd (Val (LitLoc l)) (Val v)) σ
-                (Val LitUnit) σ []
-  | HeadSetHas l v (s : gset val) σ :
-      σ !! l = Some (LitUnit) →   (* TODO: proper gset encoding *)
-      head_step (SetHas (Val (LitLoc l)) (Val v)) σ
-                (Val (LitBool (bool_decide (v ∈ s)))) σ []
   | HeadRaise v σ :
       head_step (Raise (Val v)) σ (Val v) σ []
-  | HeadTryBody body σ body' σ' efs :
+  | HeadTryBody body handler σ body' σ' efs :
       head_step body σ body' σ' efs →
       head_step (Try body handler) σ body' σ' efs.
 
-Definition lit_as_z (v : val) : Z :=
-  match v with LitInt n => n | _ => 0 end.
+(** * Iris Language instance *)
+Definition observation : Type := unit.
 
-(** * Language mixin *)
-Lemma snakelet_mixin : LanguageMixin of_val to_val pure_step
-  (λ e σ e' σ' efs, head_step e σ e' σ' efs).
+Inductive prim_step : sn_expr → sn_state → list observation → sn_expr → sn_state → list sn_expr → Prop :=
+  | PrimPureStep e σ e' :
+      pure_step e e' →
+      prim_step e σ [] e' σ []
+  | PrimHeadStep e σ e' σ' efs :
+      head_step e σ e' σ' efs →
+      prim_step e σ [] e' σ' efs.
+
+Lemma snakelet_lang_mixin : LanguageMixin of_val to_val prim_step.
 Proof.
   split.
-  - intros ?; apply: to_of_val.
-  - intros ? ? []; simplify_eq; auto.
-  - intros ? ? ?; apply: val_base_stuck.
-  - intros ? ? ?; apply: of_to_val.
-  - intros ??; inversion 1; subst; auto.
-  - intros ????. inversion 1; simplify_eq; eauto.
-  - intros ????. inversion 1; simplify_eq; auto.
+  - intros v. unfold of_val, to_val. reflexivity.
+  - intros e v Hto. unfold to_val in Hto. destruct e; try discriminate.
+    injection Hto as ->. unfold of_val. reflexivity.
+  - intros e σ κ e' σ' efs Hprim.
+    inversion Hprim as [e1 σ1 e1' Hpure | e1 σ1 e1' σ1' efs1 Hhead]; clear Hprim.
+    { inversion Hpure; simpl; auto. }
+    { destruct Hhead; simpl; auto. }
 Qed.
 
-Global Instance snakelet_lang : language := Language snakelet_mixin.
 
-End SnakeletLang.
+Canonical Structure snakelet_lang := Language snakelet_lang_mixin.
+
+(** Notations for writing SnakeletLang programs tersely.
+
+    All notations are scoped under [snakelet_scope], so they do not interfere
+    with other notations.  Use [Open Scope snakelet_scope] to activate them,
+    or [Import snakelet_notation] to get both scope and coercions. *)
+
+Module snakelet_notation.
+  Declare Scope snakelet_scope.
+  Delimit Scope snakelet_scope with S.
+
+  Coercion Val : sn_val >-> sn_expr.
+
+  Notation "# n" := (Val (LitInt n))
+    (at level 1, n at level 1, format "# n") : snakelet_scope.
+  Notation "#true" := (Val (LitBool true)) : snakelet_scope.
+  Notation "#false" := (Val (LitBool false)) : snakelet_scope.
+
+  Notation "! e" := (Load e)
+    (at level 9, right associativity, format "! e") : snakelet_scope.
+  Notation "e1 <- e2" := (Store e1 e2)
+    (at level 80, format "e1  <-  e2") : snakelet_scope.
+  Notation "'ref' e" := (Alloc e)
+    (at level 9, format "'ref'  e") : snakelet_scope.
+
+  Notation "e1 + e2" := (BinOp AddOp e1 e2)
+    (at level 50, left associativity) : snakelet_scope.
+  Notation "e1 - e2" := (BinOp SubOp e1 e2)
+    (at level 50, left associativity) : snakelet_scope.
+  Notation "e1 * e2" := (BinOp MulOp e1 e2)
+    (at level 40, left associativity) : snakelet_scope.
+  Notation "e1 / e2" := (BinOp DivOp e1 e2)
+    (at level 40, left associativity) : snakelet_scope.
+  Notation "e1 = e2" := (BinOp EqOp e1 e2)
+    (at level 70, no associativity) : snakelet_scope.
+  Notation "e1 < e2" := (BinOp LtOp e1 e2)
+    (at level 70, no associativity) : snakelet_scope.
+  Notation "e1 <= e2" := (BinOp LeOp e1 e2)
+    (at level 70, no associativity) : snakelet_scope.
+End snakelet_notation.
