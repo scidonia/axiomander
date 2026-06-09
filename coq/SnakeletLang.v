@@ -65,11 +65,59 @@ Inductive sn_expr :=
   | Raise (e : sn_expr)
   | Try (body handler : sn_expr).
 
+(** * Evaluation contexts *)
+Inductive sn_ectx_item :=
+  | LetCtx (x : string) (e2 : sn_expr)
+  | BinOpLCtx (op : binop) (v2 : sn_val)
+  | BinOpRCtx (op : binop) (v1 : sn_val)
+  | IfCtx (e1 e2 : sn_expr)
+  | LoadCtx
+  | StoreLCtx (v2 : sn_val)
+  | StoreRCtx (e1 : sn_expr)
+  | AllocCtx
+  | FaaLCtx (v2 : sn_val)
+  | FaaRCtx (v1 : sn_val).
+
+Definition fill_item (Ki : sn_ectx_item) (x : sn_expr) : sn_expr :=
+  match Ki with
+  | LetCtx x0 e2 => Let x0 x e2
+  | BinOpLCtx op v2 => BinOp op x (Val v2)
+  | BinOpRCtx op v1 => BinOp op (Val v1) x
+  | IfCtx e1 e2 => If x e1 e2
+  | LoadCtx => Load x
+  | StoreLCtx v2 => Store x (Val v2)
+  | StoreRCtx e1 => Store e1 x
+  | AllocCtx => Alloc x
+  | FaaLCtx v2 => FAA x (Val v2)
+  | FaaRCtx v1 => FAA (Val v1) x
+  end.
+
+Definition fill_K (K : list sn_ectx_item) (x : sn_expr) : sn_expr :=
+  foldr fill_item x K.
+
 (** * Values and evaluation *)
 Definition of_val (v : sn_val) : sn_expr := Val v.
 Definition to_val (e : sn_expr) : option sn_val :=
   match e with Val v => Some v | _ => None end.
 Definition sn_state : Type := gmap loc sn_val.
+
+Lemma fill_not_val K (x : sn_expr) : to_val x = None → to_val (fill_K K x) = None.
+Proof.
+  induction K as [|Ki K IH]; simpl; [auto|].
+  intros H. destruct Ki; simpl; reflexivity.
+Qed.
+
+Lemma fill_K_val K (x : sn_expr) (v : sn_val) : fill_K K x = Val v ↔ K = [] ∧ x = Val v.
+Proof.
+  split.
+  - intros H. induction K as [|Ki K IH]; simpl in H.
+    + split; auto.
+    + destruct Ki; simpl in H; discriminate H.
+  - intros [-> ->]; reflexivity.
+Qed.
+
+Lemma fill_item_inj Ki (a b : sn_expr) : fill_item Ki a = fill_item Ki b → a = b.
+Proof. destruct Ki; simpl; injection 1; auto. Qed.
 
 (** * Substitution *)
 Fixpoint subst (x : string) (v : sn_val) (e : sn_expr) : sn_expr :=
@@ -330,12 +378,12 @@ Inductive head_step : sn_expr → sn_state → sn_expr → sn_state → list sn_
 Definition observation : Type := unit.
 
 Inductive prim_step : sn_expr → sn_state → list observation → sn_expr → sn_state → list sn_expr → Prop :=
-  | PrimPureStep e σ e' :
-      pure_step e e' →
-      prim_step e σ [] e' σ []
-  | PrimHeadStep e σ e' σ' efs :
-      head_step e σ e' σ' efs →
-      prim_step e σ [] e' σ' efs.
+  | PrimPureStep K x σ x' :
+      pure_step x x' →
+      prim_step (fill_K K x) σ [] (fill_K K x') σ []
+  | PrimHeadStep K x σ x' σ' efs :
+      head_step x σ x' σ' efs →
+      prim_step (fill_K K x) σ [] (fill_K K x') σ' efs.
 
 Lemma snakelet_lang_mixin : LanguageMixin of_val to_val prim_step.
 Proof.
@@ -343,14 +391,114 @@ Proof.
   - intros v. unfold of_val, to_val. reflexivity.
   - intros e v Hto. unfold to_val in Hto. destruct e; try discriminate.
     injection Hto as ->. unfold of_val. reflexivity.
-  - intros e σ κ e' σ' efs Hprim.
-    inversion Hprim as [e1 σ1 e1' Hpure | e1 σ1 e1' σ1' efs1 Hhead]; clear Hprim.
-    { inversion Hpure; simpl; auto. }
-    { destruct Hhead; simpl; auto. }
+  - intros ex σ κ ex' σ' efs Hprim.
+    inversion Hprim as [K x0 σ0 x0' Hpure | K x0 σ0 x0' σ0' efs0 Hhead]; subst.
+    + apply (fill_not_val K x0). inversion Hpure; subst; simpl; auto.
+    + apply (fill_not_val K x0). destruct Hhead; subst; simpl; auto.
 Qed.
 
-
 Canonical Structure snakelet_lang := Language snakelet_lang_mixin.
+
+Lemma to_val_pure_step x x' : pure_step x x' → to_val x = None.
+Proof.
+  intros H; inversion H; simpl; auto.
+Qed.
+
+Lemma to_val_head_step x σ x' σ' efs : head_step x σ x' σ' efs → to_val x = None.
+Proof.
+  intros H; inversion H; simpl; auto.
+Qed.
+
+Lemma fill_item_no_val_inj Ki1 Ki2 e1 e2 :
+  to_val e1 = None → to_val e2 = None →
+  fill_item Ki1 e1 = fill_item Ki2 e2 → Ki1 = Ki2.
+Proof.
+  destruct Ki1, Ki2; simpl; intros Hn1 Hn2 Heq.
+  all: first [discriminate Heq | idtac].
+  all: injection Heq; intros; subst; simpl in *; try discriminate; auto.
+Qed.
+
+Lemma fill_not_pure Ki x : to_val x = None → ∀ e', pure_step (fill_item Ki x) e' → False.
+Proof.
+  intros Hval e' Hpure.
+  destruct Ki; simpl in *; inversion Hpure; subst;
+    try match goal with H: Val ?v = ?x |- _ => symmetry in H; injection H; intros -> end;
+    simpl in Hval; congruence.
+Qed.
+
+Lemma fill_not_head Ki x : to_val x = None → ∀ σ e' σ' efs, head_step (fill_item Ki x) σ e' σ' efs → False.
+Proof.
+  intros Hval σ e' σ' efs Hhead.
+  destruct Ki; simpl in *; inversion Hhead; subst;
+    try match goal with H: Val ?v = ?x |- _ => symmetry in H; injection H; intros -> end;
+    simpl in Hval; congruence.
+Qed.
+
+Global Instance snakelet_ctx_lang_ctx Ki :
+  LanguageCtx (fill_item Ki).
+Proof.
+  split.
+  - intros x Hval. destruct Ki; simpl; try (by inversion Hval); done.
+  - intros x1 σ1 κ x2 σ2 efs Hprim.
+    inversion Hprim as [K x σ x' Hpure | K x σ x' σ' efs0 Hhead]; subst.
+    + eapply (PrimPureStep (Ki :: K) _ _ _ Hpure).
+    + eapply (PrimHeadStep (Ki :: K) _ _ _ _ _ Hhead).
+  - intros x1' σ1 κ x2 σ2 efs Hval Hprim.
+    inversion Hprim; subst; [rename H0 into Hpure | rename H0 into Hhead].
+    + (* PureStep *)
+      unfold language.to_val in Hval; simpl in Hval.
+      change (expr snakelet_lang) with sn_expr in *.
+      rename Ki into Ki0.
+      destruct K as [|Ki' K'']; simpl in H.
+      { subst x. exfalso. eapply fill_not_pure; eauto. }
+      pose proof (to_val_pure_step _ _ Hpure) as Hval_x.
+      pose proof (fill_not_val K'' x Hval_x) as Hval_fill.
+      pose proof (fill_item_no_val_inj Ki' Ki0 (fill_K K'' x) x1' Hval_fill Hval H) as Heq.
+      subst Ki'.
+      apply (fill_item_inj Ki0) in H.
+      subst x1'.
+      eexists (fill_K K'' x'); split.
+      { simpl; reflexivity. }
+      eapply (PrimPureStep K'' x σ2 x' Hpure).
+    + (* HeadStep *)
+      unfold language.to_val in Hval; simpl in Hval.
+      change (expr snakelet_lang) with sn_expr in *.
+      rename Ki into Ki0.
+      destruct K as [|Ki' K'']; simpl in H.
+      { subst x. exfalso. eapply fill_not_head; eauto. }
+      pose proof (to_val_head_step _ _ _ _ _ Hhead) as Hval_x.
+      pose proof (fill_not_val K'' x Hval_x) as Hval_fill.
+      pose proof (fill_item_no_val_inj Ki' Ki0 (fill_K K'' x) x1' Hval_fill Hval H) as Heq.
+      subst Ki'.
+      apply (fill_item_inj Ki0) in H.
+      subst x1'.
+      eexists (fill_K K'' x'); split.
+      { simpl; reflexivity. }
+      eapply (PrimHeadStep K'' x σ1 x' σ2 efs Hhead).
+Qed.
+
+Global Instance snakelet_ctx_lang_ctx_list K :
+  LanguageCtx (fill_K K).
+Proof.
+  induction K as [|Ki K IH].
+  - split; [done | idtac | idtac].
+    + intros e1 σ1 κ e2 σ2 efs Hstep. exact Hstep.
+    + intros e1' σ1 κ e2 σ2 efs Hval Hstep.
+      cbv [language.to_val] in Hval. exists e2. split; [done|]. exact Hstep.
+  - destruct IH as [IHv IHs IHinv].
+    split.
+    + intros e Hval. cbv [language.to_val] in Hval |- *.
+      simpl. apply fill_not_val. apply IHv. exact Hval.
+    + intros e1 σ1 κ e2 σ2 efs Hstep. simpl.
+      eapply (snakelet_ctx_lang_ctx Ki).(fill_step). apply IHs. exact Hstep.
+    + intros e1' σ1 κ e2 σ2 efs Hval Hstep.
+      cbv [language.to_val] in Hval |- *.
+      simpl in Hstep.
+      eapply (snakelet_ctx_lang_ctx Ki).(fill_step_inv) in Hstep as (e2' & -> & Hstep'); [|].
+      { apply IHv. exact Hval. }
+      apply IHinv in Hstep' as (e2'' & -> & Hstep''); [|exact Hval].
+      eexists e2''. split; [simpl; reflexivity|]. exact Hstep''.
+Defined.
 
 (** Notations for writing SnakeletLang programs tersely.
 
@@ -362,10 +510,8 @@ Module snakelet_notation.
   Declare Scope snakelet_scope.
   Delimit Scope snakelet_scope with S.
 
-  Notation "# n" := (Val (LitInt n))
+  Notation "# n" := (Val (LitInt (n : Z)))
     (at level 8, n at level 1, format "# n") : snakelet_scope.
-  Notation "# l" := (Val (LitLoc l))
-    (at level 8, l at level 1, format "# l") : snakelet_scope.
   Notation "#true" := (Val (LitBool true)) : snakelet_scope.
   Notation "#false" := (Val (LitBool false)) : snakelet_scope.
 
@@ -390,4 +536,9 @@ Module snakelet_notation.
     (at level 70, no associativity) : snakelet_scope.
   Notation "e1 <= e2" := (BinOp LeOp e1 e2)
     (at level 70, no associativity) : snakelet_scope.
+  Notation "let: s := e1 'in' e2" := (Let s e1 e2)
+    (at level 200, s at level 1, e1 at level 200, e2 at level 200,
+     format "'let:'  s  :=  e1  'in'  e2") : snakelet_scope.
+  Notation "e1 ;; e2" := (Let "_" e1 e2)
+    (at level 100, right associativity, format "e1  ;;  e2") : snakelet_scope.
 End snakelet_notation.

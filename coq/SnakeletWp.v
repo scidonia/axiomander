@@ -40,46 +40,90 @@ Section snakelet_wp.
     pure_step e e' → reducible e σ.
   Proof.
     intros Hpure. eexists [], e', σ, [].
-    eapply (PrimPureStep _ σ). exact Hpure.
+    eapply (PrimPureStep [] _ σ). exact Hpure.
   Qed.
 
   Lemma reducible_no_obs_pure_step e e' σ :
     pure_step e e' → reducible_no_obs e σ.
   Proof.
     intros Hpure. eexists e', σ, [].
-    eapply (PrimPureStep _ σ). exact Hpure.
+    eapply (PrimPureStep [] _ σ). exact Hpure.
   Qed.
 
   Lemma prim_binop_det op v1 v2 σ κ e2 σ2 efs :
     prim_step (BinOp op (Val v1) (Val v2)) σ κ e2 σ2 efs →
     κ = [] ∧ σ2 = σ ∧ efs = [] ∧ e2 = Val (binop_eval op v1 v2).
   Proof.
-    intros Hprim. inversion Hprim; [| inversion H].
-    inversion H; subst. auto.
+    intros Hprim. inversion Hprim; subst.
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x. inversion H0; subst; repeat split; reflexivity.
+      + destruct Ki; simpl in H;
+          [discriminate H
+          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x. inversion H0.
+      + destruct Ki; simpl in H;
+          [discriminate H
+          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
   Qed.
 
   Lemma prim_let_det x v e σ κ e2 σ2 efs :
     prim_step (Let x (Val v) e) σ κ e2 σ2 efs →
     κ = [] ∧ σ2 = σ ∧ efs = [] ∧ e2 = subst x v e.
   Proof.
-    intros Hprim. inversion Hprim; [| inversion H].
-    inversion H; subst. auto.
+    intros Hprim. inversion Hprim; subst.
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x0. inversion H0; subst; repeat split; reflexivity.
+      + destruct Ki; simpl in H;
+          [inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x0. inversion H0.
+      + destruct Ki; simpl in H;
+          [inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
   Qed.
 
   Lemma prim_if_true_det e1 e2 σ κ e2' σ2 efs :
     prim_step (If (Val (LitBool true)) e1 e2) σ κ e2' σ2 efs →
     κ = [] ∧ σ2 = σ ∧ efs = [] ∧ e2' = e1.
   Proof.
-    intros Hprim. inversion Hprim; [| inversion H].
-    inversion H; subst. auto.
+    intros Hprim. inversion Hprim; subst.
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x. inversion H0; subst; repeat split; reflexivity.
+      + destruct Ki; simpl in H;
+          [discriminate H |discriminate H |discriminate H
+          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x. inversion H0.
+      + destruct Ki; simpl in H;
+          [discriminate H |discriminate H |discriminate H
+          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
   Qed.
 
   Lemma prim_if_false_det e1 e2 σ κ e2' σ2 efs :
     prim_step (If (Val (LitBool false)) e1 e2) σ κ e2' σ2 efs →
     κ = [] ∧ σ2 = σ ∧ efs = [] ∧ e2' = e2.
   Proof.
-    intros Hprim. inversion Hprim; [| inversion H].
-    inversion H; subst. auto.
+    intros Hprim. inversion Hprim; subst.
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x. inversion H0; subst; repeat split; reflexivity.
+      + destruct Ki; simpl in H;
+          [discriminate H |discriminate H |discriminate H
+          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x. inversion H0.
+      + destruct Ki; simpl in H;
+          [discriminate H |discriminate H |discriminate H
+          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
   Qed.
 
   (** Head-step determinant lemmas *)
@@ -114,11 +158,20 @@ Section snakelet_wp.
     prim_step (Load (Val (LitLoc l))) σ κ e2 σ2 efs →
     κ = [] ∧ σ2 = σ ∧ efs = [] ∧ e2 = Val v.
   Proof.
-    intros Hlookup Hprim.
-    inversion Hprim as [e0 σ0 e0' Hpure | e0 σ0 e0' σ0' efs0 Hhead]; subst;
-      [exfalso; inversion Hpure|].
-    edestruct head_load_det as (v'&Hlook'&->&->&->); eauto.
-    assert (v = v') by congruence. subst v'. auto.
+    intros Hlookup Hprim. inversion Hprim; subst.
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x. exfalso; inversion H0.
+      + destruct Ki; simpl in H;
+          [discriminate H |discriminate H |discriminate H |discriminate H
+          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x. edestruct head_load_det as (v'&Hlook'&->&->&->); eauto.
+        assert (v = v') by congruence; subst v'. auto.
+      + destruct Ki; simpl in H;
+          [discriminate H |discriminate H |discriminate H |discriminate H
+          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
   Qed.
 
   Lemma prim_store_det l v σ κ e2 σ2 efs :
@@ -126,22 +179,40 @@ Section snakelet_wp.
     prim_step (Store (Val (LitLoc l)) (Val v)) σ κ e2 σ2 efs →
     κ = [] ∧ σ2 = <[l:=v]> σ ∧ efs = [] ∧ e2 = Val LitUnit.
   Proof.
-    intros Hlookup Hprim.
-    inversion Hprim as [e0 σ0 e0' Hpure | e0 σ0 e0' σ0' efs0 Hhead]; subst;
-      [exfalso; inversion Hpure|].
-    edestruct head_store_det as (?&->&->&->); eauto.
+    intros Hlookup Hprim. inversion Hprim; subst.
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x. exfalso; inversion H0.
+      + destruct Ki; simpl in H;
+          [discriminate H |discriminate H |discriminate H |discriminate H |discriminate H
+          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |discriminate H |discriminate H |discriminate H].
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x. eapply head_store_det in H0 as (?&->&->&->). auto.
+      + destruct Ki; simpl in H;
+          [discriminate H |discriminate H |discriminate H |discriminate H |discriminate H
+          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |discriminate H |discriminate H |discriminate H].
   Qed.
 
   Lemma prim_alloc_det v σ κ e2 σ2 efs :
     prim_step (Alloc (Val v)) σ κ e2 σ2 efs →
     ∃ l, σ !! l = None ∧ κ = [] ∧ σ2 = <[l:=v]> σ ∧ efs = [] ∧ e2 = Val (LitLoc l).
   Proof.
-    intros Hprim.
-    inversion Hprim as [e0 σ0 e0' Hpure | e0 σ0 e0' σ0' efs0 Hhead]; subst;
-      [exfalso; inversion Hpure|].
-    pose proof (head_alloc_det v σ e2 σ2 efs Hhead) as (l&Hfree&Heq&Heq2&Heq3).
-    rewrite Heq Heq2 Heq3.
-    exists l; split; [exact Hfree|]; auto.
+    intros Hprim. inversion Hprim; subst.
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x. exfalso; inversion H0.
+      + destruct Ki; simpl in H;
+          [discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H
+          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |discriminate H |discriminate H].
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x. eapply head_alloc_det in H0 as (l&?&->&->&->). exists l; split; [done|]. auto.
+      + destruct Ki; simpl in H;
+          [discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H
+          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
+          |discriminate H |discriminate H].
   Qed.
 
   (** Pure WP lemmas *)
@@ -239,14 +310,14 @@ Section snakelet_wp.
   Lemma wp_load s E l v Φ :
     l ↦ v -∗
     (l ↦ v -∗ Φ v) -∗
-    WP (! #l)%S @ s; E {{ Φ }}.
+    WP Load (Val (LitLoc l)) @ s; E {{ Φ }}.
   Proof.
     iIntros "Hl HΦ". iApply wp_lift_step; [done|].
     iIntros (σ1 ns κ κs nt) "Hσ".
     iDestruct (gen_heap_valid with "Hσ Hl") as %Hlookup.
     iApply fupd_mask_intro; [set_solver|]. iIntros "Hclose". iSplit.
     { iPureIntro. destruct s; [|done]. apply reducible_no_obs_reducible.
-      eexists _, _, []. eapply (PrimHeadStep (Load _) σ1).
+      eexists _, _, []. eapply (PrimHeadStep [] (Load _) σ1).
       eapply (HeadLoad l v σ1). done. }
     iNext. iIntros (e2 σ2 efs Hprim) "Hcred".
     iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
@@ -262,14 +333,14 @@ Section snakelet_wp.
   Lemma wp_store s E l v (w : sn_val) Φ :
     l ↦ v -∗
     (l ↦ w -∗ Φ LitUnit) -∗
-    WP (#l <- Val w)%S @ s; E {{ Φ }}.
+    WP Store (Val (LitLoc l)) (Val w) @ s; E {{ Φ }}.
   Proof.
     iIntros "Hl HΦ". iApply wp_lift_step; [done|].
     iIntros (σ1 ns κ κs nt) "Hσ".
     iDestruct (gen_heap_valid with "Hσ Hl") as %Hlookup.
     iApply fupd_mask_intro; [set_solver|]. iIntros "Hclose". iSplit.
     { iPureIntro. destruct s; [|done]. apply reducible_no_obs_reducible.
-      eexists _, _, []. eapply (PrimHeadStep (Store _ _) σ1).
+      eexists _, _, []. eapply (PrimHeadStep [] (Store _ _) σ1).
       eapply (HeadStore l w σ1). eauto. }
     iNext. iIntros (e2 σ2 efs Hprim) "Hcred".
     iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
@@ -301,7 +372,7 @@ Section snakelet_wp.
     iApply fupd_mask_intro; [set_solver|]. iIntros "Hclose". iSplit.
     { iPureIntro. destruct s; [|done]. apply reducible_no_obs_reducible.
       eexists (Val (LitLoc l)), (<[l:=v]> σ1), [].
-      eapply (PrimHeadStep (Alloc _) σ1).
+      eapply (PrimHeadStep [] (Alloc _) σ1).
       eapply (HeadAlloc v σ1 l). done. }
     iNext. iIntros (e2 σ2 efs Hprim) "Hcred".
     iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
@@ -316,11 +387,27 @@ Section snakelet_wp.
     { done. }
   Qed.
 
+  (** Automation: repeatedly apply pure WP reductions. *)
+  Ltac snakelet_pures :=
+    repeat (iApply wp_binop || iApply wp_let || iApply wp_if_true || iApply wp_if_false).
+
 End snakelet_wp.
 
-(** Automation: repeatedly apply pure WP reductions. *)
-Ltac snakelet_pures :=
-  repeat (iApply wp_binop || iApply wp_let || iApply wp_if_true || iApply wp_if_false).
+(** Automation: match the WP goal to extract arguments, then apply the
+    lemma explicitly.  Works outside the section. *)
+Ltac snakelet_pure_step :=
+  lazymatch goal with
+  | |- environments.envs_entails _ (wp _ _ (BinOp ?op (Val ?v1) (Val ?v2)) ?Φ) =>
+      iApply (@wp_binop _ _ _ _ _ op v1 v2 Φ)
+  | |- environments.envs_entails _ (wp _ _ (Let ?x (Val ?v) ?e2) ?Φ) =>
+      iApply (@wp_let _ _ _ _ _ x v e2 Φ)
+  | |- environments.envs_entails _ (wp _ _ (If (Val (LitBool true)) ?e1 ?e2) ?Φ) =>
+      iApply (@wp_if_true _ _ _ _ _ e1 e2 Φ)
+  | |- environments.envs_entails _ (wp _ _ (If (Val (LitBool false)) ?e1 ?e2) ?Φ) =>
+      iApply (@wp_if_false _ _ _ _ _ e1 e2 Φ)
+  end.
+
+Ltac snakelet_pures := repeat snakelet_pure_step.
 
 (** Register [IntoVal] so [wp_value] resolves correctly. *)
 Global Instance into_val_val v : IntoVal (Val v) v.
