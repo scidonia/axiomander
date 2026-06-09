@@ -33,6 +33,7 @@ Section snakelet_wp.
     state_interp_mono _ _ _ _ := fupd_intro _ _
   |}.
   Global Opaque iris_invGS.
+  Implicit Types l : loc.
 
   (** Determinant lemmas — pure steps *)
   Lemma reducible_pure_step e e' σ :
@@ -188,7 +189,7 @@ Section snakelet_wp.
 
   Lemma wp_if_true s E e1 e2 Φ :
     ▷ WP e1 @ s; E {{ Φ }} -∗
-    WP If (Val (LitBool true)) e1 e2 @ s; E {{ Φ }}.
+    WP If (#true)%S e1 e2 @ s; E {{ Φ }}.
   Proof.
     iIntros "HΦ".
     iApply wp_lift_pure_step_no_fork; [ | | ].
@@ -209,7 +210,7 @@ Section snakelet_wp.
 
   Lemma wp_if_false s E e1 e2 Φ :
     ▷ WP e2 @ s; E {{ Φ }} -∗
-    WP If (Val (LitBool false)) e1 e2 @ s; E {{ Φ }}.
+    WP If (#false)%S e1 e2 @ s; E {{ Φ }}.
   Proof.
     iIntros "HΦ".
     iApply wp_lift_pure_step_no_fork; [ | | ].
@@ -238,7 +239,7 @@ Section snakelet_wp.
   Lemma wp_load s E l v Φ :
     l ↦ v -∗
     (l ↦ v -∗ Φ v) -∗
-    WP (! (LitLoc l))%S @ s; E {{ Φ }}.
+    WP (! #l)%S @ s; E {{ Φ }}.
   Proof.
     iIntros "Hl HΦ". iApply wp_lift_step; [done|].
     iIntros (σ1 ns κ κs nt) "Hσ".
@@ -261,7 +262,7 @@ Section snakelet_wp.
   Lemma wp_store s E l v (w : sn_val) Φ :
     l ↦ v -∗
     (l ↦ w -∗ Φ LitUnit) -∗
-    WP (LitLoc l <- w)%S @ s; E {{ Φ }}.
+    WP (#l <- Val w)%S @ s; E {{ Φ }}.
   Proof.
     iIntros "Hl HΦ". iApply wp_lift_step; [done|].
     iIntros (σ1 ns κ κs nt) "Hσ".

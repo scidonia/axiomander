@@ -362,10 +362,10 @@ Module snakelet_notation.
   Declare Scope snakelet_scope.
   Delimit Scope snakelet_scope with S.
 
-  Coercion Val : sn_val >-> sn_expr.
-
   Notation "# n" := (Val (LitInt n))
-    (at level 1, n at level 1, format "# n") : snakelet_scope.
+    (at level 8, n at level 1, format "# n") : snakelet_scope.
+  Notation "# l" := (Val (LitLoc l))
+    (at level 8, l at level 1, format "# l") : snakelet_scope.
   Notation "#true" := (Val (LitBool true)) : snakelet_scope.
   Notation "#false" := (Val (LitBool false)) : snakelet_scope.
 
