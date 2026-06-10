@@ -332,6 +332,48 @@ Section demo.
       @ s; E {{ v, ⌜v = LitInt 9⌝ }}.
   Proof. snakelet_auto. Qed.
 
+  (** * Staged proofs — the generated-script form
+
+      The pipeline emits one stage tactic per SnakeletIR node instead of
+      the [snakelet_auto] monolith: each line can fail independently, the
+      failing stage identifies itself by name, and the script doubles as
+      the proof trace.  Optional name arguments assert the expected redex
+      (drift detection between generator and goal). *)
+  Lemma call_chain_staged s E :
+    ⊢ WP (let: "a" := Call "square" [Val (LitInt 5)] in
+          let: "b" := Call "twice" [Var "a"] in
+          Call "decr" [Var "b"])%S
+      @ s; E {{ v, ⌜v = LitInt 49⌝ }}.
+  Proof.
+    iStartProof.
+    call_opaque "square".      (* a := 25, pre: int1 *)
+    pure_step.                 (* bind "a" *)
+    call_transparent "twice".  (* unfold: 25 + 25 *)
+    pure_step.                 (* binop: 50 *)
+    pure_step.                 (* bind "b" *)
+    call_opaque "decr".        (* 49, pre: 1 <= 50 *)
+    finish_pure.
+  Qed.
+
+  (** Path fork: a symbolic conditional becomes two staged branches, the
+      branch hypothesis acting as a path constraint for the arithmetic
+      ([x < 0] in the true branch, [0 <= x] in the false branch).  The
+      generator decides the split point; [snakelet_auto] never splits. *)
+  Lemma abs_staged s E (x : Z) :
+    ⊢ WP (let: "x" := #x in
+            If (Val (LitBool (Z.ltb x 0))) (#0 - Var "x") (Var "x"))%S
+      @ s; E {{ v, ∃ z : Z, ⌜v = LitInt z⌝ ∗ ⌜z >= 0⌝ }}.
+  Proof.
+    iStartProof.
+    pure_step.                 (* bind "x" *)
+    case_bool.                 (* fork on x <? 0 *)
+    - pure_step.               (* true branch: select 0 - x *)
+      pure_step.               (* binop: 0 - x *)
+      finish_pure.             (* z := 0 - x; constraint x < 0 *)
+    - pure_step.               (* false branch: select x *)
+      finish_pure.             (* z := x; constraint 0 <= x *)
+  Qed.
+
   (** The contract is *enforced*, not assumed: calling [decr] outside its
       precondition ([1 ≤ x] fails for [0]) is stuck — no [prim_step]
       exists, so no WP proof can sneak past the precondition. *)

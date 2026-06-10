@@ -85,6 +85,13 @@ Branch: `feature/iris-backend-prototype`
 - **`call_chain`, `call_chain_mixed` Qed by `snakelet_auto.` alone**: a body
   chaining square (opaque) → twice (transparent) → decr (opaque, pre 1≤50),
   and a chain mixing calls with pure arithmetic — zero manual steps
+- **`call_chain_staged` Qed by explicit stage script** (the generated-proof
+  form): `call_opaque "square". pure_step. call_transparent "twice".
+  pure_step. pure_step. call_opaque "decr". finish_pure.`
+- **`abs_staged` Qed with `case_bool` path fork**: symbolic `x <? 0`
+  conditional, branch constraints flow into `finish_pure`'s lia
+- Negative check (probe): `call_opaque "double"` on a square-call goal fails
+  with "goal redex is not a call to the given function"
 - Gotcha: `[#5]` inside `%S` collides with stdpp's vector notation `[# ...]` —
   write `[Val (LitInt 5)]` for call argument lists
 - Proof note: `simpl in Hentry` does NOT reduce `demo_table "f"`; pin the entry
@@ -93,8 +100,31 @@ Branch: `feature/iris-backend-prototype`
 
 ### SnakeletTactics.v — clean
 - `reshape_expr` Ltac + `wp_bind` tactic ported from heap_lang
-- **`snakelet_auto`** — reproducible driver for straight-line programs with
-  call chains.  Loop of `snakelet_step`:
+- **Stage tactics — the instruction set for generated proofs.**  The
+  pipeline emits proof scripts as sequences of these (syntax-directed:
+  IR node category → stage tactic), one line per stage; each stage fails
+  independently with a named, classifiable error.  The script IS the trace.
+  - `call_opaque` / `call_opaque "f"` — spec'd call: auto-focus Let-bound
+    call (`snakelet_focus_call`, ANF assumption), table lookup via
+    `eval hnf`, pre via `snakelet_solve_pre`, post substitution via
+    `snakelet_intro_post`.  Optional name argument asserts the expected
+    redex (drift detection; fails with named error on mismatch).
+  - `call_transparent` / `call_transparent "f"` — definition call: unfolds
+    to the substituted body.
+  - `pure_step` — one pure reduction (let-with-value, binop-with-values,
+    literal if).
+  - `case_bool` — path fork on a symbolic boolean; the `eqn:` hypothesis is
+    the path constraint; refuses literal conditions.  The *generator*
+    decides split points; `snakelet_auto` never splits.
+  - `finish_pure` — terminal stage; `snakelet_pure_hyps` converts boolean
+    path constraints (Z.ltb/leb/eqb = true/false) to Props for `lia`;
+    ladder: reflexivity | lia | done | eexists;split;[refl|lia].
+  - SMT escalation contract: obligations `snakelet_solve_pre` cannot solve
+    are exported to SMT by the pipeline; resulting axioms are supplied
+    explicitly in the generated script.
+- **`snakelet_auto`** — interactive composition of the same instruction set
+  (demos/manual use only; generated output never calls the monolith).
+  Loop of `snakelet_step`:
   - pure WP steps (`snakelet_pure_step` from Wp; let/binop/if with values)
   - `snakelet_call_step`: matches `Call f args`, strips `Val`s off `args`
     (`strip_vals`), computes the table entry with `eval hnf` (preserving the
