@@ -358,7 +358,27 @@ Definition lit_as_z (v : sn_val) : Z :=
     in your file to provide the downward closure of specs. *)
 
 Class FunSpecs := { fun_specs : string → list sn_val → sn_val → Prop }.
-#[export] Instance default_fun_specs : FunSpecs := {| fun_specs := λ _ _ _, False |}.
+
+(** Default (empty) spec table.  Low priority [100] so that user-provided
+    instances (e.g. in demos or generated spec files) take precedence. *)
+#[export] Instance default_fun_specs : FunSpecs | 100 := {| fun_specs := λ _ _ _, False |}.
+
+Lemma map_Val_inj (vs1 vs2 : list sn_val) :
+  map Val vs1 = map Val vs2 → vs1 = vs2.
+Proof.
+  revert vs2. induction vs1 as [|v1 vs1 IH]; intros [|v2 vs2] H;
+    simpl in H; try discriminate.
+  - reflexivity.
+  - injection H as Hv Hvs. f_equal; [exact Hv | apply IH, Hvs].
+Qed.
+
+(** Everything from [head_step] to the language instance is parameterized
+    by the ambient [FunSpecs] instance.  The parameter is typeclass-implicit,
+    so [snakelet_lang] applied notations stay clean: the instance is resolved
+    by typeclass search at each use site instead of being baked in at
+    definition time. *)
+Section with_fun_specs.
+Context `{FS : FunSpecs}.
 
 (** * Head steps *)
 Inductive head_step : sn_expr → sn_state → sn_expr → sn_state → list sn_expr → Prop :=
@@ -411,7 +431,7 @@ Proof.
     + apply (fill_not_val K x0). destruct Hhead; subst; simpl; auto.
 Qed.
 
-Global Canonical Structure snakelet_lang := Language snakelet_lang_mixin.
+Canonical Structure snakelet_lang := Language snakelet_lang_mixin.
 
 Lemma to_val_pure_step x x' : pure_step x x' → to_val x = None.
 Proof.
@@ -523,6 +543,12 @@ Proof.
   - apply fill_step_list.
   - apply fill_step_inv_list.
 Defined.
+
+End with_fun_specs.
+
+(** After section discharge, [snakelet_lang : ∀ {FS : FunSpecs}, language]
+    remains canonical.  During canonical structure resolution the [FS]
+    parameter is left as an evar and solved by typeclass search. *)
 
 (** Notations for writing SnakeletLang programs tersely.
 

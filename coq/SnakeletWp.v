@@ -19,10 +19,10 @@ Global Existing Instance snakelet_invGS.
 Global Existing Instance snakelet_gen_heapG.
 Notation snakelet_heapGS := (snakelet_heapGS_gen HasLc).
 
-#[export] Instance wp_fun_specs : FunSpecs := {| fun_specs := λ _ _ _, False |}.
-
 Section snakelet_wp.
   Context `{!snakelet_heapGS_gen hlc Σ}.
+  (** All WP lemmas are parametric in the ambient function-spec table. *)
+  Context `{FS : FunSpecs}.
 
   Definition snakelet_state_interp (σ : sn_state) (ns : nat) (κs : list observation) (nt : nat) : iProp Σ :=
     gen_heap_interp σ.
@@ -389,12 +389,53 @@ Section snakelet_wp.
     { done. }
   Qed.
 
-  (** * Call specification lemma. *)
-  Lemma wp_call s E f vs Φ (v : sn_val) :
+  (** Inversion lemma for calls.  Note: [fun_specs] is a *relation* — a call
+      may step to any [w] satisfying the spec, so the conclusion existentially
+      quantifies the result rather than fixing it (a deterministic version
+      would be unsound for nondeterministic spec tables). *)
+  Lemma prim_call_inv f vs σ κ e2 σ2 efs :
+    prim_step (Call f (map Val vs)) σ κ e2 σ2 efs →
+    ∃ w, fun_specs f vs w ∧ κ = [] ∧ σ2 = σ ∧ efs = [] ∧ e2 = Val w.
+  Proof.
+    intros Hprim. inversion Hprim; subst.
+    - (* pure step: no pure_step constructor produces a Call redex *)
+      destruct K as [|Ki K']; simpl in H.
+      + subst x. inversion H0.
+      + destruct Ki; simpl in H; discriminate H.
+    - (* head step: only HeadCall applies *)
+      destruct K as [|Ki K']; simpl in H.
+      + subst x. inversion H0; subst.
+        match goal with
+        | Hm : map Val _ = map Val _ |- _ => apply map_Val_inj in Hm as ->
+        end.
+        eexists; eauto 7.
+      + destruct Ki; simpl in H; discriminate H.
+  Qed.
+
+  (** * Call specification lemma.
+      The first premise supplies reducibility; the wand must cover every
+      result the spec relation admits. *)
+  Lemma wp_call s E f vs v Φ :
     fun_specs f vs v →
-    Φ v -∗
+    (∀ w : sn_val, ⌜fun_specs f vs w⌝ -∗ Φ w) -∗
     WP Call f (map Val vs) @ s; E {{ Φ }}.
-  Proof. Admitted.
+  Proof.
+    iIntros (Hspec) "HΦ". iApply wp_lift_step; [done|].
+    iIntros (σ1 ns κ κs nt) "Hσ".
+    iApply fupd_mask_intro; [set_solver|]. iIntros "Hclose". iSplit.
+    { iPureIntro. destruct s; [|done]. apply reducible_no_obs_reducible.
+      eexists (Val v), σ1, []. eapply (PrimHeadStep [] (Call f (map Val vs)) σ1).
+      eapply HeadCall. exact Hspec. }
+    iNext. iIntros (e2 σ2 efs Hprim) "Hcred".
+    iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
+    pose proof (prim_call_inv f vs σ1 κ e2 σ2 efs Hprim) as (w&Hw&Hκ&Hσ2&Hefs&He2).
+    rewrite He2 Hκ Hσ2 Hefs.
+    iMod "Hclose". iModIntro. iFrame "Hσ".
+    iSpecialize ("HΦ" $! w with "[//]").
+    iSplitL.
+    { rewrite wp_unfold /wp_pre /=. iModIntro. iExact "HΦ". }
+    { done. }
+  Qed.
 
   (** Automation: repeatedly apply pure WP reductions. *)
   Ltac snakelet_pures :=
@@ -418,6 +459,8 @@ Ltac snakelet_pure_step :=
 
 Ltac snakelet_pures := repeat snakelet_pure_step.
 
-(** Register [IntoVal] so [wp_value] resolves correctly. *)
-Global Instance into_val_val v : IntoVal (Val v) v.
+(** Register [IntoVal] so [wp_value] resolves correctly.  Parametric in
+    [FunSpecs] so it applies at whatever spec table the goal's language
+    instance carries. *)
+Global Instance into_val_val `{FunSpecs} v : IntoVal (Val v) v.
 Proof. done. Qed.

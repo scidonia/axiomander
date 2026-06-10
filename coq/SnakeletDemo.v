@@ -27,7 +27,7 @@ Section demo.
   Lemma add_3_4 s E :
     ⊢ WP (#3 + #4)%S @ s; E {{ v, ⌜v = LitInt 7⌝ }}.
   Proof.
-    iApply (@wp_binop _ _ _ s E AddOp (LitInt 3) (LitInt 4) _).
+    iApply (@wp_binop _ _ _ _ s E AddOp (LitInt 3) (LitInt 4) _).
     iNext. iPureIntro. reflexivity.
   Qed.
 
@@ -36,9 +36,9 @@ Section demo.
     ⊢ WP (let: "x" := #1 in Var "x" + Var "x")%S
       @ s; E {{ v, ⌜v = LitInt 2⌝ }}.
   Proof.
-    iApply (@wp_let _ _ _ s E "x" (LitInt 1) _).
+    iApply (@wp_let _ _ _ _ s E "x" (LitInt 1) _).
     iNext.
-    iApply (@wp_binop _ _ _ s E AddOp (LitInt 1) (LitInt 1) _).
+    iApply (@wp_binop _ _ _ _ s E AddOp (LitInt 1) (LitInt 1) _).
     iNext. iPureIntro. reflexivity.
   Qed.
 
@@ -65,7 +65,7 @@ Section demo.
             If (Var "b") (#1)%S (#0)%S)%S
       @ s; E {{ v, ⌜v = LitInt 1⌝ }}.
   Proof.
-    iApply (@wp_let _ _ _ s E "b" (LitBool true) _).
+    iApply (@wp_let _ _ _ _ s E "b" (LitBool true) _).
     iNext.
     iApply wp_if_true. iNext. iApply wp_value'. iPureIntro. reflexivity.
   Qed.
@@ -78,9 +78,9 @@ Section demo.
               Var "x" * Var "y")%S
       @ s; E {{ v, ⌜v = LitInt 12⌝ }}.
   Proof.
-    iApply (@wp_let _ _ _ s E "x" (LitInt 3) _). iNext.
-    iApply (@wp_let _ _ _ s E "y" (LitInt 4) _). iNext.
-    iApply (@wp_binop _ _ _ s E MulOp (LitInt 3) (LitInt 4) _).
+    iApply (@wp_let _ _ _ _ s E "x" (LitInt 3) _). iNext.
+    iApply (@wp_let _ _ _ _ s E "y" (LitInt 4) _). iNext.
+    iApply (@wp_binop _ _ _ _ s E MulOp (LitInt 3) (LitInt 4) _).
     iNext. iPureIntro. reflexivity.
   Qed.
 
@@ -91,9 +91,9 @@ Section demo.
               Var "x" - Var "y")%S
       @ s; E {{ v, ⌜v = LitInt 3⌝ }}.
   Proof.
-    iApply (@wp_let _ _ _ s E "x" (LitInt 5) _). iNext.
-    iApply (@wp_let _ _ _ s E "y" (LitInt 2) _). iNext.
-    iApply (@wp_binop _ _ _ s E SubOp (LitInt 5) (LitInt 2) _).
+    iApply (@wp_let _ _ _ _ s E "x" (LitInt 5) _). iNext.
+    iApply (@wp_let _ _ _ _ s E "y" (LitInt 2) _). iNext.
+    iApply (@wp_binop _ _ _ _ s E SubOp (LitInt 5) (LitInt 2) _).
     iNext. iPureIntro. reflexivity.
   Qed.
 
@@ -104,8 +104,8 @@ Section demo.
             Var "x" < #5)%S
       @ s; E {{ v, ⌜v = LitBool true⌝ }}.
   Proof.
-    iApply (@wp_let _ _ _ s E "x" (LitInt 3) _). iNext.
-    iApply (@wp_binop _ _ _ s E LtOp (LitInt 3) (LitInt 5) _).
+    iApply (@wp_let _ _ _ _ s E "x" (LitInt 3) _). iNext.
+    iApply (@wp_binop _ _ _ _ s E LtOp (LitInt 3) (LitInt 5) _).
     iNext. iPureIntro. reflexivity.
   Qed.
 
@@ -116,9 +116,9 @@ Section demo.
               Var "a" + Var "b")%S
       @ s; E {{ v, ⌜v = LitInt (a + b)%Z⌝ }}.
   Proof.
-    iApply (@wp_let _ _ _ s E "a" (LitInt a) _). iNext.
-    iApply (@wp_let _ _ _ s E "b" (LitInt b) _). iNext.
-    iApply (@wp_binop _ _ _ s E AddOp (LitInt a) (LitInt b) _).
+    iApply (@wp_let _ _ _ _ s E "a" (LitInt a) _). iNext.
+    iApply (@wp_let _ _ _ _ s E "b" (LitInt b) _). iNext.
+    iApply (@wp_binop _ _ _ _ s E AddOp (LitInt a) (LitInt b) _).
     iNext. iPureIntro. reflexivity.
   Qed.
 
@@ -128,9 +128,9 @@ Section demo.
               Var "a" * Var "b")%S
       @ s; E {{ v, ⌜v = LitInt (a * b)%Z⌝ }}.
   Proof.
-    iApply (@wp_let _ _ _ s E "a" (LitInt a) _). iNext.
-    iApply (@wp_let _ _ _ s E "b" (LitInt b) _). iNext.
-    iApply (@wp_binop _ _ _ s E MulOp (LitInt a) (LitInt b) _).
+    iApply (@wp_let _ _ _ _ s E "a" (LitInt a) _). iNext.
+    iApply (@wp_let _ _ _ _ s E "b" (LitInt b) _). iNext.
+    iApply (@wp_binop _ _ _ _ s E MulOp (LitInt a) (LitInt b) _).
     iNext. iPureIntro. reflexivity.
   Qed.
 
@@ -140,8 +140,8 @@ Section demo.
               If (Val (LitBool (Z.ltb a b))) (Var "b") (Var "a"))%S
       @ s; E {{ v, ⌜v = LitInt (Z.max a b)⌝ }}.
   Proof.
-    iApply (@wp_let _ _ _ s E "a" (LitInt a) _). iNext.
-    iApply (@wp_let _ _ _ s E "b" (LitInt b) _). iNext.
+    iApply (@wp_let _ _ _ _ s E "a" (LitInt a) _). iNext.
+    iApply (@wp_let _ _ _ _ s E "b" (LitInt b) _). iNext.
     destruct (Z_lt_dec a b) as [Hlt | Hge].
     - simpl. assert (Z.ltb a b = true) as -> by (apply Z.ltb_lt; auto).
       iApply wp_if_true. iNext. iApply wp_value'. iPureIntro.
@@ -156,11 +156,11 @@ Section demo.
             If (Val (LitBool (Z.ltb x 0))) (#0 - Var "x") (Var "x"))%S
       @ s; E {{ v, ∃ (z : Z), ⌜v = LitInt z⌝ ∗ ⌜z >= 0⌝ }}.
   Proof.
-    iApply (@wp_let _ _ _ s E "x" (LitInt x) _). iNext.
+    iApply (@wp_let _ _ _ _ s E "x" (LitInt x) _). iNext.
     destruct (Z_lt_dec x 0) as [Hlt | Hge].
     - simpl. assert (Z.ltb x 0 = true) as -> by (apply Z.ltb_lt; auto).
       iApply wp_if_true. iNext.
-      iApply (@wp_binop _ _ _ s E SubOp (LitInt 0) (LitInt x) _).
+      iApply (@wp_binop _ _ _ _ s E SubOp (LitInt 0) (LitInt x) _).
       iNext. iPureIntro. exists (0 - x)%Z. split; [reflexivity | lia].
     - simpl. assert (Z.ltb x 0 = false) as -> by (apply Z.ltb_nlt; auto).
       iApply wp_if_false. iNext. iApply wp_value'. iPureIntro. exists x.
@@ -173,7 +173,7 @@ Section demo.
       @ s; E {{ v, ⌜v = LitInt 10⌝ }}.
   Proof.
     wp_bind (#2 < #3)%S.
-    iApply (@wp_binop _ _ _ s E LtOp (LitInt 2) (LitInt 3) _).
+    iApply (@wp_binop _ _ _ _ s E LtOp (LitInt 2) (LitInt 3) _).
     iNext. simpl.
     iApply wp_if_true. iNext. iApply wp_value'. iPureIntro. reflexivity.
   Qed.
@@ -190,22 +190,39 @@ Section demo.
 
   (** * Function call demos (opaque, spec-driven)
 
-      Calls use [wp_call] (currently admit'd).  When proved, these become: *)
+      Calls are verified against [demo_fun_specs] via [wp_call]: the spec
+      premise provides reducibility, and the continuation must cover every
+      result the spec relation admits. *)
 
   Lemma call_square s E :
     ⊢ WP Call "square" [Val (LitInt 5)] @ s; E
       {{ v, ⌜v = LitInt 25⌝ }}.
-  Proof. Admitted.
+  Proof.
+    iApply (wp_call s E "square" [LitInt 5] (LitInt 25)).
+    { simpl. reflexivity. }
+    iIntros (w Hw). simpl in Hw. subst w. done.
+  Qed.
 
   Lemma call_double s E :
     ⊢ WP Call "double" [Val (LitInt 7)] @ s; E
       {{ v, ⌜v = LitInt 14⌝ }}.
-  Proof. Admitted.
+  Proof.
+    iApply (wp_call s E "double" [LitInt 7] (LitInt 14)).
+    { simpl. reflexivity. }
+    iIntros (w Hw). simpl in Hw. subst w. done.
+  Qed.
 
-  (** A negative test: calling an unknown function is stuck. *)
-  Lemma call_unknown s E :
-    ⊢ WP Call "nonexistent" [Val (LitInt 0)] @ s; E
-      {{ v, ⌜v = LitInt 0⌝ }}.
-  Proof. Admitted.
+  (** A negative test, proved positively: calling a function with no spec
+      is stuck — no [prim_step] exists, because [HeadCall] demands a
+      [fun_specs] witness and [demo_fun_specs] provides none for
+      ["nonexistent"]. *)
+  Lemma call_unknown_stuck σ :
+    ¬ reducible (Λ := snakelet_lang) (Call "nonexistent" [Val (LitInt 0)]) σ.
+  Proof.
+    intros (κ & e' & σ' & efs & Hstep).
+    apply (prim_call_inv "nonexistent" [LitInt 0]) in Hstep
+      as (w & Hw & _).
+    simpl in Hw. exact Hw.
+  Qed.
 
 End demo.
