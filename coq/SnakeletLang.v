@@ -355,8 +355,11 @@ Definition lit_as_z (v : sn_val) : Z :=
 
     A function name resolves to at most one entry:
 
-    - [FunSpec spec] — *opaque* call: the implementation is hidden behind a
-      relational contract [spec args result].  Verified via [wp_call].
+    - [FunSpec pre post] — *opaque* call: the implementation is hidden
+      behind a contract.  The call only steps when [pre args] holds
+      (calling outside the precondition is *stuck*, so WP forces the
+      caller to establish it), and may step to any result satisfying
+      [post args result].  Verified via [wp_call].
     - [FunDef params body] — *transparent* call: the call unfolds by
       substituting the (value) arguments for the parameters.  Used for
       helper functions without contracts and for testing the Python
@@ -368,14 +371,32 @@ Definition lit_as_z (v : sn_val) : Z :=
     in your file to provide the spec/definition table. *)
 
 Inductive fun_entry :=
-  | FunSpec (spec : list sn_val → sn_val → Prop)
+  | FunSpec (pre : list sn_val → Prop) (post : list sn_val → sn_val → Prop)
   | FunDef (params : list string) (body : sn_expr).
 
-Class FunCtx := { fun_entries : string → option fun_entry }.
+Class FunCtx := {
+  fun_entries : string → option fun_entry;
+  (** Callee-side total-correctness promise: a spec'd function called
+      within its precondition produces *some* result satisfying its
+      postcondition.  This is the callee's obligation, discharged once per
+      table (when the implementation is verified against the spec) — so
+      callers only ever prove the precondition.  Without it, [wp_call]
+      could not establish reducibility from [pre] alone, and the existence
+      of a result would leak to every call site, breaking modularity. *)
+  fun_specs_total : ∀ f pre post vs,
+    fun_entries f = Some (FunSpec pre post) →
+    pre vs → ∃ v, post vs v;
+}.
+
+Lemma empty_table_total : ∀ (f : string) pre post (vs : list sn_val),
+  (None : option fun_entry) = Some (FunSpec pre post) →
+  pre vs → ∃ v, post vs v.
+Proof. discriminate. Qed.
 
 (** Default (empty) table.  Low priority [100] so that user-provided
     instances (e.g. in demos or generated spec files) take precedence. *)
-#[export] Instance default_fun_ctx : FunCtx | 100 := {| fun_entries := λ _, None |}.
+#[export] Instance default_fun_ctx : FunCtx | 100 :=
+  {| fun_entries := λ _, None; fun_specs_total := empty_table_total |}.
 
 (** Substitute value arguments for parameters, left to right.  Arguments
     are values (closed), so sequential substitution is capture-free. *)
@@ -426,9 +447,10 @@ Inductive head_step : sn_expr → sn_state → sn_expr → sn_state → list sn_
   | HeadTryBody body handler σ body' σ' efs :
       head_step body σ body' σ' efs →
       head_step (Try body handler) σ body' σ' efs
-  | HeadCallSpec f vs σ spec v :
-      fun_entries f = Some (FunSpec spec) →
-      spec vs v →
+  | HeadCallSpec f vs σ pre post v :
+      fun_entries f = Some (FunSpec pre post) →
+      pre vs →
+      post vs v →
       head_step (Call f (map Val vs)) σ (Val v) σ []
   | HeadCallUnfold f vs σ params body :
       fun_entries f = Some (FunDef params body) →

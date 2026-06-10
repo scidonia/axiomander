@@ -390,13 +390,15 @@ Section snakelet_wp.
   Qed.
 
   (** Inversion lemma for calls.  The step source is determined by the
-      single [fun_entries] table: an opaque call steps to any spec-admitted
-      value (the spec is a *relation*, so the result is existentially
-      quantified), a transparent call unfolds to its substituted body. *)
+      single [fun_entries] table: an opaque call steps only within its
+      precondition, to any postcondition-admitted value (the result is
+      existentially quantified — [post] is a relation); a transparent call
+      unfolds to its substituted body. *)
   Lemma prim_call_inv f vs σ κ e2 σ2 efs :
     prim_step (Call f (map Val vs)) σ κ e2 σ2 efs →
     κ = [] ∧ σ2 = σ ∧ efs = [] ∧
-    ((∃ spec w, fun_entries f = Some (FunSpec spec) ∧ spec vs w ∧ e2 = Val w) ∨
+    ((∃ pre post w, fun_entries f = Some (FunSpec pre post) ∧
+        pre vs ∧ post vs w ∧ e2 = Val w) ∨
      (∃ params body, fun_entries f = Some (FunDef params body) ∧
         length vs = length params ∧ e2 = subst_list params vs body)).
   Proof.
@@ -411,33 +413,39 @@ Section snakelet_wp.
           match goal with
           | Hm : map Val _ = map Val _ |- _ => apply map_Val_inj in Hm as ->
           end.
-        * do 3 (split; [done|]). left. eexists _, _. eauto.
+        * do 3 (split; [done|]). left. eexists _, _, _. eauto.
         * do 3 (split; [done|]). right. eexists _, _. eauto.
       + destruct Ki; simpl in H; discriminate H.
   Qed.
 
-  (** * Opaque call: spec-driven reasoning.
-      The premises supply reducibility; the wand must cover every result
-      the spec relation admits. *)
-  Lemma wp_call s E f spec vs v Φ :
-    fun_entries f = Some (FunSpec spec) →
-    spec vs v →
-    (∀ w : sn_val, ⌜spec vs w⌝ -∗ Φ w) -∗
+  (** * Opaque call: modular contract reasoning.
+      The caller proves the *precondition* and receives the
+      *postcondition* for whatever result the callee produces.
+      Reducibility follows from the table's total-correctness promise
+      [fun_specs_total] — the existence of a result is the callee's
+      obligation, not the call site's.  Calling outside the precondition
+      is stuck, so WP (NotStuck) enforces the contract. *)
+  Lemma wp_call s E f pre post vs Φ :
+    fun_entries f = Some (FunSpec pre post) →
+    pre vs →
+    (∀ w : sn_val, ⌜post vs w⌝ -∗ Φ w) -∗
     WP Call f (map Val vs) @ s; E {{ Φ }}.
   Proof.
-    iIntros (Hentry Hspec) "HΦ". iApply wp_lift_step; [done|].
+    iIntros (Hentry Hpre) "HΦ". iApply wp_lift_step; [done|].
     iIntros (σ1 ns κ κs nt) "Hσ".
     iApply fupd_mask_intro; [set_solver|]. iIntros "Hclose". iSplit.
     { iPureIntro. destruct s; [|done]. apply reducible_no_obs_reducible.
+      destruct (fun_specs_total f pre post vs Hentry Hpre) as [v Hv].
       eexists (Val v), σ1, []. eapply (PrimHeadStep [] (Call f (map Val vs)) σ1).
-      eapply HeadCallSpec; [exact Hentry|exact Hspec]. }
+      eapply HeadCallSpec; [exact Hentry|exact Hpre|exact Hv]. }
     iNext. iIntros (e2 σ2 efs Hprim) "Hcred".
     iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
     pose proof (prim_call_inv f vs σ1 κ e2 σ2 efs Hprim)
       as (Hκ & Hσ2 & Hefs &
-          [(spec' & w & Hentry' & Hw & He2) | (params & body & Hentry' & _ & _)]);
+          [(pre' & post' & w & Hentry' & Hpre' & Hpost' & He2)
+          | (params & body & Hentry' & _ & _)]);
       last congruence.
-    assert (spec' = spec) as -> by congruence.
+    assert (post' = post) as -> by congruence.
     rewrite He2 Hκ Hσ2 Hefs.
     iMod "Hclose". iModIntro. iFrame "Hσ".
     iSpecialize ("HΦ" $! w with "[//]").
@@ -466,7 +474,7 @@ Section snakelet_wp.
     iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
     pose proof (prim_call_inv f vs σ1 κ e2 σ2 efs Hprim)
       as (Hκ & Hσ2 & Hefs &
-          [(spec & w & Hentry' & _ & _) | (params' & body' & Hentry' & _ & He2)]);
+          [(pre & post & w & Hentry' & _ & _) | (params' & body' & Hentry' & _ & He2)]);
       first congruence.
     assert (params' = params) as -> by congruence.
     assert (body' = body) as -> by congruence.

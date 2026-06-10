@@ -11,23 +11,53 @@ Require Import SnakeletTactics.
 Import snakelet_notation.
 Open Scope Z_scope.
 
-(** Contracts for opaque functions. *)
-Definition square_spec (args : list sn_val) (r : sn_val) : Prop :=
+(** Contracts for opaque functions: a precondition on the arguments and a
+    postcondition relating arguments to result.  The precondition also
+    carries the arity/typing constraint. *)
+Definition int1_pre (args : list sn_val) : Prop :=
+  ∃ x : Z, args = [LitInt x].
+Definition square_post (args : list sn_val) (r : sn_val) : Prop :=
   match args with [LitInt x] => r = LitInt (x * x) | _ => False end.
-Definition double_spec (args : list sn_val) (r : sn_val) : Prop :=
+Definition double_post (args : list sn_val) (r : sn_val) : Prop :=
   match args with [LitInt x] => r = LitInt (x + x) | _ => False end.
 
-(** The function table: ["square"]/["double"] are *opaque* (spec only),
-    ["twice"] is a *transparent* helper that unfolds to its body. *)
-#[global] Instance demo_fun_ctx : FunCtx := {|
-  fun_entries := λ f,
-    match f with
-    | "square" => Some (FunSpec square_spec)
-    | "double" => Some (FunSpec double_spec)
-    | "twice"  => Some (FunDef ["x"] (Var "x" + Var "x")%S)
-    | _ => None
-    end
-|}.
+(** A contract with a *nontrivial* precondition: [decr] requires its
+    argument to be at least 1. *)
+Definition decr_pre (args : list sn_val) : Prop :=
+  ∃ x : Z, args = [LitInt x] ∧ 1 ≤ x.
+Definition decr_post (args : list sn_val) (r : sn_val) : Prop :=
+  match args with [LitInt x] => r = LitInt (x - 1) | _ => False end.
+
+(** The function table: ["square"]/["double"]/["decr"] are *opaque*
+    (contract only), ["twice"] is a *transparent* helper that unfolds to
+    its body.  Written with [String.eqb] chains (rather than match on
+    string literals) so the totality proof below can case-split. *)
+Definition demo_table (f : string) : option fun_entry :=
+  if String.eqb f "square" then Some (FunSpec int1_pre square_post)
+  else if String.eqb f "double" then Some (FunSpec int1_pre double_post)
+  else if String.eqb f "decr" then Some (FunSpec decr_pre decr_post)
+  else if String.eqb f "twice" then Some (FunDef ["x"] (Var "x" + Var "x")%S)
+  else None.
+
+(** The callee-side promise: every spec'd function, called within its
+    precondition, has a result satisfying its postcondition.  In the full
+    pipeline this is discharged when each implementation is verified
+    against its contract. *)
+Lemma demo_table_total : ∀ f pre post vs,
+  demo_table f = Some (FunSpec pre post) → pre vs → ∃ v, post vs v.
+Proof.
+  intros f pre post vs Hf Hpre. unfold demo_table in Hf.
+  destruct (String.eqb f "square"); simplify_eq.
+  { destruct Hpre as (x & ->). by eexists. }
+  destruct (String.eqb f "double"); simplify_eq.
+  { destruct Hpre as (x & ->). by eexists. }
+  destruct (String.eqb f "decr"); simplify_eq.
+  { destruct Hpre as (x & -> & Hx). by eexists. }
+  destruct (String.eqb f "twice"); simplify_eq.
+Qed.
+
+#[global] Instance demo_fun_ctx : FunCtx :=
+  {| fun_entries := demo_table; fun_specs_total := demo_table_total |}.
 
 Section demo.
   Context `{!snakelet_heapGS_gen hlc Σ}.
@@ -197,30 +227,44 @@ Section demo.
       @ s; E {{ v, ⌜v = LitInt 0⌝ }}.
   Proof. (* [if true then 1 else 0 = 1 != 0]. *) Admitted.
 
-  (** * Opaque calls (spec-driven)
+  (** * Opaque calls (contract-driven)
 
-      Calls are verified against [demo_fun_ctx] via [wp_call]: the spec
-      premise provides reducibility, and the continuation must cover every
-      result the spec relation admits. *)
+      Calls are verified against [demo_fun_ctx] via [wp_call]: the caller
+      proves the precondition, and the continuation receives the
+      postcondition for whatever result the callee produces. *)
 
   Lemma call_square s E :
     ⊢ WP Call "square" [Val (LitInt 5)] @ s; E
       {{ v, ⌜v = LitInt 25⌝ }}.
   Proof.
-    iApply (wp_call s E "square" square_spec [LitInt 5] (LitInt 25)).
+    iApply (wp_call s E "square" int1_pre square_post [LitInt 5]).
     { reflexivity. }
-    { reflexivity. }
-    iIntros (w Hw). unfold square_spec in Hw. subst w. done.
+    { by exists 5%Z. }
+    iIntros (w Hw). unfold square_post in Hw. subst w. done.
   Qed.
 
   Lemma call_double s E :
     ⊢ WP Call "double" [Val (LitInt 7)] @ s; E
       {{ v, ⌜v = LitInt 14⌝ }}.
   Proof.
-    iApply (wp_call s E "double" double_spec [LitInt 7] (LitInt 14)).
+    iApply (wp_call s E "double" int1_pre double_post [LitInt 7]).
     { reflexivity. }
+    { by exists 7%Z. }
+    iIntros (w Hw). unfold double_post in Hw. subst w. done.
+  Qed.
+
+  (** [decr] has a real precondition: the caller must prove [1 ≤ x] at the
+      call site or the proof does not go through. *)
+  Lemma call_decr s E (x : Z) :
+    1 ≤ x →
+    ⊢ WP Call "decr" [Val (LitInt x)] @ s; E
+      {{ v, ⌜v = LitInt (x - 1)⌝ }}.
+  Proof.
+    intros Hx.
+    iApply (wp_call s E "decr" decr_pre decr_post [LitInt x]).
     { reflexivity. }
-    iIntros (w Hw). unfold double_spec in Hw. subst w. done.
+    { by exists x. }
+    iIntros (w Hw). unfold decr_post in Hw. subst w. done.
   Qed.
 
   (** * Transparent call (definition unfolds)
@@ -249,7 +293,7 @@ Section demo.
   Proof.
     intros (κ & e' & σ' & efs & Hstep).
     apply (prim_call_inv "nonexistent" [LitInt 0]) in Hstep
-      as (_ & _ & _ & [(spec & w & Hentry & _) | (params & body & Hentry & _)]);
+      as (_ & _ & _ & [(pre & post & w & Hentry & _) | (params & body & Hentry & _)]);
       simpl in Hentry; discriminate Hentry.
   Qed.
 
@@ -261,9 +305,28 @@ Section demo.
   Proof.
     intros (κ & e' & σ' & efs & Hstep).
     apply (prim_call_inv "twice" [LitInt 1; LitInt 2]) in Hstep
-      as (_ & _ & _ & [(spec & w & Hentry & _) | (params & body & Hentry & Hlen & _)]).
+      as (_ & _ & _ & [(pre & post & w & Hentry & _) | (params & body & Hentry & Hlen & _)]).
     - simpl in Hentry. discriminate Hentry.
     - simpl in Hentry. injection Hentry as <- <-. simpl in Hlen. discriminate Hlen.
+  Qed.
+
+  (** The contract is *enforced*, not assumed: calling [decr] outside its
+      precondition ([1 ≤ x] fails for [0]) is stuck — no [prim_step]
+      exists, so no WP proof can sneak past the precondition. *)
+  Lemma call_decr_pre_violation_stuck σ :
+    ¬ reducible (Λ := snakelet_lang) (Call "decr" [Val (LitInt 0)]) σ.
+  Proof.
+    intros (κ & e' & σ' & efs & Hstep).
+    apply (prim_call_inv "decr" [LitInt 0]) in Hstep
+      as (_ & _ & _ & [(pre & post & w & Hentry & Hpre & _)
+                      | (params & body & Hentry & _)]).
+    - assert (Hd : fun_entries "decr" = Some (FunSpec decr_pre decr_post))
+        by reflexivity.
+      rewrite Hd in Hentry. simplify_eq.
+      destruct Hpre as (x & Hx & Hge). simplify_eq. lia.
+    - assert (Hd : fun_entries "decr" = Some (FunSpec decr_pre decr_post))
+        by reflexivity.
+      rewrite Hd in Hentry. discriminate Hentry.
   Qed.
 
 End demo.
