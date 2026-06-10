@@ -351,17 +351,39 @@ Definition lit_as_z (v : sn_val) : Z :=
   match v with LitInt n => n | _ => 0 end.
 
 
-(** * Function specifications
+(** * Function context
 
-    [fun_specs f args result]: function [f] with arguments [args]
-    may produce result [result].  Override with a #[local] Instance
-    in your file to provide the downward closure of specs. *)
+    A function name resolves to at most one entry:
 
-Class FunSpecs := { fun_specs : string → list sn_val → sn_val → Prop }.
+    - [FunSpec spec] — *opaque* call: the implementation is hidden behind a
+      relational contract [spec args result].  Verified via [wp_call].
+    - [FunDef params body] — *transparent* call: the call unfolds by
+      substituting the (value) arguments for the parameters.  Used for
+      helper functions without contracts and for testing the Python
+      lowering.  Verified via [wp_call_unfold].
 
-(** Default (empty) spec table.  Low priority [100] so that user-provided
+    Both modes live in one table, so they are mutually exclusive *by
+    construction*: no coherence side conditions on instances, and each WP
+    call lemma has a deterministic step source.  Override with an Instance
+    in your file to provide the spec/definition table. *)
+
+Inductive fun_entry :=
+  | FunSpec (spec : list sn_val → sn_val → Prop)
+  | FunDef (params : list string) (body : sn_expr).
+
+Class FunCtx := { fun_entries : string → option fun_entry }.
+
+(** Default (empty) table.  Low priority [100] so that user-provided
     instances (e.g. in demos or generated spec files) take precedence. *)
-#[export] Instance default_fun_specs : FunSpecs | 100 := {| fun_specs := λ _ _ _, False |}.
+#[export] Instance default_fun_ctx : FunCtx | 100 := {| fun_entries := λ _, None |}.
+
+(** Substitute value arguments for parameters, left to right.  Arguments
+    are values (closed), so sequential substitution is capture-free. *)
+Fixpoint subst_list (params : list string) (vs : list sn_val) (e : sn_expr) : sn_expr :=
+  match params, vs with
+  | x :: params', v :: vs' => subst_list params' vs' (subst x v e)
+  | _, _ => e
+  end.
 
 Lemma map_Val_inj (vs1 vs2 : list sn_val) :
   map Val vs1 = map Val vs2 → vs1 = vs2.
@@ -373,12 +395,12 @@ Proof.
 Qed.
 
 (** Everything from [head_step] to the language instance is parameterized
-    by the ambient [FunSpecs] instance.  The parameter is typeclass-implicit,
+    by the ambient [FunCtx] instance.  The parameter is typeclass-implicit,
     so [snakelet_lang] applied notations stay clean: the instance is resolved
     by typeclass search at each use site instead of being baked in at
     definition time. *)
-Section with_fun_specs.
-Context `{FS : FunSpecs}.
+Section with_fun_ctx.
+Context `{FC : FunCtx}.
 
 (** * Head steps *)
 Inductive head_step : sn_expr → sn_state → sn_expr → sn_state → list sn_expr → Prop :=
@@ -404,9 +426,14 @@ Inductive head_step : sn_expr → sn_state → sn_expr → sn_state → list sn_
   | HeadTryBody body handler σ body' σ' efs :
       head_step body σ body' σ' efs →
       head_step (Try body handler) σ body' σ' efs
-  | HeadCall f vs σ v :
-      fun_specs f vs v →
-      head_step (Call f (map Val vs)) σ (Val v) σ [].
+  | HeadCallSpec f vs σ spec v :
+      fun_entries f = Some (FunSpec spec) →
+      spec vs v →
+      head_step (Call f (map Val vs)) σ (Val v) σ []
+  | HeadCallUnfold f vs σ params body :
+      fun_entries f = Some (FunDef params body) →
+      length vs = length params →
+      head_step (Call f (map Val vs)) σ (subst_list params vs body) σ [].
 
 (** * Iris Language instance *)
 Definition observation : Type := unit.
@@ -544,10 +571,10 @@ Proof.
   - apply fill_step_inv_list.
 Defined.
 
-End with_fun_specs.
+End with_fun_ctx.
 
-(** After section discharge, [snakelet_lang : ∀ {FS : FunSpecs}, language]
-    remains canonical.  During canonical structure resolution the [FS]
+(** After section discharge, [snakelet_lang : ∀ {FC : FunCtx}, language]
+    remains canonical.  During canonical structure resolution the [FC]
     parameter is left as an evar and solved by typeclass search. *)
 
 (** Notations for writing SnakeletLang programs tersely.

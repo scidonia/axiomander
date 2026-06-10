@@ -21,8 +21,8 @@ Notation snakelet_heapGS := (snakelet_heapGS_gen HasLc).
 
 Section snakelet_wp.
   Context `{!snakelet_heapGS_gen hlc Σ}.
-  (** All WP lemmas are parametric in the ambient function-spec table. *)
-  Context `{FS : FunSpecs}.
+  (** All WP lemmas are parametric in the ambient function context. *)
+  Context `{FC : FunCtx}.
 
   Definition snakelet_state_interp (σ : sn_state) (ns : nat) (κs : list observation) (nt : nat) : iProp Σ :=
     gen_heap_interp σ.
@@ -389,52 +389,90 @@ Section snakelet_wp.
     { done. }
   Qed.
 
-  (** Inversion lemma for calls.  Note: [fun_specs] is a *relation* — a call
-      may step to any [w] satisfying the spec, so the conclusion existentially
-      quantifies the result rather than fixing it (a deterministic version
-      would be unsound for nondeterministic spec tables). *)
+  (** Inversion lemma for calls.  The step source is determined by the
+      single [fun_entries] table: an opaque call steps to any spec-admitted
+      value (the spec is a *relation*, so the result is existentially
+      quantified), a transparent call unfolds to its substituted body. *)
   Lemma prim_call_inv f vs σ κ e2 σ2 efs :
     prim_step (Call f (map Val vs)) σ κ e2 σ2 efs →
-    ∃ w, fun_specs f vs w ∧ κ = [] ∧ σ2 = σ ∧ efs = [] ∧ e2 = Val w.
+    κ = [] ∧ σ2 = σ ∧ efs = [] ∧
+    ((∃ spec w, fun_entries f = Some (FunSpec spec) ∧ spec vs w ∧ e2 = Val w) ∨
+     (∃ params body, fun_entries f = Some (FunDef params body) ∧
+        length vs = length params ∧ e2 = subst_list params vs body)).
   Proof.
     intros Hprim. inversion Hprim; subst.
     - (* pure step: no pure_step constructor produces a Call redex *)
       destruct K as [|Ki K']; simpl in H.
       + subst x. inversion H0.
       + destruct Ki; simpl in H; discriminate H.
-    - (* head step: only HeadCall applies *)
+    - (* head step: HeadCallSpec or HeadCallUnfold *)
       destruct K as [|Ki K']; simpl in H.
-      + subst x. inversion H0; subst.
-        match goal with
-        | Hm : map Val _ = map Val _ |- _ => apply map_Val_inj in Hm as ->
-        end.
-        eexists; eauto 7.
+      + subst x. inversion H0; subst;
+          match goal with
+          | Hm : map Val _ = map Val _ |- _ => apply map_Val_inj in Hm as ->
+          end.
+        * do 3 (split; [done|]). left. eexists _, _. eauto.
+        * do 3 (split; [done|]). right. eexists _, _. eauto.
       + destruct Ki; simpl in H; discriminate H.
   Qed.
 
-  (** * Call specification lemma.
-      The first premise supplies reducibility; the wand must cover every
-      result the spec relation admits. *)
-  Lemma wp_call s E f vs v Φ :
-    fun_specs f vs v →
-    (∀ w : sn_val, ⌜fun_specs f vs w⌝ -∗ Φ w) -∗
+  (** * Opaque call: spec-driven reasoning.
+      The premises supply reducibility; the wand must cover every result
+      the spec relation admits. *)
+  Lemma wp_call s E f spec vs v Φ :
+    fun_entries f = Some (FunSpec spec) →
+    spec vs v →
+    (∀ w : sn_val, ⌜spec vs w⌝ -∗ Φ w) -∗
     WP Call f (map Val vs) @ s; E {{ Φ }}.
   Proof.
-    iIntros (Hspec) "HΦ". iApply wp_lift_step; [done|].
+    iIntros (Hentry Hspec) "HΦ". iApply wp_lift_step; [done|].
     iIntros (σ1 ns κ κs nt) "Hσ".
     iApply fupd_mask_intro; [set_solver|]. iIntros "Hclose". iSplit.
     { iPureIntro. destruct s; [|done]. apply reducible_no_obs_reducible.
       eexists (Val v), σ1, []. eapply (PrimHeadStep [] (Call f (map Val vs)) σ1).
-      eapply HeadCall. exact Hspec. }
+      eapply HeadCallSpec; [exact Hentry|exact Hspec]. }
     iNext. iIntros (e2 σ2 efs Hprim) "Hcred".
     iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
-    pose proof (prim_call_inv f vs σ1 κ e2 σ2 efs Hprim) as (w&Hw&Hκ&Hσ2&Hefs&He2).
+    pose proof (prim_call_inv f vs σ1 κ e2 σ2 efs Hprim)
+      as (Hκ & Hσ2 & Hefs &
+          [(spec' & w & Hentry' & Hw & He2) | (params & body & Hentry' & _ & _)]);
+      last congruence.
+    assert (spec' = spec) as -> by congruence.
     rewrite He2 Hκ Hσ2 Hefs.
     iMod "Hclose". iModIntro. iFrame "Hσ".
     iSpecialize ("HΦ" $! w with "[//]").
     iSplitL.
     { rewrite wp_unfold /wp_pre /=. iModIntro. iExact "HΦ". }
     { done. }
+  Qed.
+
+  (** * Transparent call: unfold the definition.
+      For helper functions without contracts and for testing the lowering:
+      the call β-reduces to the body with arguments substituted. *)
+  Lemma wp_call_unfold s E f params body vs Φ :
+    fun_entries f = Some (FunDef params body) →
+    length vs = length params →
+    ▷ WP subst_list params vs body @ s; E {{ Φ }} -∗
+    WP Call f (map Val vs) @ s; E {{ Φ }}.
+  Proof.
+    iIntros (Hentry Hlen) "HΦ". iApply wp_lift_step; [done|].
+    iIntros (σ1 ns κ κs nt) "Hσ".
+    iApply fupd_mask_intro; [set_solver|]. iIntros "Hclose". iSplit.
+    { iPureIntro. destruct s; [|done]. apply reducible_no_obs_reducible.
+      eexists (subst_list params vs body), σ1, [].
+      eapply (PrimHeadStep [] (Call f (map Val vs)) σ1).
+      eapply HeadCallUnfold; [exact Hentry|exact Hlen]. }
+    iNext. iIntros (e2 σ2 efs Hprim) "Hcred".
+    iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
+    pose proof (prim_call_inv f vs σ1 κ e2 σ2 efs Hprim)
+      as (Hκ & Hσ2 & Hefs &
+          [(spec & w & Hentry' & _ & _) | (params' & body' & Hentry' & _ & He2)]);
+      first congruence.
+    assert (params' = params) as -> by congruence.
+    assert (body' = body) as -> by congruence.
+    rewrite He2 Hκ Hσ2 Hefs.
+    iMod "Hclose". iModIntro. iFrame "Hσ".
+    iSplitL; [iExact "HΦ" | done].
   Qed.
 
   (** Automation: repeatedly apply pure WP reductions. *)
@@ -460,7 +498,7 @@ Ltac snakelet_pure_step :=
 Ltac snakelet_pures := repeat snakelet_pure_step.
 
 (** Register [IntoVal] so [wp_value] resolves correctly.  Parametric in
-    [FunSpecs] so it applies at whatever spec table the goal's language
+    [FunCtx] so it applies at whatever function table the goal's language
     instance carries. *)
-Global Instance into_val_val `{FunSpecs} v : IntoVal (Val v) v.
+Global Instance into_val_val `{FunCtx} v : IntoVal (Val v) v.
 Proof. done. Qed.

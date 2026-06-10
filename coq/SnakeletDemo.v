@@ -11,12 +11,21 @@ Require Import SnakeletTactics.
 Import snakelet_notation.
 Open Scope Z_scope.
 
-#[global] Instance demo_fun_specs : FunSpecs := {|
-  fun_specs := λ f args r,
+(** Contracts for opaque functions. *)
+Definition square_spec (args : list sn_val) (r : sn_val) : Prop :=
+  match args with [LitInt x] => r = LitInt (x * x) | _ => False end.
+Definition double_spec (args : list sn_val) (r : sn_val) : Prop :=
+  match args with [LitInt x] => r = LitInt (x + x) | _ => False end.
+
+(** The function table: ["square"]/["double"] are *opaque* (spec only),
+    ["twice"] is a *transparent* helper that unfolds to its body. *)
+#[global] Instance demo_fun_ctx : FunCtx := {|
+  fun_entries := λ f,
     match f with
-    | "square" => match args with [LitInt x] => r = LitInt (x * x) | _ => False end
-    | "double" => match args with [LitInt x] => r = LitInt (x + x) | _ => False end
-    | _ => False
+    | "square" => Some (FunSpec square_spec)
+    | "double" => Some (FunSpec double_spec)
+    | "twice"  => Some (FunDef ["x"] (Var "x" + Var "x")%S)
+    | _ => None
     end
 |}.
 
@@ -188,9 +197,9 @@ Section demo.
       @ s; E {{ v, ⌜v = LitInt 0⌝ }}.
   Proof. (* [if true then 1 else 0 = 1 != 0]. *) Admitted.
 
-  (** * Function call demos (opaque, spec-driven)
+  (** * Opaque calls (spec-driven)
 
-      Calls are verified against [demo_fun_specs] via [wp_call]: the spec
+      Calls are verified against [demo_fun_ctx] via [wp_call]: the spec
       premise provides reducibility, and the continuation must cover every
       result the spec relation admits. *)
 
@@ -198,31 +207,63 @@ Section demo.
     ⊢ WP Call "square" [Val (LitInt 5)] @ s; E
       {{ v, ⌜v = LitInt 25⌝ }}.
   Proof.
-    iApply (wp_call s E "square" [LitInt 5] (LitInt 25)).
-    { simpl. reflexivity. }
-    iIntros (w Hw). simpl in Hw. subst w. done.
+    iApply (wp_call s E "square" square_spec [LitInt 5] (LitInt 25)).
+    { reflexivity. }
+    { reflexivity. }
+    iIntros (w Hw). unfold square_spec in Hw. subst w. done.
   Qed.
 
   Lemma call_double s E :
     ⊢ WP Call "double" [Val (LitInt 7)] @ s; E
       {{ v, ⌜v = LitInt 14⌝ }}.
   Proof.
-    iApply (wp_call s E "double" [LitInt 7] (LitInt 14)).
-    { simpl. reflexivity. }
-    iIntros (w Hw). simpl in Hw. subst w. done.
+    iApply (wp_call s E "double" double_spec [LitInt 7] (LitInt 14)).
+    { reflexivity. }
+    { reflexivity. }
+    iIntros (w Hw). unfold double_spec in Hw. subst w. done.
   Qed.
 
-  (** A negative test, proved positively: calling a function with no spec
-      is stuck — no [prim_step] exists, because [HeadCall] demands a
-      [fun_specs] witness and [demo_fun_specs] provides none for
+  (** * Transparent call (definition unfolds)
+
+      ["twice"] carries no contract — the call β-reduces to its body with
+      the arguments substituted, and verification proceeds on the body.
+      Parametric in the argument, as for the other contracts. *)
+  Lemma call_twice_transparent s E (x : Z) :
+    ⊢ WP Call "twice" [Val (LitInt x)] @ s; E
+      {{ v, ⌜v = LitInt (x + x)⌝ }}.
+  Proof.
+    iApply (wp_call_unfold s E "twice" ["x"] (Var "x" + Var "x")%S [LitInt x]).
+    { reflexivity. }
+    { reflexivity. }
+    iNext. simpl.
+    iApply (@wp_binop _ _ _ _ s E AddOp (LitInt x) (LitInt x) _).
+    iNext. iPureIntro. reflexivity.
+  Qed.
+
+  (** A negative test, proved positively: calling a function with no entry
+      is stuck — no [prim_step] exists, because both call rules demand a
+      [fun_entries] witness and [demo_fun_ctx] has none for
       ["nonexistent"]. *)
   Lemma call_unknown_stuck σ :
     ¬ reducible (Λ := snakelet_lang) (Call "nonexistent" [Val (LitInt 0)]) σ.
   Proof.
     intros (κ & e' & σ' & efs & Hstep).
     apply (prim_call_inv "nonexistent" [LitInt 0]) in Hstep
-      as (w & Hw & _).
-    simpl in Hw. exact Hw.
+      as (_ & _ & _ & [(spec & w & Hentry & _) | (params & body & Hentry & _)]);
+      simpl in Hentry; discriminate Hentry.
+  Qed.
+
+  (** Another negative test, proved positively: a transparent call with the
+      wrong arity is stuck. *)
+  Lemma call_twice_wrong_arity_stuck σ :
+    ¬ reducible (Λ := snakelet_lang)
+        (Call "twice" [Val (LitInt 1); Val (LitInt 2)]) σ.
+  Proof.
+    intros (κ & e' & σ' & efs & Hstep).
+    apply (prim_call_inv "twice" [LitInt 1; LitInt 2]) in Hstep
+      as (_ & _ & _ & [(spec & w & Hentry & _) | (params & body & Hentry & Hlen & _)]).
+    - simpl in Hentry. discriminate Hentry.
+    - simpl in Hentry. injection Hentry as <- <-. simpl in Hlen. discriminate Hlen.
   Qed.
 
 End demo.
