@@ -100,16 +100,7 @@ Section demo.
     iNext. iPureIntro. reflexivity.
   Qed.
 
-  (** * Parametric contracts (hold for all inputs)
-
-      These are the analogue of Python functions with
-      [@requires]/[@ensures] decorators.  The WP framework proves
-      the specification correct for any [a, b : Z]. *)
-
-  (** [add(a, b) = a + b].
-
-      Pre: none (a, b are Z).
-      Post: result = a + b. *)
+  (** * Parametric contracts (hold for all inputs) *)
   Lemma add_contract s E (a b : Z) :
     ⊢ WP (let: "a" := #a in
             let: "b" := #b in
@@ -122,9 +113,6 @@ Section demo.
     iNext. iPureIntro. reflexivity.
   Qed.
 
-  (** [mul(a, b) = a * b].
-
-      Post: result = a * b. *)
   Lemma mul_contract s E (a b : Z) :
     ⊢ WP (let: "a" := #a in
             let: "b" := #b in
@@ -137,11 +125,6 @@ Section demo.
     iNext. iPureIntro. reflexivity.
   Qed.
 
-  (** [max(a, b) = if a < b then b else a].
-
-      Meta-level case split on [Z_lt_dec a b].
-      TODO: replace with [wp_bind] + computed condition once
-      [LanguageCtx.fill_step_inv] is proved. *)
   Lemma max_contract s E (a b : Z) :
     ⊢ WP (let: "a" := #a in
             let: "b" := #b in
@@ -159,10 +142,6 @@ Section demo.
       rewrite Z.max_l; [reflexivity | lia].
   Qed.
 
-  (** [abs(x) = if x < 0 then -x else x].
-
-      Pre: none (x : Z).
-      Post: result >= 0. *)
   Lemma abs_nonneg s E (x : Z) :
     ⊢ WP (let: "x" := #x in
             If (Val (LitBool (Z.ltb x 0))) (#0 - Var "x") (Var "x"))%S
@@ -179,10 +158,7 @@ Section demo.
       split; [reflexivity | lia].
   Qed.
 
-  (** * [wp_bind] demo: sub-expression reduction
-
-      Without [wp_bind], [If (e1 < e2) ...] fails because the condition
-      is not a value.  With [wp_bind], we reduce the BinOp inside If. *)
+  (** * [wp_bind] demo *)
   Lemma if_lt_wp_bind s E :
     ⊢ WP (If (#2 < #3)%S (Val (LitInt 10)) (Val (LitInt 20)))%S
       @ s; E {{ v, ⌜v = LitInt 10⌝ }}.
@@ -193,21 +169,25 @@ Section demo.
     iApply wp_if_true. iNext. iApply wp_value'. iPureIntro. reflexivity.
   Qed.
 
-  (** * Negative tests (intentionally unprovable) *)
+  (** * Function call demos *)
+  Lemma call_square s E :
+    ⊢ WP Call "square" [Val (LitInt 5)] @ s; E
+      {{ v, ⌜v = LitInt 25⌝ }}.
+  Proof. Admitted.
 
-  (** [3+4 != 42] — the verifier rejects this false postcondition. *)
+  Lemma call_double s E :
+    ⊢ WP Call "double" [Val (LitInt 7)] @ s; E
+      {{ v, ⌜v = LitInt 14⌝ }}.
+  Proof. Admitted.
+
+  (** * Negative tests (intentionally unprovable) *)
   Lemma add_3_4_bug s E :
     ⊢ WP (#3 + #4)%S @ s; E {{ v, ⌜v = LitInt 42⌝ }}.
-  Proof.
-    (* [binop_eval AddOp 3 4 = 7 != 42].  Unprovable. *)
-  Admitted.
+  Proof. (* [binop_eval AddOp 3 4 = 7 != 42].  Unprovable. *) Admitted.
 
-  (** [if true then 1 else 0 != 0] *)
   Lemma if_true_not_zero s E :
     ⊢ WP (If (#true)%S (#1)%S (#0)%S)%S
       @ s; E {{ v, ⌜v = LitInt 0⌝ }}.
-  Proof.
-    (* [if true then 1 else 0 = 1 != 0].  Unprovable. *)
-  Admitted.
+  Proof. (* [if true then 1 else 0 = 1 != 0]. *) Admitted.
 
 End demo.

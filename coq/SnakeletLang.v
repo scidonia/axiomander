@@ -354,14 +354,10 @@ Definition lit_as_z (v : sn_val) : Z :=
 (** * Function specifications
 
     [fun_specs f args result]: function [f] with arguments [args]
-    may produce result [result].  The body is never expanded — the
-    specification alone drives verification ("virtual computation").
+    may produce result [result].  Override with a [Definition] in your
+    file to provide the downward closure of specs. *)
 
-    The downward closure of all needed specs is collected by the
-    pipeline and provided as this parameter. *)
-
-Section WithSpecs.
-  Variable fun_specs : string → list sn_val → sn_val → Prop.
+Parameter fun_specs : string → list sn_val → sn_val → Prop.
 
 (** * Head steps *)
 Inductive head_step : sn_expr → sn_state → sn_expr → sn_state → list sn_expr → Prop :=
@@ -532,11 +528,6 @@ Defined.
     All notations are scoped under [snakelet_scope], so they do not interfere
     with other notations.  Use [Open Scope snakelet_scope] to activate them,
     or [Import snakelet_notation] to get both scope and coercions. *)
-
-End WithSpecs.
-
-Definition default_fun_specs : string → list sn_val → sn_val → Prop := λ _ _ _, False.
-Canonical Structure snakelet_lang_default := snakelet_lang default_fun_specs.
 
 Module snakelet_notation.
   Declare Scope snakelet_scope.
