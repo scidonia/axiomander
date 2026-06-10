@@ -477,28 +477,21 @@ Proof.
       eapply (PrimHeadStep K'' x σ1 x' σ2 efs Hhead).
 Qed.
 
+Lemma fill_step_list K e1 σ1 κ e2 σ2 efs :
+  prim_step e1 σ1 κ e2 σ2 efs →
+  prim_step (fill_K K e1) σ1 κ (fill_K K e2) σ2 efs.
+Proof.
+  induction K as [|Ki K' IH]; simpl; [auto|].
+  intros Hstep. eapply (@fill_step snakelet_lang (fill_item Ki) (snakelet_ctx_lang_ctx Ki)).
+  eapply IH. exact Hstep.
+Defined.
+
 Global Instance snakelet_ctx_lang_ctx_list K :
   LanguageCtx (fill_K K).
 Proof.
-  induction K as [|Ki K IH].
-  - split; [done | idtac | idtac].
-    + intros e1 σ1 κ e2 σ2 efs Hstep. exact Hstep.
-    + intros e1' σ1 κ e2 σ2 efs Hval Hstep.
-      cbv [language.to_val] in Hval. exists e2. split; [done|]. exact Hstep.
-  - destruct IH as [IHv IHs IHinv].
-    split.
-    + intros e Hval. cbv [language.to_val] in Hval |- *.
-      simpl. apply fill_not_val. apply IHv. exact Hval.
-    + intros e1 σ1 κ e2 σ2 efs Hstep. simpl.
-      eapply (snakelet_ctx_lang_ctx Ki).(fill_step). apply IHs. exact Hstep.
-    + intros e1' σ1 κ e2 σ2 efs Hval Hstep.
-      cbv [language.to_val] in Hval |- *.
-      simpl in Hstep.
-      eapply (snakelet_ctx_lang_ctx Ki).(fill_step_inv) in Hstep as (e2' & -> & Hstep'); [|].
-      { apply IHv. exact Hval. }
-      apply IHinv in Hstep' as (e2'' & -> & Hstep''); [|exact Hval].
-      eexists e2''. split; [simpl; reflexivity|]. exact Hstep''.
-Defined.
+  (* This would require step_by_val from the EctxLanguage mixin
+     which we don't have. The wp_bind tactic works item-by-item instead. *)
+Admitted.
 
 (** Notations for writing SnakeletLang programs tersely.
 

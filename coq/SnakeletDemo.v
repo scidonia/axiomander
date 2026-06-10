@@ -7,6 +7,7 @@ From iris.proofmode Require Import proofmode.
 From iris.program_logic Require Import weakestpre lifting.
 From iris.base_logic.lib Require Export gen_heap.
 Require Import SnakeletLang SnakeletWp.
+Require Import SnakeletTactics.
 Import snakelet_notation.
 Open Scope Z_scope.
 
@@ -186,7 +187,7 @@ Section demo.
     ⊢ WP (If (#2 < #3)%S (Val (LitInt 10)) (Val (LitInt 20)))%S
       @ s; E {{ v, ⌜v = LitInt 10⌝ }}.
   Proof.
-    iApply (wp_bind _).
+    wp_bind (#2 < #3)%S.
     iApply (@wp_binop _ _ _ s E LtOp (LitInt 2) (LitInt 3) _).
     iNext. simpl.
     iApply wp_if_true. iNext. iApply wp_value'. iPureIntro. reflexivity.
