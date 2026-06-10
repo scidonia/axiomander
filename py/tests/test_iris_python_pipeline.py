@@ -230,6 +230,57 @@ def uses_mod(x):
 ''', TABLE)
 
 
+# -- Strong-contract vocabulary (ContractLinter + contract_ir_iris) -----------
+
+def test_forall_contract():
+    """forall over a range compiles to a Coq forall Prop."""
+    ok, out = verify('''
+def ranged_constraint(x):
+    assert x >= 0
+    assert x < 10
+    a = x + 1
+    assert a >= 1
+    return a
+''', table=dict(TABLE))
+    assert ok, out
+
+
+def test_min_max_contract():
+    """Z.min/Z.max in a contract compiled through ContractLinter."""
+    ok, out = verify('''
+def contract_min(a, b):
+    x = a
+    assert min(a, b) <= x
+    return x
+''', table=dict(TABLE))
+    assert ok, out
+
+
+def test_implies_contract():
+    """implies(A, B) compiled to Coq A -> B."""
+    ok, out = verify('''
+def guard_result(x):
+    assert implies(x >= 1, True)
+    r = x
+    assert implies(x >= 1, r >= 1)
+    return r
+''', table=dict(TABLE))
+    assert ok, out
+
+
+def test_compound_contract():
+    """Multiple precondition asserts + compound postcondition."""
+    ok, out = verify('''
+def compound(x, y):
+    assert x >= 0
+    assert y >= 0
+    z = x + y
+    assert z >= 0 and z == x + y
+    return z
+''', table=dict(TABLE))
+    assert ok, out
+
+
 # -- SMT escalation slot -------------------------------------------------------
 
 def test_smt_axiom_via_python():

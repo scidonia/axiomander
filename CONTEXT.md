@@ -187,24 +187,48 @@ Branch: `feature/iris-backend-prototype`
   (incl. calls in branches), SMT slot, negative tests (wrong post, pre
   violation, unknown callee, non-ANF), empty table, multi-arg specs.
 
-### iris_pipeline.py — Python source -> staged Iris proof (end-to-end)
-- `py/oracle/iris_pipeline.py`: Python ast -> PyIR -> positional assert
-  contracts (leading = pre; before-final-return over returned var = post)
-  -> continuation-folded SnakeletIR (`_fold`: bindings scope over the
-  rest; PyIf duplicates the continuation into both arms) -> parameter
-  substitution (`SVar(p)` -> `SLit("int", p)`, shadowing-aware) -> ANF
-  (`_anf`: call args and binop operands become atoms) -> generate.
-- Post compiles to `exists z : Z, v = LitInt z /\ (prop[ret:=z])` — the
-  exact shape finish_pure's `eexists; split; [reflexivity|lia]` closes.
-- **The post must be wrapped `(...)%Z`** inside the WP pure bracket:
-  `+`/`*` otherwise resolve in type_scope (sum/prod).
-- `py/tests/test_iris_python_pipeline.py`: 15 end-to-end tests from real
-  Python source: arithmetic, ANF of `(x+1)*(x+2)` (would be stuck
-  without it), augmented assignment, conditionals (abs/max), opaque call
-  chains (decr's `1 <= x*x` pre from `x >= 1` via lia), transparent
-  helpers, call-nested-in-expression, negatives (wrong post, missing
-  pre, branch-specific bug, unknown callee, unsupported op `%`), SMT
-  axiom slot end-to-end from Python.
+### contract_ir_iris.py — Iris Prop compilation for contract IR (NEW)
+- `py/oracle/contract_ir_iris.py`: pure-function dispatch `iris_prop(node,
+  param_set, post_var)` compiles `contract_ir.Expr` nodes to plain Coq Props
+  for Iris pre/postconditions.  No IMP state model (no `s "x"%string`,
+  `asZ`, `hget`).  Parameters are bare `Z` variables.
+- Convenience: `compile_precondition(node)` and `compile_postcondition(node,
+  ret_var)` — the latter wraps as `exists z : Z, v = LitInt z /\ P[ret:=z]`,
+  matching `finish_pure`'s ladder exactly.
+- All integer/Z logic nodes compile natively: Var, IntLit, BoolLit, BinOp
+  (+, -, *, /, mod, =, <=, <, >, >=, <>), Logical (and/or/not), MinExpr
+  (Z.min), MaxExpr (Z.max), ImpliesExpr (->), SliceLenExpr (end - start).
+- Quantifiers over ranges compile: AllExpr/AnyExpr with lower/upper produce
+  `forall/exists (i : Z), lo <= i < hi ->/` `P`.  Over lists → `True` (p3).
+- String ops: BinOp(=) on StrLitExpr → `String.eqb ... = true`;
+  StringEqualsExpr, StringContainsExpr (String.index),
+  ReMatchExpr (re_match) all compile.
+- RecursorExpr compiles: `forallb (fun item => ...) xs` as-is.
+- Phase-3 nodes (list/dict/set/index operations, Pydantic shapes,
+  exceptions, resource ownership) compile to `True` — they need
+  SnakeletLang value-model support.  When a full contract with these
+  operations needs to be checked, the existing `.to_smt()` path through
+  `smt_export`/`theory_smt` provides the SMT coverage.
+- **Why a separate module, not a method on contract_ir.Expr:**
+  `contract_ir.py` is the single source of truth for the IMP pipeline's
+  `to_coq(scoped=...)` and the shared `to_smt()`.  Adding `to_coq_iris()`
+  as a method would couple the Iris compilation to the IMP/SMT node
+  classes and risk drift when one compilation path is updated.  A
+  standalone dispatch avoids method pollution and keeps the two
+  compilation paths independently maintainable.
+
+### iris_pipeline.py — now uses ContractLinter + contract_ir_iris
+- `extract_contracts(source, fn_node)`: works on raw `ast.FunctionDef`.
+  Leading `assert`s → `compile_precondition` via ContractLinter.
+  Final `assert` before `return` → `compile_postcondition` via
+  ContractLinter.  ContractLinter handles the full Python contract
+  vocabulary (implies, min, max, forall, string ops, etc.).
+- `_fold` skips `PyAssert` nodes (contracts are extracted at the AST
+  level, not lowered to SnakeletIR).
+- Parameter substitution (`_subst_params`), ANF, and validation unchanged.
+- Tests: 4 new strong-contract tests (ranged bounds, min/max in contracts,
+  implies compound, multi-predicate preconditions with compound post).
+  19 pipeline end-to-end tests total from Python source.
 
 ### Bugs found by the end-to-end exercise (all fixed)
 - `iris_lowerer._lower_compare` used stale PyCompare shape

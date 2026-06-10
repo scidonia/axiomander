@@ -1,19 +1,14 @@
 """Python source -> staged Iris proof wiring.
 
-End-to-end pipeline for the Iris backend on the pure-integer fragment:
+End-to-end pipeline for the Iris backend on the pure-integer fragment.
 
     Python ast
-      -> PyIR                  (py_ir_translator)
-      -> contract extraction   (positional asserts: leading = pre,
-                                before-final-return = post)
-      -> SnakeletIR            (continuation-folded statement lowering;
-                                expressions via IrisLowerer)
-      -> ANF normalization     (call args and binop operands become
-                                atoms; SnakeletLang's ectx is
-                                value-restricted on both binop sides, so
-                                a binop with two non-value operands is
-                                operationally stuck)
-      -> staged proof          (iris_proof_gen.generate)
+      -> contract extraction        (ContractLinter -> contract_ir -> Iris Prop
+                                     via contract_ir_iris; positional classifies)
+      -> PyIR                      (py_ir_translator)
+      -> SnakeletIR                (continuation-folded statement lowering)
+      -> ANF normalization
+      -> staged proof              (iris_proof_gen.generate)
 
 Contracts are plain assert statements, per the project ground rules:
 
@@ -21,12 +16,14 @@ Contracts are plain assert statements, per the project ground rules:
         assert x >= 1            # precondition (leading assert)
         a = square(x)
         b = decr(a)
-        assert b == x * x - 1    # postcondition (assert before return,
-        return b                 #  over the returned variable)
+        assert b == x * x - 1    # postcondition (before-final-return assert)
+        return b
 
-The postcondition compiles to `exists z : Z, v = LitInt z /\\ (prop)`
-with the returned variable renamed to z -- exactly the shape that
-finish_pure's `eexists; split; [reflexivity | lia]` ladder closes.
+Contract expressions use the full contract vocabulary supported by
+ContractLinter: integer arithmetic, comparisons, boolean logic,
+forall/exists over ranges, implies, min, max, string comparisons,
+regex via re_match, and user-defined predicates with recursors.
+The compilation to Iris Props is handled by contract_ir_iris.
 """
 
 from __future__ import annotations
@@ -35,13 +32,14 @@ import ast
 from dataclasses import dataclass
 from typing import Optional
 
+from oracle.contract_ir_iris import compile_postcondition, compile_precondition
+from oracle.contract_linter import ContractLinter
 from oracle.iris_lowerer import IrisLowerer
 from oracle.iris_proof_gen import (
     FunTable, IrisGenError, IrisProof, generate,
 )
 from oracle.py_ir import (
-    PyAssert, PyAssign, PyAugAssign, PyBinaryOp, PyBooleanOp, PyCompare,
-    PyConstant, PyExpr, PyFunction, PyIf, PyName, PyReturn, PyStmt,
+    PyAssert, PyAssign, PyAugAssign, PyIf, PyName, PyReturn, PyStmt,
 )
 from oracle.py_ir_translator import PyIRTranslator
 from oracle.snakelet_ir import (
@@ -52,78 +50,64 @@ from oracle.snakelet_ir import (
 _SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge"}
 
 
-# -- Contract translation (PyIR contract exprs -> Coq Props) ---------------
-
-def _zexpr(e: PyExpr, rename: dict[str, str]) -> str:
-    """Print an integer contract expression as a Coq Z term."""
-    if isinstance(e, PyName):
-        return rename.get(e.name, e.name)
-    if isinstance(e, PyConstant) and e.py_type == "int":
-        return str(e.value)
-    if isinstance(e, PyBinaryOp) and e.op in ("+", "-", "*"):
-        return f"({_zexpr(e.left, rename)} {e.op} {_zexpr(e.right, rename)})"
-    raise IrisGenError(
-        f"unsupported contract arithmetic: {type(e).__name__}"
-        f"{' op ' + getattr(e, 'op', '') if hasattr(e, 'op') else ''}")
-
-
-_PROP_OPS = {"==": "=", "<=": "<=", "<": "<", ">=": ">=", ">": ">",
-             "!=": "<>"}
-
-
-def _prop(e: PyExpr, rename: dict[str, str]) -> str:
-    """Print a contract expression as a Coq Prop."""
-    if isinstance(e, PyCompare):
-        if e.op not in _PROP_OPS:
-            raise IrisGenError(f"unsupported contract comparison: {e.op}")
-        return (f"{_zexpr(e.left, rename)} {_PROP_OPS[e.op]} "
-                f"{_zexpr(e.right, rename)}")
-    if isinstance(e, PyBooleanOp) and e.op == "and":
-        return " /\\ ".join(f"({_prop(o, rename)})" for o in e.operands)
-    raise IrisGenError(
-        f"unsupported contract expression: {type(e).__name__}")
-
+# -- Contract extraction ----------------------------------------------------
 
 @dataclass
 class Contracts:
-    pre: Optional[str]       # Coq Prop over the parameters, or None
-    post: str                # Coq Prop over v (the WP result)
-    ret_var: Optional[str]   # name of the returned variable, if any
+    pre: Optional[str]
+    post: str
 
 
-def extract_contracts(fn: PyFunction) -> tuple[Contracts, list[PyStmt]]:
-    """Split positional asserts out of the body.
+def extract_contracts(
+    source: str, fn_node: ast.FunctionDef,
+) -> tuple[Contracts, list[ast.stmt], ContractLinter]:
+    """Split positional asserts out of the function body.
 
-    Leading asserts are the precondition.  An assert immediately before
-    the final return, mentioning the returned variable, is the
-    postcondition.  Returns the contracts plus the body with contract
-    asserts removed (other asserts are dropped too: they are redundant
-    for the staged proof).
+    Uses the existing ContractLinter to compile each assert expression
+    into contract_ir and then to Iris Props via contract_ir_iris.
+
+    Args:
+        source: the full Python source (needed by the linter for line context)
+        fn_node: the raw AST function definition
+    Returns:
+        Contracts, the body stmts with contracts removed, and a linter
+        pre-configured for the postcondition (for subsequent callee use).
     """
-    body = list(fn.body)
+    params = [a.arg for a in fn_node.args.args]
+    pre_linter = ContractLinter(params=params, context="precondition")
+    post_linter = ContractLinter(params=params, context="postcondition")
 
+    body = list(fn_node.body)
     pres: list[str] = []
-    while body and isinstance(body[0], PyAssert):
-        pres.append(_prop(body[0].test, {}))
+
+    # Leading asserts = precondition
+    while body and isinstance(body[0], ast.Assert):
+        linted = pre_linter.lint_expression(body[0].test)
+        if linted.ir is not None:
+            pres.append(compile_precondition(linted.ir))
         body = body[1:]
+
     pre = None
     if len(pres) == 1:
         pre = pres[0]
     elif pres:
         pre = " /\\ ".join(f"({p})" for p in pres)
 
+    # Assert immediately before final return = postcondition
     post = "True"
-    ret_var = None
-    if body and isinstance(body[-1], PyReturn):
-        ret = body[-1]
-        if isinstance(ret.value, PyName):
-            ret_var = ret.value.name
-        if (len(body) >= 2 and isinstance(body[-2], PyAssert)
+    if body and isinstance(body[-1], ast.Return):
+        ret_node = body[-1]
+        ret_var = None
+        if isinstance(ret_node.value, ast.Name):
+            ret_var = ret_node.value.id
+        if (len(body) >= 2 and isinstance(body[-2], ast.Assert)
                 and ret_var is not None):
-            prop = _prop(body[-2].test, {ret_var: "z"})
-            post = f"exists z : Z, v = LitInt z /\\ ({prop})"
-            body = body[:-2] + [ret]
-    return Contracts(pre=pre, post=post, ret_var=ret_var), body
+            linted = post_linter.lint_expression(body[-2].test)
+            if linted.ir is not None:
+                post = compile_postcondition(linted.ir, ret_var)
+            body = body[:-2] + [ret_node]
+
+    return Contracts(pre=pre, post=post), body, post_linter
 
 
 # -- Statement folding (PyIR statements -> SnakeletIR) ---------------------
@@ -329,11 +313,13 @@ def python_to_iris_proof(source: str,
     if target is None:
         raise IrisGenError(f"function '{func_name}' not found in source")
 
-    fn = PyIRTranslator().translate_function(target)
-    contracts, body_stmts = extract_contracts(fn)
+    # Contracts: use ContractLinter + contract_ir_iris
+    contracts, body_ast, _ = extract_contracts(source, target)
 
+    # Body: PyIR -> SnakeletIR -> ANF
+    fn = PyIRTranslator().translate_function(target)
     lw = IrisLowerer(loc_map={}, func_name=fn.name)
-    body = _fold(body_stmts, lw)
+    body = _fold(fn.body, lw)
     body = _subst_params(body, set(fn.params), set())
     body = _anf(body, [0])
     _validate_ops(body)
