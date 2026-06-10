@@ -21,6 +21,9 @@ class SLet:
     body: "SExpr"
     kind: Literal["let"] = "let"
 
+    def to_coq(self) -> str:
+        return f'(Let "{self.var}" {self.value.to_coq()} {self.body.to_coq()})'
+
 
 @dataclass
 class SBinOp:
@@ -44,6 +47,9 @@ class SLoad:
     loc: str         # abstract location name, e.g. "l__box_value"
     kind: Literal["load"] = "load"
 
+    def to_coq(self) -> str:
+        raise NotImplementedError("SLoad lowering to SnakeletLang: phase 3")
+
 
 @dataclass
 class SStore:
@@ -51,6 +57,9 @@ class SStore:
     loc: str         # abstract location name
     value: "SExpr"
     kind: Literal["store"] = "store"
+
+    def to_coq(self) -> str:
+        raise NotImplementedError("SStore lowering to SnakeletLang: phase 3")
 
 
 @dataclass
@@ -61,6 +70,10 @@ class SIf:
     else_branch: "SExpr"
     kind: Literal["if"] = "if"
 
+    def to_coq(self) -> str:
+        return (f"(If {self.cond.to_coq()} {self.then_branch.to_coq()}"
+                f" {self.else_branch.to_coq()})")
+
 
 @dataclass
 class SReturn:
@@ -68,13 +81,16 @@ class SReturn:
     value: "SExpr"
     kind: Literal["return"] = "return"
 
+    def to_coq(self) -> str:
+        return self.value.to_coq()
+
 
 @dataclass
 class SLit:
     """Literal.  Iris: LitV (LitInt n) / LitV (LitLoc l)."""
     lit_type: str    # "int" | "bool" | "float" | "string" | "tuple" | "list" | "dict" | "set" | "loc" | "unit"
     value: str       # "42" | "true" | "l__box_value" | serialized for collections
-    elements: Optional[list["SExpr"]] = None  # sub-elements for compound literals
+    elements: Optional[list["SLit"]] = None  # sub-elements for compound literals
     kind: Literal["lit"] = "lit"
 
     def to_coq_val(self) -> str:
@@ -109,13 +125,22 @@ class SVar:
     name: str
     kind: Literal["var"] = "var"
 
+    def to_coq(self) -> str:
+        return f'(Var "{self.name}")'
+
 
 @dataclass
 class SApp:
-    """Function application.  Iris: wp_app."""
+    """Function application.  Iris: wp_call / wp_call_unfold."""
     func: str
     args: list["SExpr"]
     kind: Literal["app"] = "app"
+
+    def to_coq(self) -> str:
+        if not self.args:
+            return f'(Call "{self.func}" (@nil sn_expr))'
+        items = " :: ".join(a.to_coq() for a in self.args)
+        return f'(Call "{self.func}" ({items} :: nil))'
 
 
 @dataclass
@@ -124,12 +149,24 @@ class SSeq:
     exprs: list["SExpr"]
     kind: Literal["seq"] = "seq"
 
+    def to_coq(self) -> str:
+        if not self.exprs:
+            return "(Val LitUnit)"
+        if len(self.exprs) == 1:
+            return self.exprs[0].to_coq()
+        head = self.exprs[0]
+        rest = SSeq(self.exprs[1:])
+        return f'(Let "_" {head.to_coq()} {rest.to_coq()})'
+
 
 @dataclass
 class SFork:
     """Fork a thread.  Iris: wp_fork."""
     expr: "SExpr"
     kind: Literal["fork"] = "fork"
+
+    def to_coq(self) -> str:
+        raise NotImplementedError("SFork lowering to SnakeletLang: phase 3")
 
 
 @dataclass
@@ -139,12 +176,18 @@ class SFAA:
     value: "SExpr"
     kind: Literal["faa"] = "faa"
 
+    def to_coq(self) -> str:
+        raise NotImplementedError("SFAA lowering to SnakeletLang: phase 3")
+
 
 @dataclass
 class SRaise:
     """Raise exception.  Encoded as ORaise outcome in WP."""
     exc: SExpr
     kind: Literal["raise"] = "raise"
+
+    def to_coq(self) -> str:
+        raise NotImplementedError("SRaise lowering to SnakeletLang: phase 3")
 
 
 @dataclass
@@ -155,6 +198,9 @@ class STry:
     handler: SExpr
     kind: Literal["try"] = "try"
 
+    def to_coq(self) -> str:
+        raise NotImplementedError("STry lowering to SnakeletLang: phase 3")
+
 
 @dataclass
 class SDictGet:
@@ -162,6 +208,9 @@ class SDictGet:
     loc: str
     key: SExpr
     kind: Literal["dict_get"] = "dict_get"
+
+    def to_coq(self) -> str:
+        raise NotImplementedError("SDictGet lowering to SnakeletLang: phase 3")
 
 
 @dataclass
@@ -171,6 +220,9 @@ class SDictSet:
     key: SExpr
     value: SExpr
     kind: Literal["dict_set"] = "dict_set"
+
+    def to_coq(self) -> str:
+        raise NotImplementedError("SDictSet lowering to SnakeletLang: phase 3")
 
 
 SExpr = SLit | SVar | SBinOp | SLoad | SStore | SLet | SIf | SReturn | SApp | SSeq | SFork | SFAA | SRaise | STry | SDictGet | SDictSet

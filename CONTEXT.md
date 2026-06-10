@@ -161,13 +161,51 @@ Branch: `feature/iris-backend-prototype`
    so no priority trick could ever work.  Fixed by typeclass-implicit section
    parameterization (see above); default instance demoted to priority 100.
 
+### iris_proof_gen.py — syntax-directed staged proof generator (Phase 2)
+- `py/oracle/iris_proof_gen.py`: walks SnakeletIR + a `FunTable`
+  (`OpaqueSpec(args, side, result)` | `TransparentDef(params, body)`)
+  and emits a complete `.v`: SMT axioms, generated FunCtx table
+  (pre/post defs, String.eqb-chain table, mechanically-proven totality
+  lemma, instance), theorem, staged proof script.
+- **No symbolic execution**: stage *selection* is IR syntax + table entry
+  kind; stage *semantics* live in the Coq tactics which extract everything
+  from the goal.  One stage per IR node; one `pure_step` per reduction
+  (focusing is goal-driven inside `pure_step`, which now auto-wp_binds
+  non-value Let/BinOp/If redexes — never bind plumbing in the script).
+- Forward/SP style: case splits duplicate continuation stages per arm
+  (CPS walk, `k()` per path); branch hypotheses are path constraints.
+- SMT slot: `call_opaque_pre (<tactic>)` (Coq side) + `axioms` /
+  `pre_overrides` (Python side) — nonlinear pre discharged via
+  `exact (smt_ax_0 n)`; tested both directions (with axiom proves,
+  without axiom fails).
+- ANF enforced at generation: non-value call args -> IrisGenError.
+- `snakelet_ir.py`: `to_coq()` completed for SVar/SLet/SIf/SApp/SReturn/
+  SSeq (SnakeletLang constructors); heap/exception nodes raise
+  NotImplementedError (phase 3).
+- `py/tests/test_iris_proof_gen.py`: 15 end-to-end tests (generate ->
+  coqc): chains, parametric pre flow, nested binop trees, case splits
+  (incl. calls in branches), SMT slot, negative tests (wrong post, pre
+  violation, unknown callee, non-ANF), empty table, multi-arg specs.
+
+### Mechanical-ladder boundary notes (empirical, this Coq version)
+- `lia` FAILS on `x * x >= 0` (no hypotheses) and `1 <= n * n + 1` —
+  these need the SMT slot (or nia).
+- `lia` PROVES `0 < x -> x * x >= 0` — hypothesis products work, so
+  path constraints from `case_bool` are load-bearing for nonlinear posts.
+- `binop_eval` comparisons produce `bool_decide (...) = true/false`
+  path constraints (NOT `Z.ltb`); `snakelet_pure_hyps` handles both.
+- `snakelet_solve_pre` ladder: `done | by repeat eexists |
+  by (repeat eexists; split; [done|lia])` (multi-arg needs `repeat`).
+
 ## Key Files
 - `coq/SnakeletLang.v` — Language definition, ectx, `fill`
 - `coq/SnakeletWp.v` — WP calculus, all WP lemmas, `prim_*_det` lemmas
 - `coq/SnakeletDemo.v` — Demos and examples
-- `coq/SnakeletTactics.v` — `reshape_expr`, `wp_bind`
+- `coq/SnakeletTactics.v` — `reshape_expr`, `wp_bind`, stage tactics
 - `coq/SnakeletEval.v` — Fuel evaluator
-- `py/oracle/snakelet_ir.py` — Python → Coq IR translation
+- `py/oracle/snakelet_ir.py` — SnakeletIR + to_coq (SnakeletLang syntax)
+- `py/oracle/iris_proof_gen.py` — staged proof generator
+- `py/tests/test_iris_proof_gen.py` — 15 generator end-to-end tests
 - `py/tests/test_snakelet_rocq.py` — 24 extraction tests
 - `py/tests/test_snakelet_conservative.py` — 28 conservative tests
 

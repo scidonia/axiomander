@@ -101,8 +101,8 @@ Ltac strip_vals args :=
     axiom is then supplied explicitly in the generated script. *)
 Ltac snakelet_solve_pre :=
   solve [ done
-        | by eexists
-        | by (eexists; split; [done | lia]) ].
+        | by repeat eexists
+        | by (repeat eexists; split; [done | lia]) ].
 
 (** Reduce fill/subst redexes and normalize [of_val] back to [Val] so the
     syntactic stage matches fire ([of_val] is introduced by the generic
@@ -128,7 +128,12 @@ Ltac snakelet_focus_call :=
   | _ => fail "snakelet_focus_call: no Call in redex position"
   end.
 
-Ltac call_opaque_core :=
+(** Opaque call with a caller-supplied precondition discharge tactic.
+    This is the SMT escalation slot: when [snakelet_solve_pre] cannot
+    crack a precondition (nonlinear arithmetic, strings), the pipeline
+    exports the obligation to SMT and regenerates the stage as
+    [call_opaque_pre (exact smt_ax_N)] (or a small wrapper around it). *)
+Ltac call_opaque_pre_core pretac :=
   snakelet_focus_call;
   lazymatch goal with
   | |- envs_entails _ (wp ?s ?E (Call ?f ?args) _) =>
@@ -137,13 +142,17 @@ Ltac call_opaque_core :=
       lazymatch entry with
       | Some (FunSpec ?pre ?post) =>
           iApply (wp_call s E f pre post vs);
-            [ reflexivity | snakelet_solve_pre | snakelet_intro_post ]
+            [ reflexivity | solve [pretac] | snakelet_intro_post ]
       | Some (FunDef _ _) =>
           fail "call_opaque: function is transparent (FunDef); use call_transparent"
       | None =>
           fail "call_opaque: no table entry for function"
       end
   end.
+
+Ltac call_opaque_core := call_opaque_pre_core snakelet_solve_pre.
+
+Tactic Notation "call_opaque_pre" tactic(t) := call_opaque_pre_core t.
 
 Ltac call_transparent_core :=
   snakelet_focus_call;
@@ -179,15 +188,35 @@ Tactic Notation "call_transparent" constr(fname) :=
   end.
 
 (** One pure reduction: let-with-value, binop-with-values, or a literal
-    conditional. *)
+    conditional.  Focusing is goal-driven and free — a non-value redex in
+    evaluation position is wp_bind'ed automatically, so the generator
+    emits exactly one [pure_step] per reduction (per IR node), never bind
+    plumbing.  Calls are never focused here: they have their own stage
+    tactics. *)
 Ltac pure_step :=
   lazymatch goal with
   | |- envs_entails _ (wp _ _ (Let _ (Val _) _) _) =>
       snakelet_pure_step; iNext; snakelet_simpl
   | |- envs_entails _ (wp _ _ (BinOp _ (Val _) (Val _)) _) =>
       snakelet_pure_step; iNext; snakelet_simpl
-  | |- envs_entails _ (wp _ _ (If (Val (LitBool _)) _ _) _) =>
+  | |- envs_entails _ (wp _ _ (If (Val (LitBool true)) _ _) _) =>
       snakelet_pure_step; iNext; snakelet_simpl
+  | |- envs_entails _ (wp _ _ (If (Val (LitBool false)) _ _) _) =>
+      snakelet_pure_step; iNext; snakelet_simpl
+  | |- envs_entails _ (wp _ _ (If (Val (LitBool _)) _ _) _) =>
+      fail "pure_step: symbolic condition; use case_bool"
+  | |- envs_entails _ (wp _ _ (Call _ _) _) =>
+      fail "pure_step: redex is a call; use call_opaque or call_transparent"
+  | |- envs_entails _ (wp _ _ (Let _ (Call _ _) _) _) =>
+      fail "pure_step: redex is a call; use call_opaque or call_transparent"
+  | |- envs_entails _ (wp _ _ (Let _ ?e1 _) _) =>
+      wp_bind e1; pure_step
+  | |- envs_entails _ (wp _ _ (BinOp _ ?e1 (Val _)) _) =>
+      wp_bind e1; pure_step
+  | |- envs_entails _ (wp _ _ (BinOp _ _ ?e2) _) =>
+      wp_bind e2; pure_step
+  | |- envs_entails _ (wp _ _ (If ?e0 _ _) _) =>
+      wp_bind e0; pure_step
   | _ => fail "pure_step: no pure redex (let/binop/if with value arguments)"
   end.
 
@@ -206,9 +235,13 @@ Ltac case_bool :=
   | _ => fail "case_bool: goal is not an If on a boolean value"
   end.
 
-(** Convert boolean path constraints into Props for [lia]. *)
+(** Convert boolean path constraints into Props for [lia].
+    [binop_eval] comparisons produce [bool_decide]; hand-written
+    conditions may use [Z.ltb]/[Z.leb]/[Z.eqb] directly. *)
 Ltac snakelet_pure_hyps :=
   repeat match goal with
+  | H : bool_decide _ = true |- _ => apply bool_decide_eq_true_1 in H
+  | H : bool_decide _ = false |- _ => apply bool_decide_eq_false_1 in H
   | H : Z.ltb _ _ = true |- _ => apply Z.ltb_lt in H
   | H : Z.ltb _ _ = false |- _ => apply Z.ltb_ge in H
   | H : Z.leb _ _ = true |- _ => apply Z.leb_le in H
