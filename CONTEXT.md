@@ -187,6 +187,43 @@ Branch: `feature/iris-backend-prototype`
   (incl. calls in branches), SMT slot, negative tests (wrong post, pre
   violation, unknown callee, non-ANF), empty table, multi-arg specs.
 
+### iris_pipeline.py — Python source -> staged Iris proof (end-to-end)
+- `py/oracle/iris_pipeline.py`: Python ast -> PyIR -> positional assert
+  contracts (leading = pre; before-final-return over returned var = post)
+  -> continuation-folded SnakeletIR (`_fold`: bindings scope over the
+  rest; PyIf duplicates the continuation into both arms) -> parameter
+  substitution (`SVar(p)` -> `SLit("int", p)`, shadowing-aware) -> ANF
+  (`_anf`: call args and binop operands become atoms) -> generate.
+- Post compiles to `exists z : Z, v = LitInt z /\ (prop[ret:=z])` — the
+  exact shape finish_pure's `eexists; split; [reflexivity|lia]` closes.
+- **The post must be wrapped `(...)%Z`** inside the WP pure bracket:
+  `+`/`*` otherwise resolve in type_scope (sum/prod).
+- `py/tests/test_iris_python_pipeline.py`: 15 end-to-end tests from real
+  Python source: arithmetic, ANF of `(x+1)*(x+2)` (would be stuck
+  without it), augmented assignment, conditionals (abs/max), opaque call
+  chains (decr's `1 <= x*x` pre from `x >= 1` via lia), transparent
+  helpers, call-nested-in-expression, negatives (wrong post, missing
+  pre, branch-specific bug, unknown callee, unsupported op `%`), SMT
+  axiom slot end-to-end from Python.
+
+### Bugs found by the end-to-end exercise (all fixed)
+- `iris_lowerer._lower_compare` used stale PyCompare shape
+  (`ops`/`comparators` lists vs current `op`/`left`/`right`).
+- `wp_bind` tactic iterated context frames innermost-first; the wp_bind
+  lemma must be applied outermost-first (single-frame demos never
+  exposed it).
+- `reshape_expr`'s `BinOpRCtx` branch passed an expr where the ctx item
+  wants a value (SnakeletLang's ectx is value-restricted on both binop
+  sides — a binop with two non-value operands is operationally STUCK;
+  hence ANF in the pipeline).
+- `pure_step`/`snakelet_focus_call`/named call variants now locate the
+  redex via `reshape_expr` (deep Let nests from ANF hoisting).
+- `snakelet_solve_pre`: bare `repeat eexists` overreaches — `eexists`
+  applies to ANY single-constructor inductive (splits conjunctions,
+  unify-solves equalities), leaving a bare side-condition that the
+  subsequent `split` chokes on.  Fixed: `hnf; repeat lazymatch goal with
+  |- @ex _ _ => eexists end` then dispatch.
+
 ### Mechanical-ladder boundary notes (empirical, this Coq version)
 - `lia` FAILS on `x * x >= 0` (no hypotheses) and `1 <= n * n + 1` —
   these need the SMT slot (or nia).

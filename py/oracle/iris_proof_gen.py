@@ -356,8 +356,10 @@ class IrisProof:
         parts.append(f"  Lemma {self.name}_correct s E{binders} :")
         if self.pre:
             parts.append(f"    ({self.pre}) ->")
+        # %Z: inside the WP pure bracket, +/* would otherwise resolve in
+        # type_scope (sum/prod) rather than Z_scope.
         parts.append(f"    {TSTILE} WP {self.body_coq} @ s; E "
-                     f"{{{{ v, {LCEIL}{self.post}{RCEIL} }}}}.")
+                     f"{{{{ v, {LCEIL}({self.post})%Z{RCEIL} }}}}.")
         parts.append("  Proof.")
         if self.pre:
             parts.append("    intros Hpre.")

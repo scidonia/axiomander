@@ -17,7 +17,7 @@ Ltac reshape_expr e tac :=
     | Let ?x ?e1 ?e2          => go (LetCtx x e2 :: K) e1
     | BinOp ?op (Val ?v1) (Val ?v2) => tac K e
     | BinOp ?op ?e1 (Val ?v2)       => go (BinOpLCtx op v2 :: K) e1
-    | BinOp ?op ?e1 ?e2             => go (BinOpRCtx op e1 :: K) e2
+    | BinOp ?op (Val ?v1) ?e2       => go (BinOpRCtx op v1 :: K) e2
     | If (Val _) _ _               => tac K e
     | If ?e0 ?e1 ?e2               => go (IfCtx e1 e2 :: K) e0
     | Load (Val _)                 => tac K e
@@ -45,12 +45,13 @@ Tactic Notation "wp_bind" open_constr(efoc) :=
       lazymatch K with
       | [] => idtac
       | _ =>
-          let Ki := fresh "Ki" in
-          (* Apply wp_bind for each item: iterate through K *)
+          (* [reshape_expr] accumulates K innermost-first; the wp_bind
+             lemma must be applied outermost-first, so recurse on the
+             tail before applying the head. *)
           let rec iter_K l :=
             lazymatch l with
             | [] => idtac
-            | ?Ki :: ?K' => iApply (wp_bind (fill_item Ki)); simpl; iter_K K'
+            | ?Ki :: ?K' => iter_K K'; iApply (wp_bind (fill_item Ki)); simpl
             end
           in iter_K K
       end
@@ -99,10 +100,16 @@ Ltac strip_vals args :=
     Extend with [first [...]] branches as spec idioms grow.  Obligations
     this cannot solve are exported to SMT by the pipeline; the resulting
     axiom is then supplied explicitly in the generated script. *)
+(** Note: [eexists] applies to any single-constructor inductive — on a
+    conjunction it splits and on an equality it unify-solves — so a bare
+    [repeat eexists] overreaches.  Strip only genuine [ex] goals, then
+    dispatch on what remains. *)
 Ltac snakelet_solve_pre :=
   solve [ done
-        | by repeat eexists
-        | by (repeat eexists; split; [done | lia]) ].
+        | hnf; repeat lazymatch goal with |- @ex _ _ => eexists end;
+          first [ done
+                | split; [done | lia]
+                | lia ] ].
 
 (** Reduce fill/subst redexes and normalize [of_val] back to [Val] so the
     syntactic stage matches fire ([of_val] is introduced by the generic
@@ -118,14 +125,19 @@ Ltac snakelet_intro_post :=
   let Hw := fresh "Hw" in
   iIntros (w Hw); simpl in Hw; subst w; snakelet_simpl.
 
-(** Focus a Let-bound call.  Generated bodies are in ANF, so calls appear
-    either in redex position or immediately under a Let binder. *)
+(** Focus a call in evaluation position: [reshape_expr] locates the
+    innermost redex along the evaluation-context spine; if it is a Call,
+    wp_bind it. *)
 Ltac snakelet_focus_call :=
   lazymatch goal with
   | |- envs_entails _ (wp _ _ (Call _ _) _) => idtac
-  | |- envs_entails _ (wp _ _ (Let _ (Call ?f ?args) _) _) =>
-      wp_bind (Call f args)
-  | _ => fail "snakelet_focus_call: no Call in redex position"
+  | |- envs_entails _ (wp _ _ ?e _) =>
+      reshape_expr e ltac:(fun K e' =>
+        lazymatch e' with
+        | Call ?f ?args => wp_bind (Call f args)
+        | _ => fail 1 "snakelet_focus_call: redex is not a call"
+        end)
+  | _ => fail "snakelet_focus_call: not a WP goal"
   end.
 
 (** Opaque call with a caller-supplied precondition discharge tactic.
@@ -171,29 +183,31 @@ Ltac call_transparent_core :=
       end
   end.
 
+(** The named variants assert the expected callee (drift detection
+    between generator and goal): the evaluation-position redex must be a
+    call to [fname]. *)
+Ltac snakelet_check_callee fname :=
+  lazymatch goal with
+  | |- envs_entails _ (wp _ _ (Call fname _) _) => idtac
+  | |- envs_entails _ (wp _ _ ?e _) =>
+      reshape_expr e ltac:(fun K e' =>
+        lazymatch e' with
+        | Call fname _ => idtac
+        | _ => fail 1 "goal redex is not a call to the given function"
+        end)
+  | _ => fail "not a WP goal"
+  end.
+
 Tactic Notation "call_opaque" := call_opaque_core.
 Tactic Notation "call_opaque" constr(fname) :=
-  lazymatch goal with
-  | |- envs_entails _ (wp _ _ (Call fname _) _) => call_opaque_core
-  | |- envs_entails _ (wp _ _ (Let _ (Call fname _) _) _) => call_opaque_core
-  | _ => fail "call_opaque: goal redex is not a call to the given function"
-  end.
+  snakelet_check_callee fname; call_opaque_core.
 
 Tactic Notation "call_transparent" := call_transparent_core.
 Tactic Notation "call_transparent" constr(fname) :=
-  lazymatch goal with
-  | |- envs_entails _ (wp _ _ (Call fname _) _) => call_transparent_core
-  | |- envs_entails _ (wp _ _ (Let _ (Call fname _) _) _) => call_transparent_core
-  | _ => fail "call_transparent: goal redex is not a call to the given function"
-  end.
+  snakelet_check_callee fname; call_transparent_core.
 
-(** One pure reduction: let-with-value, binop-with-values, or a literal
-    conditional.  Focusing is goal-driven and free — a non-value redex in
-    evaluation position is wp_bind'ed automatically, so the generator
-    emits exactly one [pure_step] per reduction (per IR node), never bind
-    plumbing.  Calls are never focused here: they have their own stage
-    tactics. *)
-Ltac pure_step :=
+(** Reduce the redex once it is in focus position. *)
+Ltac pure_step_redex :=
   lazymatch goal with
   | |- envs_entails _ (wp _ _ (Let _ (Val _) _) _) =>
       snakelet_pure_step; iNext; snakelet_simpl
@@ -207,17 +221,29 @@ Ltac pure_step :=
       fail "pure_step: symbolic condition; use case_bool"
   | |- envs_entails _ (wp _ _ (Call _ _) _) =>
       fail "pure_step: redex is a call; use call_opaque or call_transparent"
-  | |- envs_entails _ (wp _ _ (Let _ (Call _ _) _) _) =>
-      fail "pure_step: redex is a call; use call_opaque or call_transparent"
-  | |- envs_entails _ (wp _ _ (Let _ ?e1 _) _) =>
-      wp_bind e1; pure_step
-  | |- envs_entails _ (wp _ _ (BinOp _ ?e1 (Val _)) _) =>
-      wp_bind e1; pure_step
-  | |- envs_entails _ (wp _ _ (BinOp _ _ ?e2) _) =>
-      wp_bind e2; pure_step
-  | |- envs_entails _ (wp _ _ (If ?e0 _ _) _) =>
-      wp_bind e0; pure_step
   | _ => fail "pure_step: no pure redex (let/binop/if with value arguments)"
+  end.
+
+(** One pure reduction: let-with-value, binop-with-values, or a literal
+    conditional.  Focusing is goal-driven and free — [reshape_expr]
+    locates the innermost redex along the evaluation-context spine and
+    wp_bind's it, so the generator emits exactly one [pure_step] per
+    reduction (per IR node), never bind plumbing.  Calls are never
+    reduced here: they have their own stage tactics. *)
+Ltac pure_step :=
+  lazymatch goal with
+  | |- envs_entails _ (wp _ _ ?e _) =>
+      reshape_expr e ltac:(fun K e' =>
+        lazymatch K with
+        | nil => pure_step_redex
+        | _ =>
+            lazymatch e' with
+            | Call _ _ =>
+                fail "pure_step: redex is a call; use call_opaque or call_transparent"
+            | _ => wp_bind e'; pure_step_redex
+            end
+        end)
+  | _ => fail "pure_step: not a WP goal"
   end.
 
 (** Path fork on a symbolic boolean condition.  The branch hypothesis

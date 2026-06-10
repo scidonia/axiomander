@@ -131,16 +131,14 @@ class IrisLowerer:
         return SApp(func=expr.func, args=args)
 
     def _lower_compare(self, expr: PyCompare) -> Optional[SExpr]:
-        if len(expr.ops) != 1 or len(expr.comparators) != 1:
-            return None
         left = self.lower_expr(expr.left)
-        right = self.lower_expr(expr.comparators[0])
+        right = self.lower_expr(expr.right)
         if left is None or right is None:
             return None
         op_map = {"==": "eq", "!=": "ne", "<": "lt", "<=": "le",
                    ">": "gt", ">=": "ge", "is": "eq", "is not": "ne",
                    "in": "in", "not in": "notin"}
-        op = op_map.get(expr.ops[0], "eq")
+        op = op_map.get(expr.op, "eq")
         return SBinOp(op=op, left=left, right=right)
 
     def _lower_boolop(self, expr: PyBooleanOp) -> Optional[SExpr]:
