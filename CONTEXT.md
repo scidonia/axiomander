@@ -82,12 +82,37 @@ Branch: `feature/iris-backend-prototype`
 - `call_twice_wrong_arity_stuck` Qed: a transparent call with wrong arity is stuck
 - `call_decr_pre_violation_stuck` Qed: calling outside the precondition is stuck —
   the contract is enforced, not assumed
+- **`call_chain`, `call_chain_mixed` Qed by `snakelet_auto.` alone**: a body
+  chaining square (opaque) → twice (transparent) → decr (opaque, pre 1≤50),
+  and a chain mixing calls with pure arithmetic — zero manual steps
+- Gotcha: `[#5]` inside `%S` collides with stdpp's vector notation `[# ...]` —
+  write `[Val (LitInt 5)]` for call argument lists
 - Proof note: `simpl in Hentry` does NOT reduce `demo_table "f"`; pin the entry
   with `assert (fun_entries "f" = Some ...) by reflexivity` and rewrite
 - Note: WP lemma `@`-applications take one extra implicit now (`_ _ _ _ s E`)
 
 ### SnakeletTactics.v — clean
 - `reshape_expr` Ltac + `wp_bind` tactic ported from heap_lang
+- **`snakelet_auto`** — reproducible driver for straight-line programs with
+  call chains.  Loop of `snakelet_step`:
+  - pure WP steps (`snakelet_pure_step` from Wp; let/binop/if with values)
+  - `snakelet_call_step`: matches `Call f args`, strips `Val`s off `args`
+    (`strip_vals`), computes the table entry with `eval hnf` (preserving the
+    named pre/post for readable side goals), then applies `wp_call`
+    (reflexivity + `snakelet_solve_pre` + intro result, `subst`) or
+    `wp_call_unfold` (reflexivity ×2 + `iNext`)
+  - `wp_bind` to focus a redex in evaluation position
+  - `wp_value'` for terminal values
+  Ends with `iPureIntro; first [reflexivity|lia|done]`.
+- `snakelet_solve_pre`: discharges simple pre shapes
+  (`∃ x, args = [...]` with optional `∧` linear-arith side conditions);
+  extensible with more branches
+- `snakelet_simpl`: `simpl; try (unfold of_val)` — the generic `wp_bind`
+  continuation reintroduces `of_val`, which `simpl` will NOT unfold; without
+  this the syntactic matches stall
+- Failure behavior: if a sub-step fails (nondeterministic post, unprovable
+  pre), the whole step rolls back and the goal is left at the call —
+  earlier progress kept
 
 ### Tests: 52/52 pass
 

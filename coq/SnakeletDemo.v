@@ -310,6 +310,28 @@ Section demo.
     - simpl in Hentry. injection Hentry as <- <-. simpl in Hlen. discriminate Hlen.
   Qed.
 
+  (** * Call chains, discharged by a reproducible tactic
+
+      A function body that chains calls — results flowing into the next
+      call via let-bindings — verified by [snakelet_auto] without
+      intervention: [square(5) = 25] (opaque), [twice(25) = 50]
+      (transparent unfold), [decr(50) = 49] (opaque, pre [1 ≤ 50]
+      discharged automatically). *)
+  Lemma call_chain s E :
+    ⊢ WP (let: "a" := Call "square" [Val (LitInt 5)] in
+          let: "b" := Call "twice" [Var "a"] in
+          Call "decr" [Var "b"])%S
+      @ s; E {{ v, ⌜v = LitInt 49⌝ }}.
+  Proof. snakelet_auto. Qed.
+
+  (** Chains mixing calls with pure arithmetic are also automatic. *)
+  Lemma call_chain_mixed s E :
+    ⊢ WP (let: "a" := Call "square" [Val (LitInt 3)] in
+          let: "b" := Var "a" + #1 in
+          Call "decr" [Var "b"])%S
+      @ s; E {{ v, ⌜v = LitInt 9⌝ }}.
+  Proof. snakelet_auto. Qed.
+
   (** The contract is *enforced*, not assumed: calling [decr] outside its
       precondition ([1 ≤ x] fails for [0]) is stuck — no [prim_step]
       exists, so no WP proof can sneak past the precondition. *)

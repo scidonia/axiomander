@@ -494,13 +494,13 @@ End snakelet_wp.
 Ltac snakelet_pure_step :=
   lazymatch goal with
   | |- environments.envs_entails _ (wp _ _ (BinOp ?op (Val ?v1) (Val ?v2)) ?Φ) =>
-      iApply (@wp_binop _ _ _ _ _ op v1 v2 Φ)
+      iApply (@wp_binop _ _ _ _ _ _ op v1 v2 Φ)
   | |- environments.envs_entails _ (wp _ _ (Let ?x (Val ?v) ?e2) ?Φ) =>
-      iApply (@wp_let _ _ _ _ _ x v e2 Φ)
+      iApply (@wp_let _ _ _ _ _ _ x v e2 Φ)
   | |- environments.envs_entails _ (wp _ _ (If (Val (LitBool true)) ?e1 ?e2) ?Φ) =>
-      iApply (@wp_if_true _ _ _ _ _ e1 e2 Φ)
+      iApply (@wp_if_true _ _ _ _ _ _ e1 e2 Φ)
   | |- environments.envs_entails _ (wp _ _ (If (Val (LitBool false)) ?e1 ?e2) ?Φ) =>
-      iApply (@wp_if_false _ _ _ _ _ e1 e2 Φ)
+      iApply (@wp_if_false _ _ _ _ _ _ e1 e2 Φ)
   end.
 
 Ltac snakelet_pures := repeat snakelet_pure_step.
