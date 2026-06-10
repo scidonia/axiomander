@@ -11,6 +11,15 @@ Require Import SnakeletTactics.
 Import snakelet_notation.
 Open Scope Z_scope.
 
+#[global] Instance demo_fun_specs : FunSpecs := {|
+  fun_specs := λ f args r,
+    match f with
+    | "square" => match args with [LitInt x] => r = LitInt (x * x) | _ => False end
+    | "double" => match args with [LitInt x] => r = LitInt (x + x) | _ => False end
+    | _ => False
+    end
+|}.
+
 Section demo.
   Context `{!snakelet_heapGS_gen hlc Σ}.
 
@@ -178,5 +187,25 @@ Section demo.
     ⊢ WP (If (#true)%S (#1)%S (#0)%S)%S
       @ s; E {{ v, ⌜v = LitInt 0⌝ }}.
   Proof. (* [if true then 1 else 0 = 1 != 0]. *) Admitted.
+
+  (** * Function call demos (opaque, spec-driven)
+
+      Calls use [wp_call] (currently admit'd).  When proved, these become: *)
+
+  Lemma call_square s E :
+    ⊢ WP Call "square" [Val (LitInt 5)] @ s; E
+      {{ v, ⌜v = LitInt 25⌝ }}.
+  Proof. Admitted.
+
+  Lemma call_double s E :
+    ⊢ WP Call "double" [Val (LitInt 7)] @ s; E
+      {{ v, ⌜v = LitInt 14⌝ }}.
+  Proof. Admitted.
+
+  (** A negative test: calling an unknown function is stuck. *)
+  Lemma call_unknown s E :
+    ⊢ WP Call "nonexistent" [Val (LitInt 0)] @ s; E
+      {{ v, ⌜v = LitInt 0⌝ }}.
+  Proof. Admitted.
 
 End demo.
