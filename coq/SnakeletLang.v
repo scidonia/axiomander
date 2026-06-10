@@ -353,14 +353,15 @@ Definition lit_as_z (v : sn_val) : Z :=
 
 (** * Function specifications
 
-    [fun_specs f args result] means: function [f] with arguments [args]
-    may produce result [result].  The actual function body is never
-    expanded — the specification alone drives verification.
+    [fun_specs f args result]: function [f] with arguments [args]
+    may produce result [result].  The body is never expanded — the
+    specification alone drives verification ("virtual computation").
 
-    [Call f args] has NO [head_step] rule.  Use [wp_call] to prove
-    its WP from a [FunSpecs] instance. *)
+    The downward closure of all needed specs is collected by the
+    pipeline and provided as this parameter. *)
 
-Class FunSpecs := { fun_specs : string → list sn_val → sn_val → Prop }.
+Section WithSpecs.
+  Variable fun_specs : string → list sn_val → sn_val → Prop.
 
 (** * Head steps *)
 Inductive head_step : sn_expr → sn_state → sn_expr → sn_state → list sn_expr → Prop :=
@@ -385,7 +386,10 @@ Inductive head_step : sn_expr → sn_state → sn_expr → sn_state → list sn_
       head_step (Raise (Val v)) σ (Val v) σ []
   | HeadTryBody body handler σ body' σ' efs :
       head_step body σ body' σ' efs →
-      head_step (Try body handler) σ body' σ' efs.
+      head_step (Try body handler) σ body' σ' efs
+  | HeadCall f vs σ v :
+      fun_specs f vs v →
+      head_step (Call f (map Val vs)) σ (Val v) σ [].
 
 (** * Iris Language instance *)
 Definition observation : Type := unit.
@@ -528,6 +532,11 @@ Defined.
     All notations are scoped under [snakelet_scope], so they do not interfere
     with other notations.  Use [Open Scope snakelet_scope] to activate them,
     or [Import snakelet_notation] to get both scope and coercions. *)
+
+End WithSpecs.
+
+Definition default_fun_specs : string → list sn_val → sn_val → Prop := λ _ _ _, False.
+Canonical Structure snakelet_lang_default := snakelet_lang default_fun_specs.
 
 Module snakelet_notation.
   Declare Scope snakelet_scope.

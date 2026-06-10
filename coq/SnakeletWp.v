@@ -20,12 +20,25 @@ Global Existing Instance snakelet_gen_heapG.
 Notation snakelet_heapGS := (snakelet_heapGS_gen HasLc).
 
 Section snakelet_wp.
+  Context (fun_specs : string → list sn_val → sn_val → Prop).
   Context `{!snakelet_heapGS_gen hlc Σ}.
+
+  Local Notation Λ := (snakelet_lang fun_specs).
+  Local Notation prim_step := (prim_step fun_specs).
+  Local Notation reducible := (reducible (Λ := Λ)).
+  Local Notation reducible_no_obs := (reducible_no_obs (Λ := Λ)).
+  Local Notation PrimPureStep := (PrimPureStep fun_specs).
+  Local Notation head_step := (head_step fun_specs).
+  Local Notation PrimHeadStep := (PrimHeadStep fun_specs).
+  Local Notation HeadLoad := (HeadLoad fun_specs).
+  Local Notation HeadStore := (HeadStore fun_specs).
+  Local Notation HeadAlloc := (HeadAlloc fun_specs).
+  Local Notation HeadCall := (HeadCall fun_specs).
 
   Definition snakelet_state_interp (σ : sn_state) (ns : nat) (κs : list observation) (nt : nat) : iProp Σ :=
     gen_heap_interp σ.
 
-  Global Program Instance snakelet_irisGS : irisGS_gen hlc snakelet_lang Σ := {|
+  Global Program Instance snakelet_irisGS : irisGS_gen hlc Λ Σ := {|
     iris_invGS := snakelet_invGS;
     state_interp := snakelet_state_interp;
     fork_post _ := True%I;
@@ -234,7 +247,7 @@ Section snakelet_wp.
       pose proof (prim_binop_det _ _ _ _ _ _ _ _ Hprim) as [Hκ [Hσ [Hefs He2]]].
       rewrite He2.
       iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
-    iApply (wp_value' (Λ := snakelet_lang) with "HΦ").
+    iApply (wp_value' (Λ := Λ) with "HΦ").
   Qed.
 
   Lemma wp_let s E x v e2 Φ :
@@ -387,6 +400,13 @@ Section snakelet_wp.
     { done. }
   Qed.
 
+  (** * Call specification lemma. *)
+  Lemma wp_call s E f vs Φ (v : sn_val) :
+    fun_specs f vs v →
+    ▷ Φ v -∗
+    WP Call f (map Val vs) @ s; E {{ Φ }}.
+  Proof. Admitted.
+
   (** Automation: repeatedly apply pure WP reductions. *)
   Ltac snakelet_pures :=
     repeat (iApply wp_binop || iApply wp_let || iApply wp_if_true || iApply wp_if_false).
@@ -410,5 +430,5 @@ Ltac snakelet_pure_step :=
 Ltac snakelet_pures := repeat snakelet_pure_step.
 
 (** Register [IntoVal] so [wp_value] resolves correctly. *)
-Global Instance into_val_val v : IntoVal (Val v) v.
+Global Instance into_val_val (fun_specs : _) v : @IntoVal (snakelet_lang fun_specs) (Val v) v.
 Proof. done. Qed.
