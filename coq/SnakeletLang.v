@@ -63,7 +63,8 @@ Inductive sn_expr :=
   | DictGet (l key : sn_expr)
   | DictSet (l key sn_val : sn_expr)
   | Raise (e : sn_expr)
-  | Try (body handler : sn_expr).
+  | Try (body handler : sn_expr)
+  | Call (f : string) (args : list sn_expr).
 
 (** * Evaluation contexts *)
 Inductive sn_ectx_item :=
@@ -137,6 +138,7 @@ Fixpoint subst (x : string) (v : sn_val) (e : sn_expr) : sn_expr :=
   | DictSet l key v' => DictSet (subst x v l) (subst x v key) (subst x v v')
   | Raise e => Raise (subst x v e)
   | Try body handler => Try (subst x v body) (subst x v handler)
+  | Call f args => Call f (List.map (subst x v) args)
   end.
 
 (** * Pure steps *)
@@ -349,6 +351,17 @@ Definition lit_as_z (v : sn_val) : Z :=
   match v with LitInt n => n | _ => 0 end.
 
 
+(** * Function specifications
+
+    [fun_specs f args result] means: function [f] with arguments [args]
+    may produce result [result].  The actual function body is never
+    expanded — the specification alone drives verification.
+
+    [Call f args] has NO [head_step] rule.  Use [wp_call] to prove
+    its WP from a [FunSpecs] instance. *)
+
+Class FunSpecs := { fun_specs : string → list sn_val → sn_val → Prop }.
+
 (** * Head steps *)
 Inductive head_step : sn_expr → sn_state → sn_expr → sn_state → list sn_expr → Prop :=
   | HeadLoad l v σ :
@@ -397,7 +410,7 @@ Proof.
     + apply (fill_not_val K x0). destruct Hhead; subst; simpl; auto.
 Qed.
 
-Canonical Structure snakelet_lang := Language snakelet_lang_mixin.
+Global Canonical Structure snakelet_lang := Language snakelet_lang_mixin.
 
 Lemma to_val_pure_step x x' : pure_step x x' → to_val x = None.
 Proof.

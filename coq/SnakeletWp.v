@@ -234,7 +234,7 @@ Section snakelet_wp.
       pose proof (prim_binop_det _ _ _ _ _ _ _ _ Hprim) as [Hκ [Hσ [Hefs He2]]].
       rewrite He2.
       iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
-      iApply (wp_value' with "HΦ").
+    iApply (wp_value' (Λ := snakelet_lang) with "HΦ").
   Qed.
 
   Lemma wp_let s E x v e2 Φ :
