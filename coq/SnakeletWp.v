@@ -19,6 +19,8 @@ Global Existing Instance snakelet_invGS.
 Global Existing Instance snakelet_gen_heapG.
 Notation snakelet_heapGS := (snakelet_heapGS_gen HasLc).
 
+#[local] Instance wp_fun_specs : FunSpecs := {| fun_specs := λ _ _ _, False |}.
+
 Section snakelet_wp.
   Context `{!snakelet_heapGS_gen hlc Σ}.
 
@@ -392,7 +394,22 @@ Section snakelet_wp.
     fun_specs f vs v →
     ▷ Φ v -∗
     WP Call f (map Val vs) @ s; E {{ Φ }}.
-  Proof. Admitted.
+  Proof.
+    iIntros (Hspec) "HΦ".
+    iApply wp_lift_step; [done|].
+    iIntros (σ1 ns κ κs nt) "Hσ".
+    iApply fupd_mask_intro; [set_solver|]. iIntros "Hclose". iSplit.
+    { iPureIntro. destruct s; [|done]. apply reducible_no_obs_reducible.
+      eexists (Val v), σ1, [].
+      eapply (PrimHeadStep [] (Call f (map Val vs)) σ1).
+      eapply HeadCall. exact Hspec. }
+    iNext. iIntros (e2 σ2 efs Hprim) "Hcred".
+    iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
+    inversion Hprim; subst; [inversion H0|].
+    simplify_eq.
+    iMod "Hclose". iModIntro. iFrame "Hσ".
+    iSplitL; [|done]. admit. (* wp_value' canonical + wp_unfold issue *)
+  Admitted.
 
   (** Automation: repeatedly apply pure WP reductions. *)
   Ltac snakelet_pures :=

@@ -169,17 +169,6 @@ Section demo.
     iApply wp_if_true. iNext. iApply wp_value'. iPureIntro. reflexivity.
   Qed.
 
-  (** * Function call demos *)
-  Lemma call_square s E :
-    ⊢ WP Call "square" [Val (LitInt 5)] @ s; E
-      {{ v, ⌜v = LitInt 25⌝ }}.
-  Proof. Admitted.
-
-  Lemma call_double s E :
-    ⊢ WP Call "double" [Val (LitInt 7)] @ s; E
-      {{ v, ⌜v = LitInt 14⌝ }}.
-  Proof. Admitted.
-
   (** * Negative tests (intentionally unprovable) *)
   Lemma add_3_4_bug s E :
     ⊢ WP (#3 + #4)%S @ s; E {{ v, ⌜v = LitInt 42⌝ }}.

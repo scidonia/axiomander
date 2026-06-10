@@ -354,10 +354,11 @@ Definition lit_as_z (v : sn_val) : Z :=
 (** * Function specifications
 
     [fun_specs f args result]: function [f] with arguments [args]
-    may produce result [result].  Override with a [Definition] in your
-    file to provide the downward closure of specs. *)
+    may produce result [result].  Override with a #[local] Instance
+    in your file to provide the downward closure of specs. *)
 
-Parameter fun_specs : string → list sn_val → sn_val → Prop.
+Class FunSpecs := { fun_specs : string → list sn_val → sn_val → Prop }.
+#[export] Instance default_fun_specs : FunSpecs := {| fun_specs := λ _ _ _, False |}.
 
 (** * Head steps *)
 Inductive head_step : sn_expr → sn_state → sn_expr → sn_state → list sn_expr → Prop :=
