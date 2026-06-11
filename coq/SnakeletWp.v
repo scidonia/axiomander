@@ -169,6 +169,37 @@ Section snakelet_wp.
     e2 = Val LitUnit ∧ σ2 = σ ∧ efs = [e].
   Proof. intros H. inversion H; subst. auto. Qed.
 
+  Lemma head_raise_det v σ e2 σ2 efs :
+    head_step (Raise (Val v)) σ e2 σ2 efs →
+    e2 = Val v ∧ σ2 = σ ∧ efs = [].
+  Proof. intros H. inversion H; subst. auto. Qed.
+
+  Lemma prim_raise_det v σ κ e2 σ2 efs :
+    prim_step (Raise (Val v)) σ κ e2 σ2 efs →
+    κ = [] ∧ σ2 = σ ∧ efs = [] ∧ e2 = Val v.
+  Proof.
+    intros Hprim. inversion Hprim; subst.
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x. exfalso; inversion H0.
+      + destruct Ki; simpl in H; discriminate H.
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x. eapply head_raise_det in H0 as (->&->&->). auto.
+      + destruct Ki; simpl in H; discriminate H.
+  Qed.
+
+  Lemma prim_try_val_det v handler σ κ e2 σ2 efs :
+    prim_step (Try (Val v) handler) σ κ e2 σ2 efs →
+    κ = [] ∧ σ2 = σ ∧ efs = [] ∧ e2 = Val v.
+  Proof.
+    intros Hprim. inversion Hprim; subst.
+    - destruct K as [|Ki K']; simpl in H;
+      [subst x; inversion H0; subst; auto | destruct Ki; simpl in H; discriminate H].
+    - destruct K as [|Ki K']; simpl in H;
+      [subst x; inversion H0; subst;
+       match goal with H : head_step (Val _) _ _ _ _ |- _ => inversion H end
+      | destruct Ki; simpl in H; discriminate H].
+  Qed.
+
   Lemma prim_load_det l σ κ e2 σ2 efs v :
     σ !! l = Some v →
     prim_step (Load (Val (LitLoc l))) σ κ e2 σ2 efs →
@@ -335,6 +366,45 @@ Section snakelet_wp.
       rewrite He2.
       iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
       iFrame "HΦ".
+  Qed.
+
+  Lemma wp_raise s E v Φ :
+    ▷ Φ v -∗ WP Raise (Val v) @ s; E {{ Φ }}.
+  Proof.
+    iIntros "HΦ". iApply wp_lift_step; [done|].
+    iIntros (σ1 ns κ κs nt) "Hσ".
+    iApply fupd_mask_intro; [set_solver|]. iIntros "Hclose". iSplit.
+    { iPureIntro. destruct s; [|done]. apply reducible_no_obs_reducible.
+      eexists (Val v), σ1, []. eapply (PrimHeadStep [] (Raise _) σ1).
+      eapply HeadRaise. }
+    iNext. iIntros (e2 σ2 efs Hstep) "Hcred".
+    iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
+    pose proof (prim_raise_det _ _ _ _ _ _ Hstep) as [Hκ [Hσ [Hefs He2]]].
+    rewrite He2 Hκ Hσ Hefs.
+    iMod "Hclose". iModIntro. iFrame "Hσ".
+    iSplitL.
+    { rewrite wp_unfold /wp_pre /=. iModIntro. iExact "HΦ". }
+    { done. }
+  Qed.
+
+  Lemma wp_try_val s E v handler Φ :
+    ▷ Φ v -∗ WP Try (Val v) handler @ s; E {{ Φ }}.
+  Proof.
+    iIntros "HΦ".
+    iApply wp_lift_pure_step_no_fork; [ | | ].
+    - intros σ. destruct s.
+      + pose proof (reducible_no_obs_pure_step
+            (Try (Val v) handler) (Val v) σ
+            (PureTryReturn v handler)) as Hred.
+        apply reducible_no_obs_reducible, Hred.
+      + simpl. reflexivity.
+    - intros κ σ1 e2 σ2 efs Hprim.
+      pose proof (prim_try_val_det _ _ _ _ _ _ _ Hprim) as (->&->&->&_); done.
+    - iModIntro. iNext. iModIntro. iIntros (κ e2 efs σ Hprim) "Hcred".
+      pose proof (prim_try_val_det _ _ _ _ _ _ _ Hprim) as [Hκ [Hσ [Hefs He2]]].
+      rewrite He2.
+      iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
+      iApply wp_value'. iExact "HΦ".
   Qed.
 
   (** Stateful WP lemmas.

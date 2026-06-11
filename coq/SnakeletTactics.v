@@ -363,6 +363,27 @@ Ltac loop_unfold :=
   | _ => fail "loop_unfold: goal is not a WP"
   end.
 
+(** * Exception handling
+
+    [raise_val] reduces [Raise (Val v)] to [Val v] (under current
+    semantics Raise is a no-op; future work will distinguish it from
+    normal return).  [try_val] reduces [Try (Val v) handler] to
+    [Val v] via the PureTryReturn pure step. *)
+
+Ltac raise_val :=
+  lazymatch goal with
+  | |- envs_entails _ (wp _ _ (Raise (Val _)) _) =>
+      iApply wp_raise; iNext; snakelet_simpl
+  | _ => fail "raise_val: goal is not Raise (Val _)"
+  end.
+
+Ltac try_val :=
+  lazymatch goal with
+  | |- envs_entails _ (wp _ _ (Try (Val _) _) _) =>
+      iApply wp_try_val; iNext; snakelet_simpl
+  | _ => fail "try_val: goal is not Try (Val _) handler"
+  end.
+
 Ltac snakelet_call_step :=
   lazymatch goal with
   | |- envs_entails _ (wp _ _ (Call ?f _) _) =>

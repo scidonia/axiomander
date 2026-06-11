@@ -506,4 +506,18 @@ Section demo.
     iPureIntro. reflexivity.
   Qed.
 
+  (** * Exception handling — Raise and Try
+
+      Under the current semantics, [Raise v] is a no-op (reduces to
+      [Val v]), and [Try (Val v) handler] discards the handler and
+      returns [v].  These lemmas establish the infrastructure for
+      future work where Raise will carry exception information. *)
+  Lemma raise_noop s E :
+    ⊢ WP (Raise (Val (LitInt 42))) @ s; E {{ v, ⌜v = LitInt 42⌝ }}.
+  Proof. iApply wp_raise. iNext. iPureIntro. reflexivity. Qed.
+
+  Lemma try_val_noop s E :
+    ⊢ WP (Try (Val (LitInt 7)) (Val LitUnit)) @ s; E {{ v, ⌜v = LitInt 7⌝ }}.
+  Proof. iApply wp_try_val. iNext. iPureIntro. reflexivity. Qed.
+
 End demo.
