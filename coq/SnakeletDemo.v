@@ -476,4 +476,34 @@ Section demo.
     finish_pure.                                (* 2 = 2 *)
   Qed.
 
+  (** * Frame conditions — multi-cell separation
+
+      Two heap cells coexist: [a] receives 10, [b] holds 2.
+      The store to [a] does not touch [b]; the load from [b] in the
+      final step proves [b ↦ 2] was preserved (Iris separation logic
+      frames automatically — no clobber or writes list needed).
+      Multi-cell naming: alloc produces distinct Coq location names
+      (la, lb) and hypothesis names (Ha, Hb). *)
+  Lemma two_cells_frame s E :
+    ⊢ WP (Let "a" (Alloc (Val (LitInt 1)))
+             (Let "b" (Alloc (Val (LitInt 2)))
+                (Store (Var "a") (Val (LitInt 10)) ;;
+                 Load (Var "b"))))%S
+      @ s; E {{ v, ⌜v = LitInt 2⌝ }}.
+  Proof.
+    iStartProof.
+    wp_bind (Alloc (Val (LitInt 1))).
+    iApply wp_alloc. iIntros (la) "Ha". simpl.
+    iApply wp_let. iNext. simpl.
+    wp_bind (Alloc (Val (LitInt 2))).
+    iApply wp_alloc. iIntros (lb) "Hb". simpl.
+    iApply wp_let. iNext. simpl.
+    wp_bind (Store (Val (LitLoc la)) (Val (LitInt 10))).
+    iApply (wp_store with "Ha"). iIntros "Ha". simpl.
+    snakelet_simpl. snakelet_pure_step. iNext. snakelet_simpl.
+    wp_bind (Load (Val (LitLoc lb))).
+    iApply (wp_load with "Hb"). iIntros "Hb".
+    iPureIntro. reflexivity.
+  Qed.
+
 End demo.
