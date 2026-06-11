@@ -308,8 +308,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                     + [Stage("pure_step", "pure_step", comment="exit branch")]
                     ) + k()
         else:
-            # Pure loop with a literal bound: unroll the loop body
-            # exactly N times, then the exit iteration.
+            # Pure loop with a literal bound: unroll N times.
             unroll = _unroll_count(e.cond)
             if unroll is not None and unroll > 0:
                 block = flat(body_stages, "body")
@@ -333,10 +332,11 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                     Stage("pure_step", "pure_step",
                           comment="exit branch"),
                     ] + k()
-            # Symbolic bound: can't unroll; fall through to IMP.
+            # Symbolic pure loop or mutable symbolic loop: needs
+            # ghost-state invariant (iLöb over a Coq-variable measure).
+            # Falls through to IMP for now.
             raise IrisGenError(
-                "while loop with symbolic bound or non-heap body "
-                "needs the invariant path (later phase)")
+                "symbolic while loop: needs Löb+invariant (phase 5)")
 
     if isinstance(e, SAlloc):
         return [Stage("heap_alloc", "heap_alloc",
