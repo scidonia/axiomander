@@ -128,6 +128,20 @@ Section snakelet_wp.
           |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
   Qed.
 
+  Lemma prim_while_det e1 e2 σ κ e2' σ2 efs :
+    prim_step (While e1 e2) σ κ e2' σ2 efs →
+    κ = [] ∧ σ2 = σ ∧ efs = [] ∧
+    e2' = If e1 (Let "_" e2 (While e1 e2)) (Val LitUnit).
+  Proof.
+    intros Hprim. inversion Hprim; subst.
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x. inversion H0; subst; repeat split; reflexivity.
+      + destruct Ki; simpl in H; discriminate H.
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x. inversion H0.
+      + destruct Ki; simpl in H; discriminate H.
+  Qed.
+
   (** Head-step determinant lemmas *)
   Lemma head_load_det l σ e2 σ2 efs :
     head_step (Load (Val (LitLoc l))) σ e2 σ2 efs →
@@ -297,6 +311,27 @@ Section snakelet_wp.
       pose proof (prim_if_false_det _ _ _ _ _ _ _ Hprim) as (->&->&->&_); done.
     - iModIntro. iNext. iModIntro. iIntros (κ e2' efs σ Hprim) "Hcred".
       pose proof (prim_if_false_det _ _ _ _ _ _ _ Hprim) as [Hκ [Hσ [Hefs He2]]].
+      rewrite He2.
+      iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
+      iFrame "HΦ".
+  Qed.
+
+  Lemma wp_while s E e1 e2 Φ :
+    ▷ WP If e1 (Let "_" e2 (While e1 e2)) (Val LitUnit) @ s; E {{ Φ }} -∗
+    WP While e1 e2 @ s; E {{ Φ }}.
+  Proof.
+    iIntros "HΦ".
+    iApply wp_lift_pure_step_no_fork; [ | | ].
+    - intros σ. destruct s.
+      + pose proof (reducible_no_obs_pure_step
+            (While e1 e2) (If e1 (Let "_" e2 (While e1 e2)) (Val LitUnit)) σ
+            (PureWhile e1 e2)) as Hred.
+        apply reducible_no_obs_reducible, Hred.
+      + simpl. reflexivity.
+    - intros κ σ1 e2' σ2 efs Hprim.
+      pose proof (prim_while_det _ _ _ _ _ _ _ Hprim) as (->&->&->&_); done.
+    - iModIntro. iNext. iModIntro. iIntros (κ e2' efs σ Hprim) "Hcred".
+      pose proof (prim_while_det _ _ _ _ _ _ _ Hprim) as [Hκ [Hσ [Hefs He2]]].
       rewrite He2.
       iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
       iFrame "HΦ".

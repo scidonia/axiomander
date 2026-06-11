@@ -414,4 +414,17 @@ Section demo.
     finish_pure.
   Qed.
 
+  (** * While loop — staged proof
+
+      A loop that immediately terminates (condition false).  [loop_unfold]
+      exposes the [If]; [pure_step] dispatches the false branch. *)
+  Lemma while_false s E :
+    ⊢ WP (While (Val (LitBool false)) (Val LitUnit)) @ s; E
+      {{ v, ⌜v = LitUnit⌝ }}.
+  Proof.
+    iApply wp_while. iNext.
+    iApply wp_if_false. iNext.
+    iApply wp_value'. iPureIntro. reflexivity.
+  Qed.
+
 End demo.

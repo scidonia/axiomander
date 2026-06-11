@@ -58,6 +58,7 @@ Inductive sn_expr :=
   | Store (e1 e2 : sn_expr)
   | Alloc (e : sn_expr)
   | If (e0 e1 e2 : sn_expr)
+  | While (e1 e2 : sn_expr)
   | FAA (e1 e2 : sn_expr)
   | Fork (e : sn_expr)
   | DictGet (l key : sn_expr)
@@ -132,6 +133,7 @@ Fixpoint subst (x : string) (v : sn_val) (e : sn_expr) : sn_expr :=
   | Store e1 e2 => Store (subst x v e1) (subst x v e2)
   | Alloc e => Alloc (subst x v e)
   | If e0 e1 e2 => If (subst x v e0) (subst x v e1) (subst x v e2)
+  | While e1 e2 => While (subst x v e1) (subst x v e2)
   | FAA e1 e2 => FAA (subst x v e1) (subst x v e2)
   | Fork e => Fork (subst x v e)
   | DictGet l key => DictGet (subst x v l) (subst x v key)
@@ -345,6 +347,7 @@ Inductive pure_step : sn_expr → sn_expr → Prop :=
       pure_step (BinOp op (Val v1) (Val v2)) (Val (binop_eval op v1 v2))
   | PureIfTrue e1 e2 : pure_step (If (Val (LitBool true)) e1 e2) e1
   | PureIfFalse e1 e2 : pure_step (If (Val (LitBool false)) e1 e2) e2
+  | PureWhile e1 e2 : pure_step (While e1 e2) (If e1 (Let "_" e2 (While e1 e2)) (Val LitUnit))
   | PureTryReturn v handler : pure_step (Try (Val v) handler) (Val v).
 
 Definition lit_as_z (v : sn_val) : Z :=

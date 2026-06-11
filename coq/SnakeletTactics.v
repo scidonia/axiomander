@@ -341,6 +341,22 @@ Ltac heap_load :=
   | _ => fail "heap_load: goal is not a WP"
   end.
 
+(** * While loop unfolding
+
+    [loop_unfold] applies [wp_while] to unfold the loop one iteration,
+    revealing [If cond (body ;; While cond body) LitUnit].  The
+    subsequent [case_bool] / [pure_step] / [finish_pure] stages handle
+    the branches.  Loop invariants are at the proof-script level:
+    the generator supplies the invariant as a hypothesis before each
+    iteration; here we just provide the structural step. *)
+
+Ltac loop_unfold :=
+  lazymatch goal with
+  | |- envs_entails _ (wp _ _ (While _ _) _) =>
+      iApply wp_while; iNext; snakelet_simpl
+  | _ => fail "loop_unfold: goal is not a While"
+  end.
+
 Ltac snakelet_call_step :=
   lazymatch goal with
   | |- envs_entails _ (wp _ _ (Call ?f _) _) =>
