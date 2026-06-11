@@ -281,6 +281,33 @@ is in [`docs/iris-migration-plan.md`](docs/iris-migration-plan.md).
 - heap_alloc names its cell anonymously (`iIntros (l) "?"`); nothing
   downstream refers to it by name.
 
+### While loops + heap through the full pipeline (Phase 2b complete)
+- `SWhile` IR node; `iris_lowerer._lower_call` intercepts heap builtins:
+  `ref(v)` -> SAlloc, `load(c)` -> SLoad, `store(c, v)` -> SStore
+  (c must be a variable name).  `_fold` handles `PyWhile` (lowers to
+  `SLet "_" (SWhile cond body) rest`) and `PyExprStmt`.
+- **Loop generation (concrete-state loops):** the generator emits ONE
+  `repeat (<iteration block>)` stage — loop_unfold + cond stages +
+  select-branch pure_step + body stages + bind-";;" pure_step, joined
+  with `;` — followed by the explicit exit iteration + continuation.
+  Each repeat iteration is atomic (Ltac backtracking): on the exit pass
+  the block fails partway (body stages can't fire after the false
+  branch) and rolls back, leaving the goal at the exit unfolding.
+  Symbolic-bound loops fail the first block (pure_step refuses symbolic
+  conditions) -> repeat exits with zero unrollings -> failure lands at
+  the exit stages: graceful, classifiable, no divergence.
+- **`fail 1` -> `fail` in stage-tactic inner continuations**: level-1
+  failures escape `repeat`, breaking the exit-iteration rollback.  All
+  stage tactics now fail at level 0 so repeat catches and rolls back.
+- ANF: while conditions are re-evaluated per iteration so nothing may
+  be hoisted out of the While; supported cond shape is a binop over
+  atoms with at most one Load (value-restricted ectx).  Body is
+  ANF-normalized normally (hoists stay inside the loop).
+- End-to-end tests from Python source: heap roundtrip, counting loop,
+  **combined opaque call + heap + while + arithmetic + contracts**
+  (`mixed(x)`: square(x) + loop-to-3 + post x*x+3), wrong-post negative,
+  symbolic-bound negative.
+
 ### Mechanical-ladder boundary notes (empirical, this Coq version)
 - `lia` FAILS on `x * x >= 0` (no hypotheses) and `1 <= n * n + 1` —
   these need the SMT slot (or nia).

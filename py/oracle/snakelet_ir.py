@@ -96,6 +96,18 @@ class SReturn:
 
 
 @dataclass
+class SWhile:
+    """While loop.  Iris: wp_while + loop_unfold stage tactic.
+    The loop value is always LitUnit; results flow through heap cells."""
+    cond: "SExpr"
+    body: "SExpr"
+    kind: Literal["while"] = "while"
+
+    def to_coq(self) -> str:
+        return f"(While {self.cond.to_coq()} {self.body.to_coq()})"
+
+
+@dataclass
 class SLit:
     """Literal.  Iris: LitV (LitInt n) / LitV (LitLoc l)."""
     lit_type: str    # "int" | "bool" | "float" | "string" | "tuple" | "list" | "dict" | "set" | "loc" | "unit"
@@ -235,7 +247,7 @@ class SDictSet:
         raise NotImplementedError("SDictSet lowering to SnakeletLang: phase 3")
 
 
-SExpr = SLit | SVar | SBinOp | SLoad | SStore | SAlloc | SLet | SIf | SReturn | SApp | SSeq | SFork | SFAA | SRaise | STry | SDictGet | SDictSet
+SExpr = SLit | SVar | SBinOp | SLoad | SStore | SAlloc | SLet | SIf | SWhile | SReturn | SApp | SSeq | SFork | SFAA | SRaise | STry | SDictGet | SDictSet
 
 
 # ── Resource layer ───────────────────────────────────────────────

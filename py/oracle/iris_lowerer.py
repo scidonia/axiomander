@@ -16,7 +16,8 @@ from .py_ir import (
     PyBooleanOp, PyListComp,
 )
 from .snakelet_ir import (
-    SExpr, SLit, SVar, SBinOp, SLoad, SStore, SLet, SIf, SReturn, SApp, SSeq,
+    SExpr, SLit, SVar, SBinOp, SLoad, SStore, SAlloc, SLet, SIf, SWhile,
+    SReturn, SApp, SSeq,
     SField, SOwns, SPure, SFunction,
     SRaise, STry, SFork, SFAA,
     SDictGet, SDictSet,
@@ -125,8 +126,27 @@ class IrisLowerer:
         return None
 
     def _lower_call(self, expr: PyCall) -> Optional[SExpr]:
-        """Function call.  Opaque — becomes proof-level wp_apply.
-        Returns SApp with the callee name for spec lookup."""
+        """Function call.
+
+        Heap builtins lower directly to SnakeletLang heap operations:
+          ref(v)      -> SAlloc(v)     (fresh cell)
+          load(c)     -> SLoad(c)      (read cell named by variable c)
+          store(c, v) -> SStore(c, v)  (write cell named by variable c)
+        Anything else is opaque -- SApp with the callee name for spec
+        lookup in the FunCtx table."""
+        if expr.func == "ref" and len(expr.args) == 1:
+            v = self.lower_expr(expr.args[0])
+            if v is not None:
+                return SAlloc(value=v)
+        if expr.func == "load" and len(expr.args) == 1:
+            arg = expr.args[0]
+            if isinstance(arg, PyName):
+                return SLoad(loc=arg.name)
+        if expr.func == "store" and len(expr.args) == 2:
+            arg = expr.args[0]
+            v = self.lower_expr(expr.args[1])
+            if isinstance(arg, PyName) and v is not None:
+                return SStore(loc=arg.name, value=v)
         args = [a for a in (self.lower_expr(a) for a in expr.args) if a is not None]
         return SApp(func=expr.func, args=args)
 

@@ -281,6 +281,84 @@ def compound(x, y):
     assert ok, out
 
 
+# -- Heap + while loops (Phase 1+2 through the pipeline) ----------------------
+
+def test_heap_roundtrip_from_python():
+    """ref/store/load heap builtins lower to SnakeletLang heap ops."""
+    ok, out = verify('''
+def cell_roundtrip():
+    c = ref(5)
+    store(c, 9)
+    r = load(c)
+    assert r == 9
+    return r
+''')
+    assert ok, out
+
+
+def test_while_count_from_python():
+    """A concrete counting loop: the generator emits a bounded repeat
+    of the iteration block plus the explicit exit iteration."""
+    ok, out = verify('''
+def count_to_two():
+    c = ref(0)
+    while load(c) < 2:
+        store(c, load(c) + 1)
+    r = load(c)
+    assert r == 2
+    return r
+''')
+    assert ok, out
+
+
+def test_heap_loop_call_combined():
+    """The crowning integration: opaque call + heap cell + while loop
+    + arithmetic + contracts, all in one Python function."""
+    ok, out = verify('''
+def mixed(x):
+    assert x >= 1
+    a = square(x)
+    c = ref(0)
+    while load(c) < 3:
+        store(c, load(c) + 1)
+    b = load(c)
+    r = a + b
+    assert r == x * x + 3
+    return r
+''')
+    assert ok, out
+
+
+def test_while_wrong_post_rejected():
+    """Loop runs to 2; claiming 3 must fail."""
+    ok, out = verify('''
+def count_wrong():
+    c = ref(0)
+    while load(c) < 2:
+        store(c, load(c) + 1)
+    r = load(c)
+    assert r == 3
+    return r
+''')
+    assert not ok
+
+
+def test_while_symbolic_bound_rejected():
+    """Symbolic loop bounds need the invariant path (not yet wired):
+    the repeat block exits immediately and the proof fails at the
+    exit stages -- gracefully, not by divergence."""
+    ok, out = verify('''
+def count_to_n(n):
+    c = ref(0)
+    while load(c) < n:
+        store(c, load(c) + 1)
+    r = load(c)
+    assert r == n
+    return r
+''')
+    assert not ok
+
+
 # -- SMT escalation slot -------------------------------------------------------
 
 def test_smt_axiom_via_python():

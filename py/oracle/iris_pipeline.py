@@ -39,11 +39,13 @@ from oracle.iris_proof_gen import (
     FunTable, IrisGenError, IrisProof, generate,
 )
 from oracle.py_ir import (
-    PyAssert, PyAssign, PyAugAssign, PyIf, PyName, PyReturn, PyStmt,
+    PyAssert, PyAssign, PyAugAssign, PyExprStmt, PyIf, PyName, PyReturn,
+    PyStmt, PyWhile,
 )
 from oracle.py_ir_translator import PyIRTranslator
 from oracle.snakelet_ir import (
-    SAlloc, SApp, SBinOp, SExpr, SIf, SLet, SLit, SLoad, SReturn, SStore, SVar,
+    SAlloc, SApp, SBinOp, SExpr, SIf, SLet, SLit, SLoad, SReturn, SStore,
+    SVar, SWhile,
 )
 
 # Binops supported by SnakeletLang's binop_eval on integers.
@@ -166,9 +168,26 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer) -> SExpr:
         else_b = _fold(list(s.orelse) + rest, lw)
         return SIf(cond=cond, then_branch=then_b, else_branch=else_b)
 
+    if isinstance(s, PyWhile):
+        cond = lw.lower_expr(s.test)
+        if cond is None:
+            raise IrisGenError("cannot lower while-condition")
+        body = _fold(list(s.body), lw)
+        rest_e = _fold(rest, lw)
+        return SLet(var="_", value=SWhile(cond=cond, body=body),
+                    body=rest_e)
+
+    if isinstance(s, PyExprStmt):
+        val = lw.lower_expr(s.expr)
+        if val is None:
+            raise IrisGenError("cannot lower expression statement")
+        if not rest:
+            return val
+        return SLet(var="_", value=val, body=_fold(rest, lw))
+
     raise IrisGenError(
         f"unsupported statement for Iris lowering: {type(s).__name__} "
-        f"(loops/heap: later phases)")
+        f"(for-loops/try: later phases)")
 
 
 # -- Parameter substitution -------------------------------------------------
@@ -195,6 +214,9 @@ def _subst_params(e: SExpr, params: set[str], bound: set[str]) -> SExpr:
         return SIf(cond=_subst_params(e.cond, params, bound),
                    then_branch=_subst_params(e.then_branch, params, bound),
                    else_branch=_subst_params(e.else_branch, params, bound))
+    if isinstance(e, SWhile):
+        return SWhile(cond=_subst_params(e.cond, params, bound),
+                      body=_subst_params(e.body, params, bound))
     if isinstance(e, SApp):
         return SApp(func=e.func,
                     args=[_subst_params(a, params, bound) for a in e.args])
@@ -252,6 +274,8 @@ def _anf(e: SExpr, ctr: list[int]) -> SExpr:
         binds = []
         args = [_atomize(a, ctr, binds) for a in e.args]
         return _wrap(binds, SApp(func=e.func, args=args))
+    if isinstance(e, SLoad):
+        return e
     if isinstance(e, SAlloc):
         binds: list[tuple[str, SExpr]] = []
         val = _atomize(e.value, ctr, binds)
@@ -275,6 +299,24 @@ def _anf(e: SExpr, ctr: list[int]) -> SExpr:
         return _wrap(binds, SIf(cond=cond,
                                 then_branch=_anf(e.then_branch, ctr),
                                 else_branch=_anf(e.else_branch, ctr)))
+    if isinstance(e, SWhile):
+        # The condition is re-evaluated each iteration: hoisting any
+        # part of it outside the While would change semantics.  The
+        # supported shape is a binop whose operands are atoms or loads
+        # (loads are valid ectx redexes against a value operand).
+        cond = e.cond
+        if isinstance(cond, SBinOp):
+            left_ok = _is_atom(cond.left) or isinstance(cond.left, SLoad)
+            right_ok = _is_atom(cond.right) or isinstance(cond.right, SLoad)
+            if not (left_ok and right_ok) or \
+               (isinstance(cond.left, SLoad) and isinstance(cond.right, SLoad)):
+                raise IrisGenError(
+                    "while condition must be a binop over atoms with at "
+                    "most one load (value-restricted ectx)")
+        elif not _is_atom(cond):
+            raise IrisGenError(
+                "while condition must be an atom or a simple binop")
+        return SWhile(cond=cond, body=_anf(e.body, ctr))
     raise IrisGenError(f"unsupported node in ANF: {type(e).__name__}")
 
 
@@ -295,6 +337,9 @@ def _validate_ops(e: SExpr) -> None:
         _validate_ops(e.cond)
         _validate_ops(e.then_branch)
         _validate_ops(e.else_branch)
+    elif isinstance(e, SWhile):
+        _validate_ops(e.cond)
+        _validate_ops(e.body)
     elif isinstance(e, SApp):
         for a in e.args:
             _validate_ops(a)

@@ -148,7 +148,7 @@ Ltac snakelet_focus_call :=
       reshape_expr e ltac:(fun K e' =>
         lazymatch e' with
         | Call ?f ?args => wp_bind (Call f args)
-        | _ => fail 1 "snakelet_focus_call: redex is not a call"
+        | _ => fail "snakelet_focus_call: redex is not a call"
         end)
   | _ => fail "snakelet_focus_call: not a WP goal"
   end.
@@ -208,7 +208,7 @@ Ltac snakelet_check_callee fname :=
       reshape_expr e ltac:(fun K e' =>
         lazymatch e' with
         | Call fname _ => idtac
-        | _ => fail 1 "goal redex is not a call to the given function"
+        | _ => fail "goal redex is not a call to the given function"
         end)
   | _ => fail "not a WP goal"
   end.
@@ -338,7 +338,7 @@ Ltac heap_alloc :=
         | Alloc (Val _) =>
             wp_bind e'; iApply wp_alloc;
             let l := fresh "l" in iIntros (l) "?"; snakelet_simpl
-        | _ => fail 1 "heap_alloc: redex is not an Alloc"
+        | _ => fail "heap_alloc: redex is not an Alloc"
         end)
   | _ => fail "heap_alloc: goal is not a WP"
   end.
@@ -362,7 +362,7 @@ Ltac heap_store :=
             let K' := rev_ectx K (@nil sn_ectx_item) in
             eapply (tac_wp_store _ s E _ K');
             [iAssumptionCore | pm_reduce; snakelet_simpl]
-        | _ => fail 1 "heap_store: redex is not a Store"
+        | _ => fail "heap_store: redex is not a Store"
         end)
   | _ => fail "heap_store: goal is not a WP"
   end.
@@ -377,7 +377,7 @@ Ltac heap_load :=
             let K' := rev_ectx K (@nil sn_ectx_item) in
             eapply (tac_wp_load _ s E _ K');
             [iAssumptionCore | snakelet_simpl]
-        | _ => fail 1 "heap_load: redex is not a Load"
+        | _ => fail "heap_load: redex is not a Load"
         end)
   | _ => fail "heap_load: goal is not a WP"
   end.

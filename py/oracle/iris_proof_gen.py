@@ -34,7 +34,8 @@ from dataclasses import dataclass, field
 from typing import Optional, Union
 
 from oracle.snakelet_ir import (
-    SAlloc, SApp, SBinOp, SExpr, SIf, SLet, SLit, SLoad, SReturn, SSeq, SStore, SVar,
+    SAlloc, SApp, SBinOp, SExpr, SIf, SLet, SLit, SLoad, SReturn, SSeq,
+    SStore, SVar, SWhile,
 )
 
 # Coq unicode tokens, kept out of literals so the Python source stays ASCII.
@@ -257,6 +258,41 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                           comment=f'bind "{e.var}"')] + \
                    _gen(e.body, table, overrides, k)
         return _gen(e.value, table, overrides, after_rhs)
+
+    if isinstance(e, SWhile):
+        # Concrete-state loop: emit a bounded repeat of one full
+        # iteration block (loop_unfold + condition + select-true + body
+        # + bind "_"), then the explicit exit iteration.  Each repeat
+        # iteration is atomic (Ltac backtracking): on the exit pass the
+        # block fails partway and rolls back, leaving the goal at the
+        # exit unfolding.  Loops over symbolic state fail the first
+        # block (pure_step refuses symbolic conditions), so the repeat
+        # exits with zero unrollings and the failure lands at the exit
+        # stages -- classifiable, no divergence.
+        cond_stages = _gen(e.cond, table, overrides, lambda: [])
+        body_stages = _gen(e.body, table, overrides, lambda: [])
+
+        def flat(nodes: list[StageNode], what: str) -> list[str]:
+            out = []
+            for n in nodes:
+                if isinstance(n, Branch):
+                    raise IrisGenError(
+                        f"while {what} contains a case split; loops with "
+                        f"internal branching need the invariant path "
+                        f"(later phase)")
+                out.append(n.tactic)
+            return out
+
+        iter_block = "; ".join(
+            ["loop_unfold"] + flat(cond_stages, "condition")
+            + ["pure_step"] + flat(body_stages, "body") + ["pure_step"])
+        return ([Stage(f"repeat ({iter_block})", "loop_iterations",
+                       comment="concrete loop: all full iterations")]
+                + [Stage("loop_unfold", "loop_unfold",
+                         comment="exit iteration")]
+                + cond_stages
+                + [Stage("pure_step", "pure_step", comment="exit branch")]
+                ) + k()
 
     if isinstance(e, SAlloc):
         return [Stage("heap_alloc", "heap_alloc",
