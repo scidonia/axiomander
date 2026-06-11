@@ -310,7 +310,7 @@ _HEADER = (
     "From Stdlib Require Import Uint63Axioms Floats.PrimFloat.\n"
     "From iris.proofmode Require Import proofmode.\n"
     "From iris.program_logic Require Import weakestpre lifting.\n"
-    "Require Import SnakeletLang SnakeletWp SnakeletTactics.\n"
+    "Require Import SnakeletLang SnakeletWp SnakeletTactics RegMatch.\n"
     "Open Scope Z_scope.\n"
 )
 
