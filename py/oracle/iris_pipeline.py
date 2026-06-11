@@ -210,7 +210,9 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer) -> SExpr:
 
     if isinstance(s, PyFor):
         # Desugar: for x in range(lo, hi): body
-        #   → _i = lo; while _i < hi: x = _i; body; _i += 1
+        #   → x_ivar = lo; while x_ivar < hi: body'; x_ivar += 1
+        # The init binds the index variable, then the while loop scopes
+        # over the continuation (the rest of the function after the for).
         range_call = s.iterable
         lo_val = None
         hi_val = None
@@ -225,20 +227,19 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer) -> SExpr:
             raise IrisGenError(
                 "for loop: only range(hi) or range(lo, hi) supported")
         ivar = f"_{s.var}_i"
-        init = SLet(var=ivar, value=lo_val, body=_fold([], lw))
         body_stmts = [PyAssign(target=s.var,
                                value=PyName(name=ivar)),
                       *(list(s.body)),
                       PyAugAssign(target=ivar, op="+",
                                   value=PyConstant(value=1, py_type="int"))]
         body_e = _fold(body_stmts, lw)
-        while_e = SWhile(
-            cond=SBinOp(op="lt", left=SVar(name=ivar),
-                        right=hi_val),
-            body=body_e)
-        return SLet(var="_", value=init,
-                    body=SLet(var="_", value=while_e,
-                              body=_fold(rest, lw)))
+        while_e = SWhile(cond=SBinOp(op="lt", left=SVar(name=ivar),
+                                     right=hi_val),
+                         body=body_e)
+        rest_e = _fold(rest, lw)
+        # Chain: let ivar = lo in (while ivar < hi: ...); rest
+        return SLet(var=ivar, value=lo_val,
+                    body=SLet(var="_", value=while_e, body=rest_e))
 
     raise IrisGenError(
         f"unsupported statement for Iris lowering: {type(s).__name__} "

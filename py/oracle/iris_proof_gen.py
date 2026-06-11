@@ -199,6 +199,18 @@ def _check_anf_args(app: SApp) -> None:
                 f"let-bind intermediate results")
 
 
+def _unroll_count(cond: SExpr) -> Optional[int]:
+    """If the condition is [ivar < lit_N] with a literal right operand,
+    return N (the number of true iterations before exit)."""
+    if isinstance(cond, SBinOp) and cond.op in ("lt", "le"):
+        if isinstance(cond.right, SLit) and cond.right.lit_type == "int":
+            try:
+                return int(cond.right.value)
+            except (ValueError, TypeError):
+                pass
+    return None
+
+
 def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
          k) -> list[StageNode]:
     """Generate stages reducing e to a value, then continue with k().
@@ -260,15 +272,6 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         return _gen(e.value, table, overrides, after_rhs)
 
     if isinstance(e, SWhile):
-        # Concrete-state loop: emit a bounded repeat of one full
-        # iteration block (loop_unfold + condition + select-true + body
-        # + bind "_"), then the explicit exit iteration.  Each repeat
-        # iteration is atomic (Ltac backtracking): on the exit pass the
-        # block fails partway and rolls back, leaving the goal at the
-        # exit unfolding.  Loops over symbolic state fail the first
-        # block (pure_step refuses symbolic conditions), so the repeat
-        # exits with zero unrollings and the failure lands at the exit
-        # stages -- classifiable, no divergence.
         cond_stages = _gen(e.cond, table, overrides, lambda: [])
         body_stages = _gen(e.body, table, overrides, lambda: [])
 
@@ -283,16 +286,57 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 out.append(n.tactic)
             return out
 
-        iter_block = "; ".join(
-            ["loop_unfold"] + flat(cond_stages, "condition")
-            + ["pure_step"] + flat(body_stages, "body") + ["pure_step"])
-        return ([Stage(f"repeat ({iter_block})", "loop_iterations",
-                       comment="concrete loop: all full iterations")]
-                + [Stage("loop_unfold", "loop_unfold",
-                         comment="exit iteration")]
-                + cond_stages
-                + [Stage("pure_step", "pure_step", comment="exit branch")]
-                ) + k()
+        def has_heap(nodes):
+            for n in nodes:
+                if isinstance(n, Stage) and (
+                        "heap_" in n.category or "heap_" in n.tactic):
+                    return True
+            return False
+
+        cond_heap = has_heap(cond_stages)
+        body_heap = has_heap(body_stages)
+
+        if cond_heap or body_heap:
+            iter_block = "; ".join(
+                ["loop_unfold"] + flat(cond_stages, "condition")
+                + ["pure_step"] + flat(body_stages, "body") + ["pure_step"])
+            return ([Stage(f"repeat ({iter_block})", "loop_iterations",
+                           comment="concrete heap loop: all full iterations")]
+                    + [Stage("loop_unfold", "loop_unfold",
+                             comment="exit iteration")]
+                    + cond_stages
+                    + [Stage("pure_step", "pure_step", comment="exit branch")]
+                    ) + k()
+        else:
+            # Pure loop with a literal bound: unroll the loop body
+            # exactly N times, then the exit iteration.
+            unroll = _unroll_count(e.cond)
+            if unroll is not None and unroll > 0:
+                block = flat(body_stages, "body")
+                stages = []
+                for _ in range(unroll):
+                    stages += [
+                        Stage("loop_unfold", "loop_unfold",
+                              comment="iteration"),
+                        ] + cond_stages + [
+                        Stage("pure_step", "pure_step",
+                              comment="enter body"),
+                        ] + [Stage(t, "pure_step", comment="body")
+                             for t in block] + [
+                        Stage("pure_step", "pure_step",
+                              comment="step ;;"),
+                        ]
+                return stages + [
+                    Stage("loop_unfold", "loop_unfold",
+                          comment="exit iteration"),
+                    ] + cond_stages + [
+                    Stage("pure_step", "pure_step",
+                          comment="exit branch"),
+                    ] + k()
+            # Symbolic bound: can't unroll; fall through to IMP.
+            raise IrisGenError(
+                "while loop with symbolic bound or non-heap body "
+                "needs the invariant path (later phase)")
 
     if isinstance(e, SAlloc):
         return [Stage("heap_alloc", "heap_alloc",
