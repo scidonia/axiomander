@@ -112,6 +112,103 @@ The block is Python-side: `SLoad.to_coq()`, `SStore.to_coq()` raise
 **Unlocks:** mutable state, dict/set mutations (SDictGet/SDictSet reuse
 the same patterns).
 
+## Loop Contracts — Invariant, Variant, and Derived Obligations
+
+### Source-Level Interface
+
+Loop contracts use plain `assert` statements, consistent with the project
+ground rules (zero imports, zero decorators).  The ContractLinter already
+classifies asserts inside a `while`/`for` body as `"invariant"`.  One
+additional builtin, `decreases`, is recognised for termination measures.
+
+```python
+def sum_to_n(n):
+    s = 0; i = 0
+    while i <= n:
+        assert s == i * (i - 1) // 2  # invariant
+        assert 0 <= i <= n            # invariant
+        assert decreases(n - i)       # variant
+        s += i; i += 1
+    assert s == n * (n + 1) // 2      # postcondition
+    return s
+```
+
+**Classification:**
+
+| Position | Classification | Role |
+|---|---|---|
+| Before any executable code | `precondition` | function pre |
+| Immediately before `return` | `postcondition` | function post |
+| Inside loop, plain expr | `invariant` | loop invariant |
+| Inside loop, `decreases(e)` | `variant` | termination measure |
+| `invariant ∧ ¬ condition` | — | loop post (derived) |
+
+### Docstring Alternative
+
+```python
+def sum_to_n(n):
+    """
+    axiomander:
+        loop sum_loop:
+            invariant:
+                s == i * (i - 1) // 2
+                0 <= i <= n
+            variant: n - i
+    """
+    s = 0; i = 0
+    while i <= n:
+        s += i; i += 1
+    assert s == n * (n + 1) // 2
+    return s
+```
+
+Docstring contracts are parsed by `parse_axiomander_docstring()` and
+flow through the same ContractLinter pipeline as inline asserts.
+
+### Generated Iris Proof — Invariant Structure
+
+```coq
+(* invariant: Hs : ls ↦ s_cur, Hi : li ↦ i_cur,
+              ⌜s_cur = i_cur*(i_cur-1)/2⌝, ⌜0 ≤ i_cur ≤ n⌝ *)
+iLöb as "IH" forall (ls li s_cur i_cur).
+loop_unfold.  heap_load. pure_step.     (* condition *)
+case_bool.
+- pure_step.                             (* enter body *)
+  ...body stages (load/store/binop)...   (* preserves invariant *)
+  iApply ("IH" with "Hs Hi [%//] [%//]").  (* recurse *)
+- pure_step.                             (* exit: invariant ∧ ¬cond *)
+  pure_step. heap_load. finish_pure.     (* → post, SMT candidate *)
+```
+
+**Obligations and escalation:**
+
+| Obligation | Method |
+|---|---|
+| Invariant holds at entry | `snakelet_solve_pre` |
+| Body preserves invariant | body stages + `snakelet_solve_pre` |
+| `invariant ∧ ¬cond → post` | `finish_pure` (reflexivity/lia) → SMT |
+| Variant decreases | `lia` (termination check) |
+
+The SMT escalation follows the `Axiom smt_ax_N` slot pattern from
+`call_opaque_pre`: if `finish_pure` can't close the exit obligation,
+export to `smt_export`/`theory_smt` → UNSAT → axiom lemma.
+
+### Generator Changes
+
+The `SWhile` IR node gains:
+
+```python
+@dataclass
+class SWhile:
+    cond: SExpr; body: SExpr
+    invariants: list[Expr]   # contract_ir nodes
+    variant: Optional[str]   # Coq Z expr
+```
+
+When invariants are present, the generator emits the `iLöb`-based
+proof; when absent, it falls back to concrete unrolling (and raises
+`IrisGenError` for symbolic bounds, falling through to IMP).
+
 ### Phase 2: While/For Loops with Invariants (weeks 2–3)
 
 **What:**
