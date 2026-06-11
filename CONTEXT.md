@@ -2,6 +2,9 @@
 
 Branch: `feature/iris-backend-prototype`
 
+The full migration plan from the IMP WP calculus to Iris as primary backend
+is in [`docs/iris-migration-plan.md`](docs/iris-migration-plan.md).
+
 ## What's Done
 
 ### SnakeletLang.v — 0 Admitted
