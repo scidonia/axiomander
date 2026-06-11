@@ -13,7 +13,8 @@ from .py_ir import (
     PyAssign,     PyStoreAttr, PyAugAssign,
     PyIf, PyWhile, PyFor, PyReturn, PyRaise, PyTry,
     PyCall, PySubscript, PyAttribute, PyCompare, PyStoreSubscript,
-    PyBooleanOp, PyListComp,
+    PyBooleanOp, PyListComp, PyListLiteral, PyDictLiteral,
+    PySetLiteral, PyTupleLiteral,
 )
 from .snakelet_ir import (
     SExpr, SLit, SVar, SBinOp, SLoad, SStore, SAlloc, SLet, SIf, SWhile,
@@ -67,7 +68,24 @@ class IrisLowerer:
             return self._lower_compare(expr)
         if isinstance(expr, PyBooleanOp):
             return self._lower_boolop(expr)
+        if isinstance(expr, PyListLiteral):
+            return self._lower_compound(expr.elements, "list", "[]")
+        if isinstance(expr, PyDictLiteral):
+            return None
+        if isinstance(expr, PySetLiteral):
+            return self._lower_compound(expr.elements, "set", "{}")
+        if isinstance(expr, PyTupleLiteral):
+            return self._lower_compound(expr.elements, "tuple", "()")
         return None
+
+    def _lower_compound(self, exprs, lit_type, empty_val):
+        lowered = [self.lower_expr(e) for e in exprs]
+        if any(l is None for l in lowered):
+            return None
+        items = [l for l in lowered if isinstance(l, SLit)]
+        if len(items) != len(lowered):
+            return None  # non-constant elements unsupported
+        return SLit(lit_type=lit_type, value=empty_val, elements=items)
 
     def _lower_constant(self, expr: PyConstant) -> SExpr:
         if expr.py_type == "int":

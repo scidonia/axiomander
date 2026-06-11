@@ -39,13 +39,13 @@ from oracle.iris_proof_gen import (
     FunTable, IrisGenError, IrisProof, generate,
 )
 from oracle.py_ir import (
-    PyAssert, PyAssign, PyAugAssign, PyExprStmt, PyIf, PyName, PyReturn,
-    PyStmt, PyWhile,
+    PyAssert, PyAssign, PyAugAssign, PyCall, PyConstant, PyExprStmt,
+    PyFor, PyIf, PyName, PyRaise, PyReturn, PyStmt, PyTry, PyWhile,
 )
 from oracle.py_ir_translator import PyIRTranslator
 from oracle.snakelet_ir import (
     SAlloc, SApp, SBinOp, SExpr, SIf, SLet, SLit, SLoad, SReturn, SStore,
-    SVar, SWhile,
+    STry, SVar, SWhile,
 )
 
 # Binops supported by SnakeletLang's binop_eval on integers.
@@ -185,9 +185,64 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer) -> SExpr:
             return val
         return SLet(var="_", value=val, body=_fold(rest, lw))
 
+    if isinstance(s, PyRaise):
+        exc_val = SLit(lit_type="string", value=s.exc_type)
+        if not rest:
+            return SReturn(value=exc_val)
+        return SLet(var="_", value=SReturn(value=exc_val),
+                    body=_fold(rest, lw))
+
+    if isinstance(s, PyTry):
+        body_e = _fold(list(s.body), lw)
+        if s.handlers:
+            h = s.handlers[0]
+            exc_name = h.exc_var or "_ex"
+            handler_e = _fold(list(h.body), lw)
+            if not rest:
+                return STry(body=body_e, exc_var=exc_name,
+                            handler=handler_e)
+            return SLet(var="_", value=STry(body=body_e, exc_var=exc_name,
+                                            handler=handler_e),
+                        body=_fold(rest, lw))
+        if not rest:
+            return body_e
+        return SLet(var="_", value=body_e, body=_fold(rest, lw))
+
+    if isinstance(s, PyFor):
+        # Desugar: for x in range(lo, hi): body
+        #   → _i = lo; while _i < hi: x = _i; body; _i += 1
+        range_call = s.iterable
+        lo_val = None
+        hi_val = None
+        if (isinstance(range_call, PyCall) and range_call.func == "range"
+                and 1 <= len(range_call.args) <= 2):
+            lo_val = lw.lower_expr(range_call.args[0])
+            if len(range_call.args) >= 2:
+                hi_val = lw.lower_expr(range_call.args[1])
+            else:
+                lo_val, hi_val = SLit(lit_type="int", value="0"), lo_val
+        if hi_val is None:
+            raise IrisGenError(
+                "for loop: only range(hi) or range(lo, hi) supported")
+        ivar = f"_{s.var}_i"
+        init = SLet(var=ivar, value=lo_val, body=_fold([], lw))
+        body_stmts = [PyAssign(target=s.var,
+                               value=PyName(name=ivar)),
+                      *(list(s.body)),
+                      PyAugAssign(target=ivar, op="+",
+                                  value=PyConstant(value=1, py_type="int"))]
+        body_e = _fold(body_stmts, lw)
+        while_e = SWhile(
+            cond=SBinOp(op="lt", left=SVar(name=ivar),
+                        right=hi_val),
+            body=body_e)
+        return SLet(var="_", value=init,
+                    body=SLet(var="_", value=while_e,
+                              body=_fold(rest, lw)))
+
     raise IrisGenError(
         f"unsupported statement for Iris lowering: {type(s).__name__} "
-        f"(for-loops/try: later phases)")
+        f"(break/continue: later phases)")
 
 
 # -- Parameter substitution -------------------------------------------------
