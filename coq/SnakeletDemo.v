@@ -442,38 +442,20 @@ Section demo.
       @ s; E {{ v, ⌜v = LitInt 2⌝ }}.
   Proof.
     iStartProof.
-    heap_alloc. pure_step.                      (* l, Hl: l↦0, bind c *)
+    heap_alloc. pure_step.                  (* fresh cell, bind c *)
     (* ---- iteration 1: c=0, 0<2=true ---- *)
     loop_unfold.
-    wp_bind (Load (Val (LitLoc l))).            (* load c *)
-    iApply (wp_load with "Hl"). iIntros "Hl". snakelet_simpl.
-    iApply wp_binop. iNext. snakelet_simpl.     (* 0 < 2 *)
-    pure_step.                                  (* enter body *)
-    wp_bind (Load (Val (LitLoc l))).            (* load c again *)
-    iApply (wp_load with "Hl"). iIntros "Hl". snakelet_simpl.
-    iApply wp_binop. iNext. snakelet_simpl.     (* 0 + 1 *)
-    cbn. heap_store.                            (* store 1 *)
-    snakelet_simpl. snakelet_pure_step. iNext. snakelet_simpl.
+    heap_load. pure_step. pure_step.        (* cond: load, <, enter body *)
+    heap_load. pure_step. heap_store. pure_step.  (* body: load, +, store, ;; *)
     (* ---- iteration 2: c=1, 1<2=true ---- *)
     loop_unfold.
-    wp_bind (Load (Val (LitLoc l))).
-    iApply (wp_load with "Hl"). iIntros "Hl". snakelet_simpl.
-    iApply wp_binop. iNext. snakelet_simpl.
-    pure_step.
-    wp_bind (Load (Val (LitLoc l))).
-    iApply (wp_load with "Hl"). iIntros "Hl". snakelet_simpl.
-    iApply wp_binop. iNext. snakelet_simpl.
-    cbn. heap_store.                            (* store 2 *)
-    snakelet_simpl. snakelet_pure_step. iNext. snakelet_simpl.
+    heap_load. pure_step. pure_step.
+    heap_load. pure_step. heap_store. pure_step.
     (* ---- iteration 3: c=2, 2<2=false ---- *)
     loop_unfold.
-    wp_bind (Load (Val (LitLoc l))).
-    iApply (wp_load with "Hl"). iIntros "Hl". snakelet_simpl.
-    iApply wp_binop. iNext. snakelet_simpl.     (* 2 < 2 *)
-    pure_step.                                  (* false branch: LitUnit *)
-    iApply wp_value'. snakelet_simpl.           (* step ;; *)
-    pure_step. cbn. heap_load.                  (* load final value *)
-    finish_pure.                                (* 2 = 2 *)
+    heap_load. pure_step. pure_step.        (* cond false: exit loop *)
+    pure_step.                              (* ;; bind after LitUnit *)
+    heap_load. finish_pure.                 (* final read: 2 *)
   Qed.
 
   (** * Frame conditions — multi-cell separation
@@ -504,6 +486,42 @@ Section demo.
     wp_bind (Load (Val (LitLoc lb))).
     iApply (wp_load with "Hb"). iIntros "Hb".
     iPureIntro. reflexivity.
+  Qed.
+
+  (** * Multi-cell robustness — location-keyed staged proofs
+
+      The same bare stage sequence closes regardless of which cell is
+      targeted: [tac_wp_load]/[tac_wp_store] find the points-to
+      hypothesis by unification on the location extracted from the goal
+      expression, never by name.  Swapping target cells or adding cells
+      changes only the stage count, not the script shape. *)
+  Lemma two_cells_staged s E :
+    ⊢ WP (Let "a" (Alloc (Val (LitInt 1)))
+             (Let "b" (Alloc (Val (LitInt 2)))
+                (Store (Var "a") (Val (LitInt 10)) ;;
+                 Load (Var "b"))))%S
+      @ s; E {{ v, ⌜v = LitInt 2⌝ }}.
+  Proof.
+    iStartProof.
+    heap_alloc. pure_step.
+    heap_alloc. pure_step.
+    heap_store. pure_step.
+    heap_load. finish_pure.
+  Qed.
+
+  (** Identical script, swapped target cells. *)
+  Lemma two_cells_staged_swapped s E :
+    ⊢ WP (Let "a" (Alloc (Val (LitInt 1)))
+             (Let "b" (Alloc (Val (LitInt 2)))
+                (Store (Var "b") (Val (LitInt 10)) ;;
+                 Load (Var "a"))))%S
+      @ s; E {{ v, ⌜v = LitInt 1⌝ }}.
+  Proof.
+    iStartProof.
+    heap_alloc. pure_step.
+    heap_alloc. pure_step.
+    heap_store. pure_step.
+    heap_load. finish_pure.
   Qed.
 
   (** * Exception handling — Raise and Try

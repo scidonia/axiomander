@@ -4,7 +4,7 @@
     straight-line programs (pure steps + chains of opaque/transparent calls)
     without intervention. *)
 
-From iris.proofmode Require Import proofmode environments.
+From iris.proofmode Require Import proofmode environments coq_tactics reduction.
 From iris.program_logic Require Import weakestpre lifting.
 Require Import SnakeletLang SnakeletWp.
 
@@ -113,8 +113,21 @@ Ltac snakelet_solve_pre :=
 
 (** Reduce fill/subst redexes and normalize [of_val] back to [Val] so the
     syntactic stage matches fire ([of_val] is introduced by the generic
-    [wp_bind] continuation and is not unfolded by [simpl]). *)
-Ltac snakelet_simpl := simpl; try (unfold of_val).
+    [wp_bind] continuation and is not unfolded by [simpl]).  [cbn] is
+    included because [simpl] does not reduce concrete arithmetic inside
+    value constructors (LitInt (0 + 1) stays unreduced under simpl). *)
+Ltac snakelet_simpl := simpl; cbn; try (unfold of_val).
+
+(** Pop leftover value-WP layers introduced by nested wp_bind
+    continuations ([WP Val v {{ w, WP ... }}]).  Every stage tactic
+    normalizes these away first, so generated scripts never contain
+    explicit [iApply wp_value'] plumbing and are insensitive to how
+    many bind layers an earlier stage stacked. *)
+Ltac snakelet_popvals :=
+  repeat lazymatch goal with
+  | |- envs_entails _ (wp _ _ (Val _) _) =>
+      iApply wp_value'; snakelet_simpl
+  end.
 
 (** Introduce the result of an opaque call.  The postcondition is assumed
     deterministic (an equation on the result) in the mechanical fragment:
@@ -146,6 +159,7 @@ Ltac snakelet_focus_call :=
     exports the obligation to SMT and regenerates the stage as
     [call_opaque_pre (exact smt_ax_N)] (or a small wrapper around it). *)
 Ltac call_opaque_pre_core pretac :=
+  snakelet_popvals;
   snakelet_focus_call;
   lazymatch goal with
   | |- envs_entails _ (wp ?s ?E (Call ?f ?args) _) =>
@@ -167,6 +181,7 @@ Ltac call_opaque_core := call_opaque_pre_core snakelet_solve_pre.
 Tactic Notation "call_opaque_pre" tactic(t) := call_opaque_pre_core t.
 
 Ltac call_transparent_core :=
+  snakelet_popvals;
   snakelet_focus_call;
   lazymatch goal with
   | |- envs_entails _ (wp ?s ?E (Call ?f ?args) _) =>
@@ -231,6 +246,7 @@ Ltac pure_step_redex :=
     reduction (per IR node), never bind plumbing.  Calls are never
     reduced here: they have their own stage tactics. *)
 Ltac pure_step :=
+  snakelet_popvals;
   lazymatch goal with
   | |- envs_entails _ (wp _ _ ?e _) =>
       reshape_expr e ltac:(fun K e' =>
@@ -251,6 +267,7 @@ Ltac pure_step :=
     [finish_pure]'s arithmetic.  The generator decides where to split —
     [snakelet_auto] never splits on its own. *)
 Ltac case_bool :=
+  snakelet_popvals;
   lazymatch goal with
   | |- envs_entails _ (wp _ _ (If (Val (LitBool ?b)) _ _) _) =>
       lazymatch b with
@@ -279,6 +296,7 @@ Ltac snakelet_pure_hyps :=
 (** Terminal stage: a value (or an already-pure goal) meets the
     postcondition, using accumulated path constraints. *)
 Ltac finish_pure :=
+  snakelet_popvals;
   try (lazymatch goal with
        | |- envs_entails _ (wp _ _ (Val _) _) => iApply wp_value'
        end);
@@ -296,47 +314,70 @@ Ltac finish_pure :=
 
 (** * Heap operations
 
-    Stage tactics for alloc, load, and store.  The alloc stage
-    introduces a fresh location [l] and names the points-to hypothesis
-    [Hl] (canonical name — the generator guarantees one active heap
-    cell at a time; multi-location support with CCall frames in phase 4
-    will need per-location naming keyed on the SnakeletIR loc). *)
+    Location-keyed stage tactics (heap_lang style).  Load and store go
+    through the environment-form lemmas [tac_wp_load]/[tac_wp_store]:
+    the location is extracted from the goal expression by
+    [reshape_expr], and [iAssumptionCore] finds the points-to
+    hypothesis by *unification on that concrete location* — never by
+    name.  Store updates the hypothesis in place (it keeps its name).
+    Alloc introduces an anonymously-named cell; nothing downstream
+    refers to it by name.
+
+    Consequence: generated proof scripts contain only bare
+    [heap_alloc]/[heap_store]/[heap_load] stages — no hypothesis names,
+    no locations — so small program variations (extra cells, renamed
+    variables, different constants) leave the stage sequence
+    unchanged. *)
 
 Ltac heap_alloc :=
+  snakelet_popvals;
   lazymatch goal with
-  | |- envs_entails _ (wp _ _ (Alloc _) _) =>
-      iApply wp_alloc; iIntros (l) "Hl"; snakelet_simpl
   | |- envs_entails _ (wp _ _ ?e _) =>
       reshape_expr e ltac:(fun K e' =>
         lazymatch e' with
-        | Alloc _ => wp_bind e'; heap_alloc
-        | _ => fail "heap_alloc: redex is not an Alloc"
+        | Alloc (Val _) =>
+            wp_bind e'; iApply wp_alloc;
+            let l := fresh "l" in iIntros (l) "?"; snakelet_simpl
+        | _ => fail 1 "heap_alloc: redex is not an Alloc"
         end)
   | _ => fail "heap_alloc: goal is not a WP"
   end.
 
+(** [reshape_expr] accumulates the evaluation context innermost-first,
+    but [fill_K] is head-outermost — reverse before passing to the
+    environment-form lemmas. *)
+Ltac rev_ectx K acc :=
+  lazymatch K with
+  | nil => acc
+  | ?Ki :: ?K' => rev_ectx K' constr:(Ki :: acc)
+  end.
+
 Ltac heap_store :=
+  snakelet_popvals;
   lazymatch goal with
-  | |- envs_entails _ (wp _ _ (Store _ _) _) =>
-      iApply (wp_store with "Hl"); iIntros "Hl"; snakelet_simpl
-  | |- envs_entails _ (wp _ _ ?e _) =>
+  | |- envs_entails _ (wp ?s ?E ?e ?Q) =>
       reshape_expr e ltac:(fun K e' =>
         lazymatch e' with
-        | Store _ _ => wp_bind e'; heap_store
-        | _ => fail "heap_store: redex is not a Store"
+        | Store (Val (LitLoc _)) (Val _) =>
+            let K' := rev_ectx K (@nil sn_ectx_item) in
+            eapply (tac_wp_store _ s E _ K');
+            [iAssumptionCore | pm_reduce; snakelet_simpl]
+        | _ => fail 1 "heap_store: redex is not a Store"
         end)
   | _ => fail "heap_store: goal is not a WP"
   end.
 
 Ltac heap_load :=
+  snakelet_popvals;
   lazymatch goal with
-  | |- envs_entails _ (wp _ _ (Load _) _) =>
-      iApply (wp_load with "Hl"); iIntros "Hl"
-  | |- envs_entails _ (wp _ _ ?e _) =>
+  | |- envs_entails _ (wp ?s ?E ?e ?Q) =>
       reshape_expr e ltac:(fun K e' =>
         lazymatch e' with
-        | Load _ => wp_bind e'; heap_load
-        | _ => fail "heap_load: redex is not a Load"
+        | Load (Val (LitLoc _)) =>
+            let K' := rev_ectx K (@nil sn_ectx_item) in
+            eapply (tac_wp_load _ s E _ K');
+            [iAssumptionCore | snakelet_simpl]
+        | _ => fail 1 "heap_load: redex is not a Load"
         end)
   | _ => fail "heap_load: goal is not a WP"
   end.
@@ -351,6 +392,7 @@ Ltac heap_load :=
     iteration; here we just provide the structural step. *)
 
 Ltac loop_unfold :=
+  snakelet_popvals;
   lazymatch goal with
   | |- envs_entails _ (wp _ _ (While _ _) _) =>
       iApply wp_while; iNext; snakelet_simpl

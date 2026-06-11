@@ -251,6 +251,36 @@ is in [`docs/iris-migration-plan.md`](docs/iris-migration-plan.md).
   subsequent `split` chokes on.  Fixed: `hnf; repeat lazymatch goal with
   |- @ex _ _ => eexists end` then dispatch.
 
+### Location-keyed heap tactics (robust generated proofs)
+- **Problem:** `iApply (wp_store with "[$]")` resolves the premise
+  `l ↦ ?v` against the spatial context BEFORE unifying `l` with the goal
+  expression's location — with multiple cells it grabs the wrong one.
+  Name-based selection (emit "Ha"/"Hb" from the generator) is brittle:
+  substitution erases `Var "x"`, fresh Coq names drift.
+- **Fix (heap_lang style): environment-form tactic lemmas** in
+  SnakeletWp.v — `tac_wp_load`/`tac_wp_store` state load/store against
+  the proof-mode environment with `envs_lookup i Δ = Some (false, l ↦ v)`
+  where `l` is concrete (extracted from the goal by `reshape_expr`).
+  `iAssumptionCore` finds the hypothesis by unification on the location;
+  `envs_simple_replace` updates it in place (name preserved across store).
+- `rev_ectx`: reshape_expr accumulates ectx innermost-first but `fill_K`
+  is head-outermost — reverse before passing K to the tac lemmas
+  (single-frame contexts mask this bug; If∘BinOp nests expose it).
+- `snakelet_popvals`: pops leftover value-WP layers
+  (`WP Val v {{w, WP ...}}`) from nested wp_bind continuations; prefixed
+  to every stage tactic, so scripts never contain `iApply wp_value'`
+  plumbing and are insensitive to bind-layer stacking.
+- `snakelet_simpl` now includes `cbn` (simpl does not reduce concrete
+  arithmetic inside value constructors: LitInt (0+1) stays unreduced).
+- **Result: generated scripts are bare stage sequences** — no hypothesis
+  names, no locations, no cbn, no value-pops.  `two_cells_staged` and
+  `two_cells_staged_swapped` close with the IDENTICAL script; the
+  counting while loop is a uniform 7-stage block per iteration:
+  `loop_unfold. heap_load. pure_step. pure_step. heap_load. pure_step.
+  heap_store. pure_step.`
+- heap_alloc names its cell anonymously (`iIntros (l) "?"`); nothing
+  downstream refers to it by name.
+
 ### Mechanical-ladder boundary notes (empirical, this Coq version)
 - `lia` FAILS on `x * x >= 0` (no hypotheses) and `1 <= n * n + 1` —
   these need the SMT slot (or nia).

@@ -1,4 +1,4 @@
-From iris.proofmode Require Import proofmode.
+From iris.proofmode Require Import proofmode coq_tactics reduction.
 From iris.program_logic Require Import lifting.
 From iris.base_logic.lib Require Export gen_heap.
 From iris.algebra Require Import dfrac.
@@ -499,6 +499,49 @@ Section snakelet_wp.
       precondition, to any postcondition-admitted value (the result is
       existentially quantified — [post] is a relation); a transparent call
       unfolds to its substituted body. *)
+  (** * Environment-form tactic lemmas (heap_lang style).
+
+      These state load/store against the proof-mode environment with an
+      [envs_lookup] premise where the location [l] is *concrete* (it
+      comes from the goal expression).  [iAssumptionCore] then finds the
+      points-to hypothesis by unification on the location — never by
+      name — and [envs_simple_replace] updates it in place, so the
+      hypothesis keeps its name across a store.  This is what makes
+      generated proof scripts robust: the script never mentions
+      hypothesis names or locations, so small program variations
+      (extra cells, renamed variables, different constants) leave the
+      stage sequence unchanged. *)
+
+  Lemma tac_wp_load Δ s E i K l v Φ :
+    envs_lookup i Δ = Some (false, pointsto l (DfracOwn 1) v) →
+    envs_entails Δ (WP fill_K K (Val v) @ s; E {{ Φ }}) →
+    envs_entails Δ (WP fill_K K (Load (Val (LitLoc l))) @ s; E {{ Φ }}).
+  Proof.
+    rewrite envs_entails_unseal => Hl Hwp.
+    rewrite -wp_bind.
+    eapply bi.wand_apply; first by apply bi.wand_entails, wp_load.
+    rewrite envs_lookup_split //; simpl.
+    apply bi.sep_mono_r. apply bi.wand_mono; [done|]. exact Hwp.
+  Qed.
+
+  Lemma tac_wp_store Δ s E i K l v w Φ :
+    envs_lookup i Δ = Some (false, pointsto l (DfracOwn 1) v) →
+    match envs_simple_replace i false
+            (Esnoc Enil i (pointsto l (DfracOwn 1) w)) Δ with
+    | Some Δ' => envs_entails Δ' (WP fill_K K (Val LitUnit) @ s; E {{ Φ }})
+    | None => False
+    end →
+    envs_entails Δ (WP fill_K K (Store (Val (LitLoc l)) (Val w)) @ s; E {{ Φ }}).
+  Proof.
+    rewrite envs_entails_unseal => Hl Hsuc.
+    destruct (envs_simple_replace _ _ _ _) as [Δ'|] eqn:HΔ; [|contradiction].
+    rewrite -wp_bind.
+    eapply bi.wand_apply; first by apply bi.wand_entails, wp_store.
+    rewrite envs_simple_replace_sound //; simpl.
+    rewrite right_id.
+    apply bi.sep_mono_r. apply bi.wand_mono; [done|]. exact Hsuc.
+  Qed.
+
   Lemma prim_call_inv f vs σ κ e2 σ2 efs :
     prim_step (Call f (map Val vs)) σ κ e2 σ2 efs →
     κ = [] ∧ σ2 = σ ∧ efs = [] ∧
