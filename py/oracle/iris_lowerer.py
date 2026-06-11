@@ -150,6 +150,9 @@ class IrisLowerer:
           ref(v)      -> SAlloc(v)     (fresh cell)
           load(c)     -> SLoad(c)      (read cell named by variable c)
           store(c, v) -> SStore(c, v)  (write cell named by variable c)
+        isinstance(x, T) -> LitBool (true for int/bool, false otherwise
+                           — a temporary approximation; proper type tags
+                           are Phase 6).
         Anything else is opaque -- SApp with the callee name for spec
         lookup in the FunCtx table."""
         if expr.func == "ref" and len(expr.args) == 1:
@@ -165,6 +168,14 @@ class IrisLowerer:
             v = self.lower_expr(expr.args[1])
             if isinstance(arg, PyName) and v is not None:
                 return SStore(loc=arg.name, value=v)
+        if expr.func == "isinstance" and len(expr.args) == 2:
+            type_arg = expr.args[1]
+            type_name = None
+            if isinstance(type_arg, PyName):
+                type_name = type_arg.name
+            if type_name in ("int", "bool"):
+                return SLit(lit_type="bool", value="true")
+            return SLit(lit_type="bool", value="false")
         args = [a for a in (self.lower_expr(a) for a in expr.args) if a is not None]
         return SApp(func=expr.func, args=args)
 
