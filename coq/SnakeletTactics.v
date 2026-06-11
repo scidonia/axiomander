@@ -354,7 +354,13 @@ Ltac loop_unfold :=
   lazymatch goal with
   | |- envs_entails _ (wp _ _ (While _ _) _) =>
       iApply wp_while; iNext; snakelet_simpl
-  | _ => fail "loop_unfold: goal is not a While"
+  | |- envs_entails _ (wp _ _ ?e _) =>
+      reshape_expr e ltac:(fun K e' =>
+        lazymatch e' with
+        | While _ _ => wp_bind e'; loop_unfold
+        | _ => fail "loop_unfold: redex is not a While"
+        end)
+  | _ => fail "loop_unfold: goal is not a WP"
   end.
 
 Ltac snakelet_call_step :=
@@ -375,6 +381,8 @@ Ltac snakelet_step :=
       heap_alloc
   | |- envs_entails _ (wp _ _ (Store _ _) _) =>
       heap_store
+  | |- envs_entails _ (wp _ _ (While _ _) _) =>
+      loop_unfold
   | |- envs_entails _ (wp _ _ (Load _) _) =>
       heap_load
   | |- envs_entails _ (wp _ _ (Let _ (Val _) _) _) =>

@@ -427,4 +427,53 @@ Section demo.
     iApply wp_value'. iPureIntro. reflexivity.
   Qed.
 
+  (** * While loop with heap state — counting from 0 to 2
+
+      A loop incrementing a heap cell until the condition fails (2 < 2).
+      The loop body is [Store c (Load c + 1)]; the [;;] continuation
+      unfolds to a [Let "_" step.  Three loop_unfold stages (iterations
+      0→1, 1→2, 2→exit) plus the final Load produce the postcondition. *)
+  Lemma while_count_to_two s E :
+    ⊢ WP (Let "c" (Alloc (Val (LitInt 0)))
+             ((While (BinOp LtOp (Load (Var "c")) (Val (LitInt 2)))
+                (Store (Var "c")
+                  (BinOp AddOp (Load (Var "c")) (Val (LitInt 1))))) ;;
+              Load (Var "c")))%S
+      @ s; E {{ v, ⌜v = LitInt 2⌝ }}.
+  Proof.
+    iStartProof.
+    heap_alloc. pure_step.                      (* l, Hl: l↦0, bind c *)
+    (* ---- iteration 1: c=0, 0<2=true ---- *)
+    loop_unfold.
+    wp_bind (Load (Val (LitLoc l))).            (* load c *)
+    iApply (wp_load with "Hl"). iIntros "Hl". snakelet_simpl.
+    iApply wp_binop. iNext. snakelet_simpl.     (* 0 < 2 *)
+    pure_step.                                  (* enter body *)
+    wp_bind (Load (Val (LitLoc l))).            (* load c again *)
+    iApply (wp_load with "Hl"). iIntros "Hl". snakelet_simpl.
+    iApply wp_binop. iNext. snakelet_simpl.     (* 0 + 1 *)
+    cbn. heap_store.                            (* store 1 *)
+    snakelet_simpl. snakelet_pure_step. iNext. snakelet_simpl.
+    (* ---- iteration 2: c=1, 1<2=true ---- *)
+    loop_unfold.
+    wp_bind (Load (Val (LitLoc l))).
+    iApply (wp_load with "Hl"). iIntros "Hl". snakelet_simpl.
+    iApply wp_binop. iNext. snakelet_simpl.
+    pure_step.
+    wp_bind (Load (Val (LitLoc l))).
+    iApply (wp_load with "Hl"). iIntros "Hl". snakelet_simpl.
+    iApply wp_binop. iNext. snakelet_simpl.
+    cbn. heap_store.                            (* store 2 *)
+    snakelet_simpl. snakelet_pure_step. iNext. snakelet_simpl.
+    (* ---- iteration 3: c=2, 2<2=false ---- *)
+    loop_unfold.
+    wp_bind (Load (Val (LitLoc l))).
+    iApply (wp_load with "Hl"). iIntros "Hl". snakelet_simpl.
+    iApply wp_binop. iNext. snakelet_simpl.     (* 2 < 2 *)
+    pure_step.                                  (* false branch: LitUnit *)
+    iApply wp_value'. snakelet_simpl.           (* step ;; *)
+    pure_step. cbn. heap_load.                  (* load final value *)
+    finish_pure.                                (* 2 = 2 *)
+  Qed.
+
 End demo.
