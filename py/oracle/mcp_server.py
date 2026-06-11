@@ -43,6 +43,7 @@ from .purity_analyzer import (
     PurityReport,
 )
 from .py_to_imp import PyToImpLowerer
+from .iris_pipeline import python_to_iris_proof, IrisGenError
 from .reporting import (
     Action, GoalStatus, ProofLevel, PipelineReport,
     build_report, action_guidance,
@@ -1128,6 +1129,64 @@ def _run_dimension_check(func_node: ast.FunctionDef) -> str:
         return ""
 
 
+def _try_iris_backend(source: str, func_name: str, tree: ast.AST,
+                       func_node: ast.FunctionDef,
+                       lint_results: list,
+                       hint: str | None = None) -> GoalStatus | None:
+    """Attempt to verify [func_name] using the Iris (SnakeletLang) backend.
+
+    Returns a GoalStatus on success or failure, or None to fall through
+    to the IMP pipeline (function uses unsupported constructs)."""
+    from .iris_pipeline import python_to_iris_proof, IrisGenError
+
+    try:
+        proof = python_to_iris_proof(
+            source, {}, func_name=func_name)
+    except IrisGenError:
+        return None        # Fragment unsupported: fall through to IMP
+    except Exception:
+        return None
+
+    import tempfile, subprocess, os
+    from pathlib import Path
+    COQ_ROOT = Path(os.environ.get("AXIOMANDER_ROOT",
+                   Path(__file__).resolve().parent.parent.parent)) / "coq"
+    with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".v", delete=False,
+            prefix=f"iris_{func_name}_") as f:
+        f.write(proof.emit())
+        tmp_path = f.name
+
+    try:
+        result = subprocess.run(
+            ["coqc", "-R", str(COQ_ROOT), "", tmp_path],
+            capture_output=True, text=True, timeout=120,
+            env={**os.environ},
+        )
+    except subprocess.TimeoutExpired:
+        return GoalStatus(name=func_name,
+                          goal_statement=f"WP {func_name} {{ ... }}",
+                          level=ProofLevel.UNPROVED,
+                          error_detail="Iris proof compilation timed out",
+                          suggested_action=Action.ADD_LEMMA)
+    finally:
+        try: os.unlink(tmp_path)
+        except OSError: pass
+        for ext in (".vo", ".vok", ".vos", ".glob"):
+            try: os.unlink(tmp_path + ext)
+            except OSError: pass
+
+    if result.returncode == 0:
+        return GoalStatus(name=func_name,
+                          goal_statement=f"WP {func_name} {{ ... }}",
+                          level=ProofLevel.LEVEL1_LTAC,
+                          proof_method="iris")
+    else:
+        # Iris compilation failed — fall through to IMP.  (Returning
+        # an UNPROVED here would short-circuit the IMP path.)
+        return None
+
+
 def _verify_function(source: str, func_name: str, hint: str | None = None) -> GoalStatus | None:
     """Try to verify a function. Returns GoalStatus or None on error."""
     try:
@@ -1224,6 +1283,18 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
                           error_detail="\n".join(msgs),
                           suggested_action=Action.REFACTOR,
                           suggestion_text="Fix lint errors in assertions.")
+
+    # --- Iris backend dispatch ---
+    # Try the Iris (SnakeletLang) backend first.  If the function body
+    # uses only the supported integer/heap fragment, the Iris proof
+    # generator produces a staged proof script; coqc checks it.
+    # Functions with unsupported constructs (strings, floats, lists,
+    # Pydantic models, symbolic loops) raise IrisGenError and fall
+    # through to the IMP pipeline below.
+    iris_result = _try_iris_backend(source, func_name, tree, func_node,
+                                     lint_results, hint)
+    if iris_result is not None:
+        return iris_result
 
     # Resource classification — detect owns(x) predicates for Iris backend prototype
     from .resources.classify import classify as classify_resource, ContractClass

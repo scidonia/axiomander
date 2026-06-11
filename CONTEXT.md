@@ -318,6 +318,28 @@ is in [`docs/iris-migration-plan.md`](docs/iris-migration-plan.md).
 - `snakelet_solve_pre` ladder: `done | by repeat eexists |
   by (repeat eexists; split; [done|lia])` (multi-arg needs `repeat`).
 
+### Phase 7: Pipeline integration — mcp_server dispatch (COMPLETE)
+
+`_try_iris_backend` in `mcp_server.py` wires `python_to_iris_proof` into
+the main verification path.  The dispatch is **backwards-compatible**
+and requires zero configuration changes:
+
+1. `_verify_function` calls `_try_iris_backend` right after the contract
+   lint check and *before* the IMP body generation.
+2. On Iris success (coqc returns 0) → returns PROVED (level1, iris)
+   immediately, short-circuiting the IMP path.
+3. On IrisGenError (body uses unsupported constructs: isinstance,
+   strings, lists, dicts, sets, Pydantic, etc.) → returns None, falling
+   through to IMP.
+4. On Iris compilation failure → also returns None, falling through to
+   IMP (the Iris path never blocks the IMP fallback).
+
+Behavior verified across the full test suite (224 tests):
+- Pure arithmetic, heap ops, while loops, call chains → Iris proves
+- String ops, set ops, isinstance, Pydantic → falls through to IMP
+- Iris compilation failure → gracefully falls through to IMP
+- IMP baseline unchanged (130/132 pass; 2 pre-existing set-operation failures)
+
 ## Key Files
 - `coq/SnakeletLang.v` — Language definition, ectx, `fill`
 - `coq/SnakeletWp.v` — WP calculus, all WP lemmas, `prim_*_det` lemmas
