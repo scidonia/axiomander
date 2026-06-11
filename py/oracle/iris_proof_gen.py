@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Union
 
 from oracle.snakelet_ir import (
-    SApp, SBinOp, SExpr, SIf, SLet, SLit, SReturn, SSeq, SVar,
+    SAlloc, SApp, SBinOp, SExpr, SIf, SLet, SLit, SLoad, SReturn, SSeq, SStore, SVar,
 )
 
 # Coq unicode tokens, kept out of literals so the Python source stays ASCII.
@@ -257,6 +257,21 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                           comment=f'bind "{e.var}"')] + \
                    _gen(e.body, table, overrides, k)
         return _gen(e.value, table, overrides, after_rhs)
+
+    if isinstance(e, SAlloc):
+        return [Stage("heap_alloc", "heap_alloc",
+                      comment="fresh location"),
+                ] + k()
+
+    if isinstance(e, SStore):
+        return [Stage("heap_store", "heap_store",
+                      comment=f"write {e.loc}"),
+                ] + k()
+
+    if isinstance(e, SLoad):
+        return [Stage("heap_load", "heap_load",
+                      comment=f"read {e.loc}"),
+                ] + k()
 
     if isinstance(e, SIf):
         if isinstance(e.cond, SLit) and e.cond.lit_type == "bool":

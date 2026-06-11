@@ -44,22 +44,32 @@ class SBinOp:
 @dataclass
 class SLoad:
     """Heap load.  Iris: wp_load."""
-    loc: str         # abstract location name, e.g. "l__box_value"
+    loc: str         # variable name holding the location
     kind: Literal["load"] = "load"
 
     def to_coq(self) -> str:
-        raise NotImplementedError("SLoad lowering to SnakeletLang: phase 3")
+        return f'(Load (Var "{self.loc}"))'
 
 
 @dataclass
 class SStore:
     """Heap store.  Iris: wp_store."""
-    loc: str         # abstract location name
+    loc: str         # variable name holding the location
     value: "SExpr"
     kind: Literal["store"] = "store"
 
     def to_coq(self) -> str:
-        raise NotImplementedError("SStore lowering to SnakeletLang: phase 3")
+        return f'(Store (Var "{self.loc}") {self.value.to_coq()})'
+
+
+@dataclass
+class SAlloc:
+    """Heap allocation.  Iris: wp_alloc."""
+    value: "SExpr"
+    kind: Literal["alloc"] = "alloc"
+
+    def to_coq(self) -> str:
+        return f'(Alloc {self.value.to_coq()})'
 
 
 @dataclass
@@ -225,7 +235,7 @@ class SDictSet:
         raise NotImplementedError("SDictSet lowering to SnakeletLang: phase 3")
 
 
-SExpr = SLit | SVar | SBinOp | SLoad | SStore | SLet | SIf | SReturn | SApp | SSeq | SFork | SFAA | SRaise | STry | SDictGet | SDictSet
+SExpr = SLit | SVar | SBinOp | SLoad | SStore | SAlloc | SLet | SIf | SReturn | SApp | SSeq | SFork | SFAA | SRaise | STry | SDictGet | SDictSet
 
 
 # ── Resource layer ───────────────────────────────────────────────

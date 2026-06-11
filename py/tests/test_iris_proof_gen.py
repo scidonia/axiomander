@@ -16,7 +16,9 @@ import pytest
 from oracle.iris_proof_gen import (
     IrisGenError, OpaqueSpec, TransparentDef, generate,
 )
-from oracle.snakelet_ir import SApp, SBinOp, SIf, SLet, SLit, SVar
+from oracle.snakelet_ir import (
+    SAlloc, SApp, SBinOp, SIf, SLet, SLit, SLoad, SSeq, SStore, SVar,
+)
 
 COQ_ROOT = Path(__file__).resolve().parent.parent.parent / "coq"
 
@@ -221,5 +223,53 @@ def test_multi_arg_opaque_spec():
                                          result="x + y")}
     body = SApp("addspec", [ilit("3"), ilit("4")])
     proof = generate("multiarg", body, "v = LitInt 7", table)
+    ok, out = run_coqc(proof.emit())
+    assert ok, out
+
+
+# -- Heap operations --------------------------------------------------------
+
+def test_heap_alloc_store_load():
+    """Alloc a cell, store 7, load it back: produces 7."""
+    body = SLet("x", SAlloc(value=SLit(lit_type="int", value="42")),
+                SSeq(exprs=[
+                    SStore(loc="x", value=SLit(lit_type="int", value="7")),
+                    SLoad(loc="x"),
+                ]))
+    proof = generate("hs_alloc", body, "v = LitInt 7", {})
+    ok, out = run_coqc(proof.emit())
+    assert ok, out
+    stages = proof.stage_list()
+    cats = [s.category for s in stages]
+    assert "heap_alloc" in cats
+    assert "heap_store" in cats
+    assert "heap_load" in cats
+
+
+def test_heap_store_nonval_rejected():
+    """Store of a non-value expression is stuck in SnakeletLang's
+    value-restricted ectx.  The ANF pipeline (iris_pipeline.py) would
+    hoist it, but the raw generator does not — this test documents the
+    boundary."""
+    body = SLet("x", SAlloc(value=SLit(lit_type="int", value="0")),
+                SStore(loc="x", value=SBinOp(op="add",
+                       left=SLit(lit_type="int", value="1"),
+                       right=SLit(lit_type="int", value="2"))))
+    proof = generate("hs_nv", body, "v = LitUnit", {})
+    ok, out = run_coqc(proof.emit())
+    assert not ok  # stuck: store RHS is a binop, not a value
+
+
+def test_heap_anf_hoisted_store_roundtrip():
+    """Same pattern with ANF: binop hoisted, store on the atom."""
+    body = SLet("x", SAlloc(value=SLit(lit_type="int", value="0")),
+                SLet("_t1", SBinOp(op="add",
+                     left=SLit(lit_type="int", value="1"),
+                     right=SLit(lit_type="int", value="2")),
+                SSeq(exprs=[
+                    SStore(loc="x", value=SVar("_t1")),
+                    SLoad(loc="x"),
+                ])))
+    proof = generate("hs_anf", body, "v = LitInt 3", {})
     ok, out = run_coqc(proof.emit())
     assert ok, out

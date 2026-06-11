@@ -393,4 +393,25 @@ Section demo.
       rewrite Hd in Hentry. discriminate Hentry.
   Qed.
 
+  (** * Heap operations (alloc, store, load) — staged proof
+
+      One cell created, written, read back.  The [heap_alloc] stage
+      introduces a fresh location [l] with the points-to resource
+      [Hl]; [heap_store] and [heap_load] reference ["Hl"] directly.
+      The staged proof is the generated-script form. *)
+  Lemma heap_alloc_store_load s E :
+    ⊢ WP (Let "x" (Alloc (Val (LitInt 42)))
+             (Store (Var "x") (Val (LitInt 7)) ;;
+              Load (Var "x")))%S
+      @ s; E {{ v, ⌜v = LitInt 7⌝ }}.
+  Proof.
+    iStartProof.
+    heap_alloc.                          (* l, Hl : l ↦ 42 *)
+    pure_step.                           (* bind "x" *)
+    heap_store.                          (* Hl : l ↦ 7 *)
+    pure_step.                           (* let _ = LitUnit in ... *)
+    heap_load.                           (* Hl : l ↦ 7, post: LitInt 7 *)
+    finish_pure.
+  Qed.
+
 End demo.

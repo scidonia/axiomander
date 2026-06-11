@@ -294,6 +294,53 @@ Ltac finish_pure :=
     proofs.  It never case-splits (that is a generator decision), so it
     stops gracefully at symbolic conditionals. *)
 
+(** * Heap operations
+
+    Stage tactics for alloc, load, and store.  The alloc stage
+    introduces a fresh location [l] and names the points-to hypothesis
+    [Hl] (canonical name — the generator guarantees one active heap
+    cell at a time; multi-location support with CCall frames in phase 4
+    will need per-location naming keyed on the SnakeletIR loc). *)
+
+Ltac heap_alloc :=
+  lazymatch goal with
+  | |- envs_entails _ (wp _ _ (Alloc _) _) =>
+      iApply wp_alloc; iIntros (l) "Hl"; snakelet_simpl
+  | |- envs_entails _ (wp _ _ ?e _) =>
+      reshape_expr e ltac:(fun K e' =>
+        lazymatch e' with
+        | Alloc _ => wp_bind e'; heap_alloc
+        | _ => fail "heap_alloc: redex is not an Alloc"
+        end)
+  | _ => fail "heap_alloc: goal is not a WP"
+  end.
+
+Ltac heap_store :=
+  lazymatch goal with
+  | |- envs_entails _ (wp _ _ (Store _ _) _) =>
+      iApply (wp_store with "Hl"); iIntros "Hl"; snakelet_simpl
+  | |- envs_entails _ (wp _ _ ?e _) =>
+      reshape_expr e ltac:(fun K e' =>
+        lazymatch e' with
+        | Store _ _ => wp_bind e'; heap_store
+        | _ => fail "heap_store: redex is not a Store"
+        end)
+  | _ => fail "heap_store: goal is not a WP"
+  end.
+
+Ltac heap_load :=
+  lazymatch goal with
+  | |- envs_entails _ (wp _ _ (Load _) _) =>
+      iApply (wp_load with "Hl"); iIntros "Hl"
+  | |- envs_entails _ (wp _ _ ?e _) =>
+      reshape_expr e ltac:(fun K e' =>
+        lazymatch e' with
+        | Load _ => wp_bind e'; heap_load
+        | _ => fail "heap_load: redex is not a Load"
+        end)
+  | _ => fail "heap_load: goal is not a WP"
+  end.
+
 Ltac snakelet_call_step :=
   lazymatch goal with
   | |- envs_entails _ (wp _ _ (Call ?f _) _) =>
@@ -308,6 +355,12 @@ Ltac snakelet_step :=
   lazymatch goal with
   | |- envs_entails _ (wp _ _ (Val _) _) =>
       iApply wp_value'; snakelet_simpl
+  | |- envs_entails _ (wp _ _ (Alloc _) _) =>
+      heap_alloc
+  | |- envs_entails _ (wp _ _ (Store _ _) _) =>
+      heap_store
+  | |- envs_entails _ (wp _ _ (Load _) _) =>
+      heap_load
   | |- envs_entails _ (wp _ _ (Let _ (Val _) _) _) =>
       pure_step
   | |- envs_entails _ (wp _ _ (BinOp _ (Val _) (Val _)) _) =>

@@ -43,7 +43,7 @@ from oracle.py_ir import (
 )
 from oracle.py_ir_translator import PyIRTranslator
 from oracle.snakelet_ir import (
-    SApp, SBinOp, SExpr, SIf, SLet, SLit, SReturn, SVar,
+    SAlloc, SApp, SBinOp, SExpr, SIf, SLet, SLit, SLoad, SReturn, SStore, SVar,
 )
 
 # Binops supported by SnakeletLang's binop_eval on integers.
@@ -198,6 +198,12 @@ def _subst_params(e: SExpr, params: set[str], bound: set[str]) -> SExpr:
     if isinstance(e, SApp):
         return SApp(func=e.func,
                     args=[_subst_params(a, params, bound) for a in e.args])
+    if isinstance(e, SAlloc):
+        return SAlloc(value=_subst_params(e.value, params, bound))
+    if isinstance(e, SStore):
+        return SStore(loc=e.loc, value=_subst_params(e.value, params, bound))
+    if isinstance(e, SLoad):
+        return e
     if isinstance(e, SReturn):
         return _subst_params(e.value, params, bound)
     raise IrisGenError(
@@ -246,6 +252,14 @@ def _anf(e: SExpr, ctr: list[int]) -> SExpr:
         binds = []
         args = [_atomize(a, ctr, binds) for a in e.args]
         return _wrap(binds, SApp(func=e.func, args=args))
+    if isinstance(e, SAlloc):
+        binds: list[tuple[str, SExpr]] = []
+        val = _atomize(e.value, ctr, binds)
+        return _wrap(binds, SAlloc(value=val))
+    if isinstance(e, SStore):
+        binds: list[tuple[str, SExpr]] = []
+        val = _atomize(e.value, ctr, binds)
+        return _wrap(binds, SStore(loc=e.loc, value=val))
     if isinstance(e, SLet):
         return SLet(var=e.var, value=_anf(e.value, ctr),
                     body=_anf(e.body, ctr))
@@ -284,6 +298,12 @@ def _validate_ops(e: SExpr) -> None:
     elif isinstance(e, SApp):
         for a in e.args:
             _validate_ops(a)
+    elif isinstance(e, SAlloc):
+        _validate_ops(e.value)
+    elif isinstance(e, SStore):
+        _validate_ops(e.value)
+    elif isinstance(e, SLoad):
+        pass
     elif isinstance(e, SReturn):
         _validate_ops(e.value)
 
