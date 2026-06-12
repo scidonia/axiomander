@@ -684,12 +684,12 @@ Section snakelet_wp.
       The proof is direct: [iLöb] over the counter [z], then the step
       function is called, which can use the IH via [iApply "IH"]. *)
    Lemma wp_while_inv s E e1 e2 (I : Z → iProp Σ) z Φ :
-     I z -∗
+     I z ∗
      ▷ (∀ z', I z' -∗
-       WP If e1 (Let "_" e2 (While e1 e2)) (Val LitUnit) @ s; E {{ Φ }}) -∗
-     WP While e1 e2 @ s; E {{ Φ }}.
+       WP If e1 (Let "_" e2 (While e1 e2)) (Val LitUnit) @ s; E {{ Φ }})
+     ⊢ WP While e1 e2 @ s; E {{ Φ }}.
    Proof.
-     iIntros "HI Hstep".
+     iIntros "[HI Hstep]".
      iApply wp_while; iNext.
      iSpecialize ("Hstep" $! z).
      iDestruct ("Hstep" with "HI") as "Hgoal".
