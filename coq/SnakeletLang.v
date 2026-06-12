@@ -409,11 +409,12 @@ Proof. discriminate. Qed.
     functional — at most one body/spec per function name. *)
 
 From iris.algebra Require Import agree auth gmap.
-From iris.base_logic.lib Require Import own.
+From iris.base_logic.lib Require Import ghost_map own.
 Definition call_entryR : cmra := agreeR (leibnizO fun_entry).
 Definition call_tableRA : cmra :=
   authR (gmapUR string call_entryR).
 
+(** Typeclass for ghost-map access to the call table. *)
 Class call_tableG Σ := CallTableG {
   call_table_inG :> inG Σ call_tableRA;
 }.

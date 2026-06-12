@@ -555,17 +555,20 @@ Section snakelet_wp.
         subst x; inversion H0
       | destruct Ki; simpl in H; discriminate H
       ].
-    - destruct K as [|Ki K']; simpl in H; [
-        subst x; inversion H0; subst; simpl;
-        [ do 3 (split; [done|]); left;
-          match goal with Hm : map Val _ = map Val _ |- _ => apply map_Val_inj in Hm as -> end;
-          eexists _, _, _; intuition eauto
-        | do 3 (split; [done|]); right;
-          match goal with Hm : map Val _ = map Val _ |- _ => apply map_Val_inj in Hm as -> end;
-          eexists _, _; intuition eauto ]
-      | destruct Ki; simpl in H; discriminate H
-      ].
-  Admitted.
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x.
+        inversion H0 as
+          [ | | | | | | |
+            f0 vs0 st0 pr po w0 Hfc Hpre Hpost
+          | f1 vs1 st1 pars bod Hfc' Hlen ]; subst; simpl.
+        * do 3 (split; [done|]); left; eexists _, _, _.
+          match goal with Hm : map Val _ = map Val _ |- _ => apply map_Val_inj in Hm as -> end.
+          split; [exact Hfc | split; [exact Hpre | split; [exact Hpost | reflexivity]]].
+        * do 3 (split; [done|]); right; eexists _, _.
+          match goal with Hm : map Val _ = map Val _ |- _ => apply map_Val_inj in Hm as -> end.
+          split; [exact Hfc' | split; [exact Hlen | reflexivity]].
+      + destruct Ki; simpl in H; discriminate H.
+  Qed.
 
   (** * Opaque call: modular contract reasoning.
       The caller proves the *precondition* and receives the
