@@ -29,7 +29,7 @@ The compilation to Iris Props is handled by contract_ir_iris.
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from oracle.contract_ir_iris import compile_postcondition, compile_precondition
@@ -58,6 +58,8 @@ _SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge"}
 class Contracts:
     pre: Optional[str]
     post: str
+    loop_invariants: list[list[str]] = field(default_factory=list)
+    """Invariants per while loop in the function body, in order."""
 
 
 def extract_contracts(
@@ -109,7 +111,11 @@ def extract_contracts(
                 post = compile_postcondition(linted.ir, ret_var)
             body = body[:-2] + [ret_node]
 
-    return Contracts(pre=pre, post=post), body, post_linter
+    # Extract loop invariants from while loops in the body
+    loop_invs: list[list[str]] = []
+    _extract_while_invariants(body, loop_invs, pre_linter)
+
+    return Contracts(pre=pre, post=post, loop_invariants=loop_invs), body, post_linter
 
 
 # -- Statement folding (PyIR statements -> SnakeletIR) ---------------------
@@ -117,13 +123,39 @@ def extract_contracts(
 _AUG_OPS = {"+": "add", "-": "sub", "*": "mul"}
 
 
-def _fold(stmts: list[PyStmt], lw: IrisLowerer) -> SExpr:
-    """Continuation-style fold: each binding scopes over the rest.
+def _extract_while_invariants(stmts: list[ast.stmt], acc: list[list[str]],
+                               linter: ContractLinter) -> None:
+    """Walk [stmts] depth-first, collecting invariant asserts from
+    [ast.While] bodies.  Each while loop contributes one list of
+    Coq Prop strings (in encounter order)."""
+    for s in stmts:
+        if isinstance(s, ast.While):
+            invs = []
+            for b in s.body:
+                if isinstance(b, ast.Assert):
+                    linted = linter.lint_expression(b.test)
+                    if linted.ir is not None:
+                        invs.append(compile_precondition(linted.ir))
+            acc.append(invs)
+            _extract_while_invariants(s.body, acc, linter)
+        elif isinstance(s, ast.If):
+            _extract_while_invariants(s.body, acc, linter)
+            _extract_while_invariants(s.orelse, acc, linter)
+        elif isinstance(s, (ast.For, ast.Try)):
+            # recurse into bodies that can contain loops
+            pass  # not yet supported; extend when for/try lowering added
 
-    A conditional whose branches do not both return duplicates the
-    continuation into each arm (path duplication, mirroring the staged
-    generator's case splits).
-    """
+
+def _fold(stmts: list[PyStmt], lw: IrisLowerer,
+           invs_iter: "object | None" = None) -> SExpr:
+    """..."""
+    def next_invs() -> list[str]:
+        if invs_iter is None:
+            return []
+        try:
+            return next(invs_iter)  # type: ignore[arg-type]
+        except StopIteration:
+            return []
     if not stmts:
         return SLit(lit_type="unit", value="")
     s, rest = stmts[0], stmts[1:]
@@ -172,9 +204,11 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer) -> SExpr:
         cond = lw.lower_expr(s.test)
         if cond is None:
             raise IrisGenError("cannot lower while-condition")
+        invs = next_invs()
         body = _fold(list(s.body), lw)
         rest_e = _fold(rest, lw)
-        return SLet(var="_", value=SWhile(cond=cond, body=body),
+        return SLet(var="_", value=SWhile(cond=cond, body=body,
+                                          invariants=invs),
                     body=rest_e)
 
     if isinstance(s, PyExprStmt):
@@ -440,7 +474,8 @@ def python_to_iris_proof(source: str,
     # Body: PyIR -> SnakeletIR -> ANF
     fn = PyIRTranslator().translate_function(target)
     lw = IrisLowerer(loc_map={}, func_name=fn.name)
-    body = _fold(fn.body, lw)
+    invs_iter = iter(contracts.loop_invariants) if contracts.loop_invariants else None
+    body = _fold(fn.body, lw, invs_iter=iter(contracts.loop_invariants))
     body = _subst_params(body, set(fn.params), set())
     body = _anf(body, [0])
     _validate_ops(body)

@@ -359,6 +359,43 @@ def count_to_n(n):
     assert not ok
 
 
+# -- Loop invariants via assert (step 1) -----------------------------------
+
+def test_while_with_inline_invariant():
+    """An assert inside a while body is extracted as invariant and
+    attached to the SWhile node.  The generator currently falls
+    through to concrete unrolling for literal bounds, so the
+    invariant is unused but the extraction is verified. """
+    ok, out = verify('''
+def while_inv(n):
+    assert n >= 0
+    c = ref(0)
+    while load(c) < n:
+        assert load(c) <= n
+        store(c, load(c) + 1)
+    r = load(c)
+    assert r == n
+    return r
+''')
+    # Symbolic n: IrisGenError (needs invariant path). Falls to IMP.
+    assert not ok
+
+
+def test_while_concrete_with_invariant():
+    """Concrete bound with inline invariant: unrolls correctly. """
+    ok, out = verify('''
+def while_inv_concrete():
+    c = ref(0)
+    while load(c) < 3:
+        assert load(c) <= 3
+        store(c, load(c) + 1)
+    r = load(c)
+    assert r == 3
+    return r
+''')
+    assert ok, out
+
+
 # -- SMT escalation slot -------------------------------------------------------
 
 def test_smt_axiom_via_python():

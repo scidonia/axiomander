@@ -101,6 +101,7 @@ class SWhile:
     The loop value is always LitUnit; results flow through heap cells."""
     cond: "SExpr"
     body: "SExpr"
+    invariants: list[str] = field(default_factory=list)  # Coq Props from contract asserts
     kind: Literal["while"] = "while"
 
     def to_coq(self) -> str:
