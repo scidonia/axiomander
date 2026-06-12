@@ -333,7 +333,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 cond_coq=cond_coq,
                 body_coq=body_coq,
                 invariants=e.invariants,
-            )] + k()
+            )]  # continuation handled by inferred Phi -- no k()
 
         def flat(nodes: list[StageNode], what: str) -> list[str]:
             out = []
@@ -439,7 +439,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
 
 
 def _emit_stage_lines(nodes: list[StageNode], depth: int,
-                      indent: str) -> list[str]:
+                      indent: str, post: str = "") -> list[str]:
     lines: list[str] = []
     for n in nodes:
         if isinstance(n, Stage):
@@ -452,24 +452,30 @@ def _emit_stage_lines(nodes: list[StageNode], depth: int,
                 raise IrisGenError("case split nesting exceeds bullet depth")
             bullet = _BULLETS[depth]
             for arm in n.arms:
-                arm_lines = _emit_stage_lines(arm, depth + 1, indent + "  ")
+                arm_lines = _emit_stage_lines(arm, depth + 1, indent + "  ", post)
                 first = arm_lines[0].lstrip()
                 lines.append(f"{indent}{bullet} {first}")
                 lines.extend(arm_lines[1:])
         elif isinstance(n, WhileInv):
-            lines.extend(_emit_while_inv_stage(n, indent))
+            lines.extend(_emit_while_inv_stage(n, indent, post))
     return lines
 
 
 # -- Top-level ------------------------------------------------------------
 
-def _emit_while_inv_stage(wi: WhileInv, indent: str) -> list[str]:
-    """Emit a single [apply_while_lemma] tactic call that handles
-    reshape_expr, wp_bind, lemma application, and exit-wand. """
+def _emit_while_inv_stage(wi: WhileInv, indent: str, post: str = "") -> list[str]:
     bound = wi.bound_expr
     if bound.startswith("LitInt "):
         bound = bound.removeprefix("LitInt ")
-    return [f"{indent}apply_while_lemma {wi.lemma_name} l ({bound})."]
+    return [f"{indent}focus_while.",
+            f"{indent}iApply ({wi.lemma_name} s E l {bound} 0%Z _",
+            f"{indent}  with \"[$] [] []\").",
+            f"{indent}{{ iPureIntro; lia. }}",
+            f"{indent}{{ iIntros \"Hc_n\".",
+            f"{indent}  rewrite /fill_K /=.",
+            f"{indent}  iApply (@wp_let _ _ _ _ _ _ \"_\" LitUnit _ _).",
+            f"{indent}  iNext. snakelet_simpl.",
+            f"{indent}  heap_load. pure_step. finish_pure. }}"]
 
 
 
@@ -538,7 +544,7 @@ class IrisProof:
         if self.pre:
             parts.append("    intros Hpre.")
         parts.append("    iStartProof.")
-        parts.extend(_emit_stage_lines(self.stages, 0, "    "))
+        parts.extend(_emit_stage_lines(self.stages, 0, "    ", self.post))
         parts.append("  Qed.")
         parts.append("End generated_proofs.")
         return "\n".join(parts) + "\n"

@@ -362,10 +362,7 @@ def count_to_n(n):
 # -- Loop invariants via assert (step 1) -----------------------------------
 
 def test_while_with_inline_invariant():
-    """An assert inside a while body is extracted as invariant and
-    attached to the SWhile node.  The generator currently falls
-    through to concrete unrolling for literal bounds, so the
-    invariant is unused but the extraction is verified. """
+    """Symbolic while with invariants: verified via per-loop lemma."""
     ok, out = verify('''
 def while_inv(n):
     assert n >= 0
@@ -377,8 +374,8 @@ def while_inv(n):
     assert r == n
     return r
 ''')
-    # Symbolic n: IrisGenError (needs invariant path). Falls to IMP.
-    assert not ok
+    # Symbolic n: verified with per-loop lemma + inferred Phi
+    assert ok, out
 
 
 def test_while_concrete_with_invariant():
