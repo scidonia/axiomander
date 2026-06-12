@@ -401,6 +401,23 @@ Proof. discriminate. Qed.
 #[export] Instance default_fun_ctx : FunCtx | 100 :=
   {| fun_entries := λ _, None; fun_specs_total := empty_table_total |}.
 
+(** * Ghost-state call table
+
+    Opaque calls are verified against an authoritative table stored in
+    Iris ghost state.  [call_tableRA] is the RA; [call_tableG Σ] says
+    Σ contains it.  Each entry is an [agreeR] so the table is
+    functional — at most one body/spec per function name. *)
+
+From iris.algebra Require Import agree auth gmap.
+From iris.base_logic.lib Require Import own.
+Definition call_entryR : cmra := agreeR (leibnizO fun_entry).
+Definition call_tableRA : cmra :=
+  authR (gmapUR string call_entryR).
+
+Class call_tableG Σ := CallTableG {
+  call_table_inG :> inG Σ call_tableRA;
+}.
+
 (** Substitute value arguments for parameters, left to right.  Arguments
     are values (closed), so sequential substitution is capture-free. *)
 Fixpoint subst_list (params : list string) (vs : list sn_val) (e : sn_expr) : sn_expr :=
@@ -417,6 +434,16 @@ Proof.
   - reflexivity.
   - injection H as Hv Hvs. f_equal; [exact Hv | apply IH, Hvs].
 Qed.
+
+(** * Head steps, prim_step, and the Iris language instance
+
+    Wrapped in a section with [Context {FC : FunCtx}] so that
+    [HeadCallSpec]/[HeadCallUnfold] use the ambient FC for the
+    operational lookup.  This is the MINIMAL typeclass needed for
+    operational-step eligibility; spec enforcement and totality
+    are handled by ghost state (call_tableRA) at the WP level. *)
+Section with_fun_ctx.
+Context `{FC : FunCtx}.
 
 (** * Head steps *)
 Inductive head_step : sn_expr → sn_state → sn_expr → sn_state → list sn_expr → Prop :=
@@ -590,11 +617,14 @@ Proof.
   - apply fill_step_inv_list.
 Defined.
 
-(** [snakelet_lang] is a plain canonical structure — no implicit
-    typeclass parameters.  Call rules ([HeadCallSpec], [HeadCallUnfold])
-    carry their own [FunCtx] argument, so the language works uniformly
-    across all proof contexts and [iApply]/[iLöb] composition resolves
-    correctly. *)
+End with_fun_ctx.
+
+(** After section discharge, [snakelet_lang : ∀ {FC : FunCtx}, language]
+    is a parametric canonical structure.  The [FC] argument is implicitly
+    resolved by typeclass search at each use site.  This provides a
+    single [FunCtx] per section — the same instance used for operational
+    step eligibility ([fun_entries]) and WP-level spec enforcement
+    (ghost-state [call_tableRA]). *)
 
 (** Notations for writing SnakeletLang programs tersely.
 
