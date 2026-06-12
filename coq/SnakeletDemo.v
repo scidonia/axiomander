@@ -5,7 +5,7 @@
 
 From iris.proofmode Require Import proofmode.
 From iris.program_logic Require Import weakestpre lifting.
-From iris.base_logic.lib Require Export gen_heap.
+From iris.base_logic.lib Require Export gen_heap ghost_map.
 Require Import SnakeletLang SnakeletWp.
 Require Import SnakeletTactics.
 Import snakelet_notation.
@@ -537,5 +537,41 @@ Section demo.
   Lemma try_val_noop s E :
     ⊢ WP (Try (Val (LitInt 7)) (Val LitUnit)) @ s; E {{ v, ⌜v = LitInt 7⌝ }}.
   Proof. iApply wp_try_val. iNext. iPureIntro. reflexivity. Qed.
+
+  (** * Ghost-state opaque calls
+
+      The caller holds a [ghost_map_elem] fragment that attests the spec
+      in the ghost table.  [wp_call_ghost] consumes it (persistently) and
+      the call proceeds under the contract.  The authoritative part lives
+      in an invariant (not shown here). *)
+  Section ghost_calls.
+    Context `{!ghost_mapG Σ string fun_entry}.
+
+    Lemma square_ghost_elem γ s E :
+      ghost_map_elem γ "square" (DfracOwn 1) (FunSpec int1_pre square_post) -∗
+      WP Call "square" [Val (LitInt 5)] @ s; E {{ v, ⌜v = LitInt 25⌝ }}.
+    Proof.
+      iIntros "Hsq".
+      iApply (wp_call_ghost γ s E "square" int1_pre square_post [LitInt 5]
+               (λ v, ⌜v = LitInt 25⌝)%I with "[$Hsq]").
+      { reflexivity. }
+      { by exists 5%Z. }
+      iIntros (w Hw). unfold square_post in Hw. subst w. iPureIntro. reflexivity.
+    Qed.
+
+    Lemma square_ghost_auth_elem γ s E :
+      ghost_map_auth γ (DfracOwn 1) {["square" := FunSpec int1_pre square_post]} -∗
+      ghost_map_elem γ "square" (DfracOwn 1) (FunSpec int1_pre square_post) -∗
+      WP Call "square" [Val (LitInt 5)] @ s; E {{ v, ⌜v = LitInt 25⌝ }}.
+    Proof.
+      iIntros "Hauth Hsq".
+      iDestruct (ghost_map_lookup with "Hauth Hsq") as "%Hlookup".
+      iApply (wp_call_ghost γ s E "square" int1_pre square_post [LitInt 5]
+               (λ v, ⌜v = LitInt 25⌝)%I with "[$Hsq]").
+      { reflexivity. }
+      { by exists 5%Z. }
+      iIntros (w Hw). unfold square_post in Hw. subst w. iPureIntro. reflexivity.
+    Qed.
+  End ghost_calls.
 
 End demo.
