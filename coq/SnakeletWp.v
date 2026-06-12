@@ -22,7 +22,6 @@ Notation snakelet_heapGS := (snakelet_heapGS_gen HasLc).
 Section snakelet_wp.
   Context `{!snakelet_heapGS_gen hlc Σ}.
   Context `{FC : FunCtx}.
-  Context `{!call_tableG Σ}.
 
   Definition snakelet_state_interp (σ : sn_state) (ns : nat) (κs : list observation) (nt : nat) : iProp Σ :=
     gen_heap_interp σ.
@@ -634,43 +633,6 @@ Section snakelet_wp.
     rewrite He2 Hκ Hσ2 Hefs.
     iMod "Hclose". iModIntro. iFrame "Hσ".
     iSplitL; [iExact "HΦ" | done].
-  Qed.
-
-  (** * Opaque call: ghost-state spec table
-
-      The caller provides a fragment [own γ (◯ {[f := entry]})] that
-      witnesses the spec.  The authoritative part lives in a global
-      invariant (or the caller's context).  Verification follows the
-      same [wp_lift_step] pattern as the typeclass-based [wp_call]. *)
-  Lemma wp_call_ghost γ s E f pre post vs Φ :
-    fun_entries f = Some (FunSpec pre post) →
-    pre vs →
-    own γ (◯ {[f := to_agree (FunSpec pre post)]}) -∗
-    (∀ w : sn_val, ⌜post vs w⌝ -∗ Φ w) -∗
-    WP Call f (map Val vs) @ s; E {{ Φ }}.
-  Proof.
-    iIntros (Hentry Hpre) "Hfrag HΦ". iApply wp_lift_step; [done|].
-    iIntros (σ1 ns κ κs nt) "Hσ".
-    iApply fupd_mask_intro; [set_solver|]. iIntros "Hclose". iSplit.
-    { iPureIntro. destruct s; [|done]. apply reducible_no_obs_reducible.
-      destruct (fun_specs_total f pre post vs Hentry Hpre) as [v Hv].
-      eexists (Val v), σ1, [].
-      eapply (PrimHeadStep [] (Call f (map Val vs)) σ1).
-      eapply HeadCallSpec; [exact Hentry|exact Hpre|exact Hv]. }
-    iNext. iIntros (e2 σ2 efs Hprim) "Hcred".
-    iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
-    pose proof (prim_call_inv f vs σ1 κ e2 σ2 efs Hprim)
-      as (Hκ & Hσ2 & Hefs &
-          [(pre' & post' & w & Hentry' & Hpre' & Hpost' & He2)
-          | (params & body & Hentry' & _ & _)]);
-      last congruence.
-    assert (post' = post) as -> by congruence.
-    rewrite He2 Hκ Hσ2 Hefs.
-    iMod "Hclose". iModIntro. iFrame "Hσ".
-    iSpecialize ("HΦ" $! w with "[//]").
-    iSplitL.
-    { rewrite wp_unfold /wp_pre /=. iModIntro. iExact "HΦ". }
-    { done. }
   Qed.
 
   (** * While loop with invariant

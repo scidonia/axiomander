@@ -408,16 +408,13 @@ Proof. discriminate. Qed.
     Σ contains it.  Each entry is an [agreeR] so the table is
     functional — at most one body/spec per function name. *)
 
-From iris.algebra Require Import agree auth gmap.
-From iris.base_logic.lib Require Import ghost_map own.
-Definition call_entryR : cmra := agreeR (leibnizO fun_entry).
-Definition call_tableRA : cmra :=
-  authR (gmapUR string call_entryR).
+(** Ghost-state call table (Phase 5 infrastructure — pending agreeR
+    typeclass resolution in Rocq 9.1).
 
-(** Typeclass for ghost-map access to the call table. *)
-Class call_tableG Σ := CallTableG {
-  call_table_inG :> inG Σ call_tableRA;
-}.
+    The caller holds [own γ (◯ {[f := to_agree spec]})] — a persistent
+    fragment asserting the ghost table maps [f] to [spec].  The
+    authoritative part lives in an invariant.  When agreeR compiles:
+    [wp_call_ghost] replaces [wp_call] for opaque verification. *)
 
 (** Substitute value arguments for parameters, left to right.  Arguments
     are values (closed), so sequential substitution is capture-free. *)
