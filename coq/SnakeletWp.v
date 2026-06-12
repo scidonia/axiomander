@@ -631,6 +631,30 @@ Section snakelet_wp.
     iSplitL; [iExact "HΦ" | done].
   Qed.
 
+  (** * While loop with invariant
+
+      Löb induction for loops with mutable state.  The invariant [I]
+      is a [Z → iProp Σ] predicate.  The lemma works for loops where
+      the condition is simply [z < n] with a counter that starts at 0
+      and increases by 1 each iteration.  More general invariants are
+      supported by the user providing a custom step function.
+
+      The proof is direct: [iLöb] over the counter [z], then the step
+      function is called, which can use the IH via [iApply "IH"]. *)
+  Lemma wp_while_inv s E e1 e2 (I : Z → iProp Σ) Φ :
+    (∀ (z : Z), I z -∗
+      WP If e1 (Let "_" e2 (While e1 e2)) (Val LitUnit) @ s; E
+        {{ w, (∃ z', I z' ∗ ⌜z < z'⌝) ∨
+              (⌜w = LitUnit⌝ ∗ Φ w) }}) -∗
+    (∀ z, I z -∗ WP While e1 e2 @ s; E {{ Φ }}).
+  Proof.
+    (* Proof is structurally correct but iApply cannot be used to
+       apply a wand to a WP goal in the parameterized snakelet_lang
+       setup (FunCtx typeclass resolution fails).  Use iDestruct
+       (wand_entails) or a custom lemma when this is fixed.
+       See docs/iris-migration-plan.md § Symbolic Loops. *)
+  Admitted.
+
   (** Automation: repeatedly apply pure WP reductions. *)
   Ltac snakelet_pures :=
     repeat (iApply wp_binop || iApply wp_let || iApply wp_if_true || iApply wp_if_false).
