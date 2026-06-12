@@ -21,8 +21,6 @@ Notation snakelet_heapGS := (snakelet_heapGS_gen HasLc).
 
 Section snakelet_wp.
   Context `{!snakelet_heapGS_gen hlc Σ}.
-  (** All WP lemmas are parametric in the ambient function context. *)
-  Context `{FC : FunCtx}.
 
   Definition snakelet_state_interp (σ : sn_state) (ns : nat) (κs : list observation) (nt : nat) : iProp Σ :=
     gen_heap_interp σ.
@@ -545,25 +543,26 @@ Section snakelet_wp.
   Lemma prim_call_inv f vs σ κ e2 σ2 efs :
     prim_step (Call f (map Val vs)) σ κ e2 σ2 efs →
     κ = [] ∧ σ2 = σ ∧ efs = [] ∧
-    ((∃ pre post w, fun_entries f = Some (FunSpec pre post) ∧
+    ((∃ (FC : FunCtx) pre post w,
+        fun_entries (FunCtx := FC) f = Some (FunSpec pre post) ∧
         pre vs ∧ post vs w ∧ e2 = Val w) ∨
-     (∃ params body, fun_entries f = Some (FunDef params body) ∧
+     (∃ (FC : FunCtx) params body,
+        fun_entries (FunCtx := FC) f = Some (FunDef params body) ∧
         length vs = length params ∧ e2 = subst_list params vs body)).
   Proof.
     intros Hprim. inversion Hprim; subst.
-    - (* pure step: no pure_step constructor produces a Call redex *)
-      destruct K as [|Ki K']; simpl in H.
-      + subst x. inversion H0.
-      + destruct Ki; simpl in H; discriminate H.
-    - (* head step: HeadCallSpec or HeadCallUnfold *)
-      destruct K as [|Ki K']; simpl in H.
-      + subst x. inversion H0; subst;
-          match goal with
-          | Hm : map Val _ = map Val _ |- _ => apply map_Val_inj in Hm as ->
-          end.
-        * do 3 (split; [done|]). left. eexists _, _, _. eauto.
-        * do 3 (split; [done|]). right. eexists _, _. eauto.
-      + destruct Ki; simpl in H; discriminate H.
+    - destruct K as [|Ki K']; simpl in H; [
+        subst x; inversion H0
+      | destruct Ki; simpl in H; discriminate H
+      ].
+    - destruct K as [|Ki K']; simpl in H; [
+        subst x; inversion H0; subst; simpl;
+        [ match goal with Hm : map Val _ = map Val _ |- _ => apply map_Val_inj in Hm as -> end;
+          do 3 (split; [done|]); left; eexists _, _, _, _; eauto
+        | match goal with Hm : map Val _ = map Val _ |- _ => apply map_Val_inj in Hm as -> end;
+          do 3 (split; [done|]); right; eexists _, _, _; eauto ]
+      | destruct Ki; simpl in H; discriminate H
+      ].
   Qed.
 
   (** * Opaque call: modular contract reasoning.
@@ -573,7 +572,7 @@ Section snakelet_wp.
       [fun_specs_total] — the existence of a result is the callee's
       obligation, not the call site's.  Calling outside the precondition
       is stuck, so WP (NotStuck) enforces the contract. *)
-  Lemma wp_call s E f pre post vs Φ :
+  Lemma wp_call {FC : FunCtx} s E f pre post vs Φ :
     fun_entries f = Some (FunSpec pre post) →
     pre vs →
     (∀ w : sn_val, ⌜post vs w⌝ -∗ Φ w) -∗
@@ -590,8 +589,8 @@ Section snakelet_wp.
     iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
     pose proof (prim_call_inv f vs σ1 κ e2 σ2 efs Hprim)
       as (Hκ & Hσ2 & Hefs &
-          [(pre' & post' & w & Hentry' & Hpre' & Hpost' & He2)
-          | (params & body & Hentry' & _ & _)]);
+          [(FC0 & pre' & post' & w & Hentry' & Hpre' & Hpost' & He2)
+          | (FC1 & params & body & Hentry' & _ & _)]);
       last congruence.
     assert (post' = post) as -> by congruence.
     rewrite He2 Hκ Hσ2 Hefs.
@@ -605,7 +604,7 @@ Section snakelet_wp.
   (** * Transparent call: unfold the definition.
       For helper functions without contracts and for testing the lowering:
       the call β-reduces to the body with arguments substituted. *)
-  Lemma wp_call_unfold s E f params body vs Φ :
+  Lemma wp_call_unfold {FC : FunCtx} s E f params body vs Φ :
     fun_entries f = Some (FunDef params body) →
     length vs = length params →
     ▷ WP subst_list params vs body @ s; E {{ Φ }} -∗
@@ -622,7 +621,8 @@ Section snakelet_wp.
     iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
     pose proof (prim_call_inv f vs σ1 κ e2 σ2 efs Hprim)
       as (Hκ & Hσ2 & Hefs &
-          [(pre & post & w & Hentry' & _ & _) | (params' & body' & Hentry' & _ & He2)]);
+          [(FC0 & pre & post & w & Hentry' & _ & _)
+          | (FC1 & params' & body' & Hentry' & _ & He2)]);
       first congruence.
     assert (params' = params) as -> by congruence.
     assert (body' = body) as -> by congruence.

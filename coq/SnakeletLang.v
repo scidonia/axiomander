@@ -442,15 +442,15 @@ Inductive head_step : sn_expr → sn_state → sn_expr → sn_state → list sn_
   | HeadTryBody body handler σ body' σ' efs :
       head_step body σ body' σ' efs →
       head_step (Try body handler) σ body' σ' efs
-  | HeadCallSpec : ∀ {FC : FunCtx} (f : string) (vs : list sn_val) (σ : sn_state)
+  | HeadCallSpec : ∀ (FC : FunCtx) (f : string) (vs : list sn_val) (σ : sn_state)
       (pre : list sn_val → Prop) (post : list sn_val → sn_val → Prop) (v : sn_val),
-      fun_entries f = Some (FunSpec pre post) →
+      fun_entries (FunCtx := FC) f = Some (FunSpec pre post) →
       pre vs →
       post vs v →
       head_step (Call f (map Val vs)) σ (Val v) σ []
-  | HeadCallUnfold : ∀ {FC : FunCtx} (f : string) (vs : list sn_val) (σ : sn_state)
+  | HeadCallUnfold : ∀ (FC : FunCtx) (f : string) (vs : list sn_val) (σ : sn_state)
       (params : list string) (body : sn_expr),
-      fun_entries f = Some (FunDef params body) →
+      fun_entries (FunCtx := FC) f = Some (FunDef params body) →
       length vs = length params →
       head_step (Call f (map Val vs)) σ (subst_list params vs body) σ [].
 
