@@ -343,6 +343,22 @@ Ltac heap_alloc :=
   | _ => fail "heap_alloc: goal is not a WP"
   end.
 
+(** Variant that names the points-to hypothesis explicitly, so
+    [iLöb as "IH" forall "name"] can refer to it. *)
+Ltac heap_alloc_named s :=
+  snakelet_popvals;
+  lazymatch goal with
+  | |- envs_entails _ (wp _ _ ?e _) =>
+      reshape_expr e ltac:(fun K e' =>
+        lazymatch e' with
+        | Alloc (Val _) =>
+            wp_bind e'; iApply wp_alloc;
+            let l := fresh "l" in iIntros (l) s; snakelet_simpl
+        | _ => fail "heap_alloc_named: redex is not an Alloc"
+        end)
+  | _ => fail "heap_alloc_named: goal is not a WP"
+  end.
+
 (** [reshape_expr] accumulates the evaluation context innermost-first,
     but [fill_K] is head-outermost — reverse before passing to the
     environment-form lemmas. *)
@@ -390,6 +406,26 @@ Ltac heap_load :=
     the branches.  Loop invariants are at the proof-script level:
     the generator supplies the invariant as a hypothesis before each
     iteration; here we just provide the structural step. *)
+
+(** Symbolic loop entry point.  [loop_inv I z] introduces [wp_while_inv]
+    with invariant [I] at initial index [z], extracting [e1], [e2], and
+    [Φ] directly from the WP goal so that variable substitutions from
+    earlier [pure_step] stages do not block matching. *)
+Ltac loop_inv_tac I z :=
+  snakelet_popvals;
+  lazymatch goal with
+  | |- envs_entails _ (wp _ _ (While ?e1 ?e2) ?Φ) =>
+      iApply (wp_while_inv _ _ e1 e2 I z Φ)
+  | |- envs_entails _ (wp _ _ ?e _) =>
+      reshape_expr e ltac:(fun K e' =>
+        lazymatch e' with
+        | While _ _ => wp_bind e'; loop_inv_tac I z
+        | _ => fail "loop_inv: redex is not a While"
+        end)
+  | _ => fail "loop_inv: goal is not a WP"
+  end.
+
+Tactic Notation "loop_inv" uconstr(I) uconstr(z) := loop_inv_tac I z.
 
 Ltac loop_unfold :=
   snakelet_popvals;
