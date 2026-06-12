@@ -427,26 +427,6 @@ Ltac loop_inv_tac I z :=
 
 Tactic Notation "loop_inv" uconstr(I) uconstr(z) := loop_inv_tac I z.
 
-(** [loop_inv_lemma l n Φ z] applies the per-loop lemma [loop_inv_lemma]
-    (which users must define) at the current focus, with evaluation-context
-    extraction identical to [loop_inv]. *)
-Ltac loop_inv_lemma_tac l n Φ z :=
-  snakelet_popvals;
-  lazymatch goal with
-  | |- envs_entails _ (wp _ _ (While ?e1 ?e2) ?Φ0) =>
-      iApply (loop_inv_lemma _ _ l n z Φ0 _ e1 e2 Φ z)
-  | |- envs_entails _ (wp _ _ ?e _) =>
-      reshape_expr e ltac:(fun K e' =>
-        lazymatch e' with
-        | While _ _ => wp_bind e'; loop_inv_lemma_tac l n Φ z
-        | _ => fail "loop_inv_lemma: redex is not a While"
-        end)
-  | _ => fail "loop_inv_lemma: goal is not a WP"
-  end.
-
-Tactic Notation "loop_inv_lemma" constr(l) constr(n) uconstr(Φ) uconstr(z) :=
-  loop_inv_lemma_tac l n Φ z.
-
 Ltac loop_unfold :=
   snakelet_popvals;
   lazymatch goal with
