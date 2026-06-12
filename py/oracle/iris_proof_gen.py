@@ -93,7 +93,24 @@ class Branch:
     arms: list[list["StageNode"]]
 
 
-StageNode = Union[Stage, Branch]
+@dataclass
+class WhileInv:
+    """Symbolic while-loop with an invariant (iLöb + per-loop lemma).
+
+    Contains enough information to generate a per-loop Coq lemma using
+    the proven iLöb-forall(z) pattern, and a call-site stage using
+    reshape_expr + wp_bind + lemma application.
+    """
+    lemma_name: str            # e.g. loop_inv_foo_0
+    cell_name: str             # e.g. "c" (IR variable name)
+    bound_expr: str            # Coq expression for the bound (e.g. "LitInt n" or "n")
+    cond_coq: str              # Coq While condition expression
+    body_coq: str              # Coq While body expression
+    invariants: list[str]      # Coq Props (from contract asserts)
+    order_hint: str = ""       # "ascending" or "descending"
+
+
+StageNode = Union[Stage, Branch, WhileInv]
 
 _BULLETS = ["-", "+", "*", "--", "++", "**"]
 
@@ -211,8 +228,29 @@ def _unroll_count(cond: SExpr) -> Optional[int]:
     return None
 
 
+def _extract_while_cell(cond: SExpr) -> str:
+    """Extract the cell name from a while condition like load(c) < N."""
+    if isinstance(cond, SBinOp) and isinstance(cond.left, SLoad):
+        return cond.left.loc
+    return "c"
+
+
+def _extract_while_bound(cond: SExpr) -> str:
+    """Extract the bound expression from a while condition like load(c) < N."""
+    if isinstance(cond, SBinOp):
+        right = cond.right
+        if isinstance(right, SLit) and right.lit_type == "int":
+            return f"LitInt {right.value}"
+        elif isinstance(right, SVar):
+            return right.name
+        elif isinstance(right, SLit):
+            return f"LitInt {right.value}"
+        return right.to_coq()
+    return "n"
+
+
 def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
-         k) -> list[StageNode]:
+         k, func_name: str = "", _inv_counter: list[int] | None = None) -> list[StageNode]:
     """Generate stages reducing e to a value, then continue with k().
 
     k is a thunk producing the continuation stages; it is invoked once
@@ -222,23 +260,24 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         return k()
 
     if isinstance(e, SReturn):
-        return _gen(e.value, table, overrides, k)
+        return _gen(e.value, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter)
 
     if isinstance(e, SSeq):
         if not e.exprs:
             return k()
         if len(e.exprs) == 1:
-            return _gen(e.exprs[0], table, overrides, k)
+            return _gen(e.exprs[0], table, overrides, k, func_name=func_name, _inv_counter=_inv_counter)
         head, rest = e.exprs[0], SSeq(e.exprs[1:])
-        return _gen(SLet("_", head, rest), table, overrides, k)
+        return _gen(SLet("_", head, rest), table, overrides, k,
+                     func_name=func_name, _inv_counter=_inv_counter)
 
     if isinstance(e, SBinOp):
         def after_left():
             def after_right():
                 return [Stage("pure_step", "pure_step",
                               comment=f"binop {e.op}")] + k()
-            return _gen(e.right, table, overrides, after_right)
-        return _gen(e.left, table, overrides, after_left)
+            return _gen(e.right, table, overrides, after_right, func_name=func_name, _inv_counter=_inv_counter)
+        return _gen(e.left, table, overrides, after_left, func_name=func_name, _inv_counter=_inv_counter)
 
     if isinstance(e, SApp):
         if e.func not in table:
@@ -262,18 +301,39 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         # continuation resumes.
         st = Stage(f'call_transparent "{e.func}"', "call_transparent",
                    comment="unfolds")
-        return [st] + _gen(entry.body, table, overrides, k)
+        return [st] + _gen(entry.body, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter)
 
     if isinstance(e, SLet):
         def after_rhs():
             return [Stage("pure_step", "pure_step",
                           comment=f'bind "{e.var}"')] + \
-                   _gen(e.body, table, overrides, k)
-        return _gen(e.value, table, overrides, after_rhs)
+                   _gen(e.body, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter)
+        return _gen(e.value, table, overrides, after_rhs, func_name=func_name, _inv_counter=_inv_counter)
 
     if isinstance(e, SWhile):
-        cond_stages = _gen(e.cond, table, overrides, lambda: [])
-        body_stages = _gen(e.body, table, overrides, lambda: [])
+        cond_stages = _gen(e.cond, table, overrides, lambda: [], func_name=func_name, _inv_counter=_inv_counter)
+        body_stages = _gen(e.body, table, overrides, lambda: [], func_name=func_name, _inv_counter=_inv_counter)
+
+        # Symbolic loop with invariants: generate the per-loop lemma.
+        if e.invariants:
+            cell_name = _extract_while_cell(e.cond)
+            bound_expr = _extract_while_bound(e.cond)
+            cond_coq = e.cond.to_coq()
+            body_coq = e.body.to_coq()
+            if _inv_counter is not None:
+                cid = _inv_counter[0]
+                _inv_counter[0] += 1
+            else:
+                cid = 0
+            lemma_name = f"loop_inv_{func_name}_{cid}"
+            return [WhileInv(
+                lemma_name=lemma_name,
+                cell_name=cell_name,
+                bound_expr=bound_expr,
+                cond_coq=cond_coq,
+                body_coq=body_coq,
+                invariants=e.invariants,
+            )] + k()
 
         def flat(nodes: list[StageNode], what: str) -> list[str]:
             out = []
@@ -283,7 +343,8 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                         f"while {what} contains a case split; loops with "
                         f"internal branching need the invariant path "
                         f"(later phase)")
-                out.append(n.tactic)
+                if isinstance(n, Stage):
+                    out.append(n.tactic)
             return out
 
         def has_heap(nodes):
@@ -359,18 +420,18 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                       else e.else_branch)
             return ([Stage("pure_step", "pure_step",
                            comment="literal conditional")] +
-                    _gen(chosen, table, overrides, k))
+                    _gen(chosen, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter))
 
         def after_cond():
             then_arm = ([Stage("pure_step", "pure_step",
                                comment="select then-branch")] +
-                        _gen(e.then_branch, table, overrides, k))
+                        _gen(e.then_branch, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter))
             else_arm = ([Stage("pure_step", "pure_step",
                                comment="select else-branch")] +
-                        _gen(e.else_branch, table, overrides, k))
+                        _gen(e.else_branch, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter))
             return [Stage("case_bool", "case_bool", comment="path fork"),
                     Branch([then_arm, else_arm])]
-        return _gen(e.cond, table, overrides, after_cond)
+        return _gen(e.cond, table, overrides, after_cond, func_name=func_name, _inv_counter=_inv_counter)
 
     raise IrisGenError(
         f"unsupported node for staged generation: {type(e).__name__} "
@@ -386,7 +447,7 @@ def _emit_stage_lines(nodes: list[StageNode], depth: int,
             if n.comment:
                 text += f"  (* {n.comment} *)"
             lines.append(text)
-        else:
+        elif isinstance(n, Branch):
             if depth >= len(_BULLETS):
                 raise IrisGenError("case split nesting exceeds bullet depth")
             bullet = _BULLETS[depth]
@@ -395,10 +456,37 @@ def _emit_stage_lines(nodes: list[StageNode], depth: int,
                 first = arm_lines[0].lstrip()
                 lines.append(f"{indent}{bullet} {first}")
                 lines.extend(arm_lines[1:])
+        elif isinstance(n, WhileInv):
+            lines.extend(_emit_while_inv_stage(n, indent))
     return lines
 
 
 # -- Top-level ------------------------------------------------------------
+
+def _emit_while_inv_stage(wi: WhileInv, indent: str) -> list[str]:
+    """Emit the stage that focuses the While via [focus_while] and then
+    calls the per-loop lemma with [iPoseProof + iApply]."""
+    bound = wi.bound_expr
+    if not bound.startswith("LitInt "):
+        bound = f"LitInt ({bound})"
+    bound_val = bound.removeprefix("LitInt ")
+    return [f"{indent}focus_while.",
+            f"{indent}iPoseProof ({wi.lemma_name} s E l ({bound_val}) 0%Z",
+            f"{indent}  (λ v, WP (Val v ;; Load (Val (LitLoc l))) @ s; E",
+            f"{indent}    {{{{ v', {LCEIL}(v' = LitInt ({bound_val}))%Z{RCEIL} }}}})%I)",
+            f"{indent}  as \"Hlemma\".",
+            f"{indent}iApply (\"Hlemma\" with \"Hc\" [] []).",
+            f"{indent}{{ iPureIntro; lia. }}",
+            f"{indent}{{ iIntros \"Hc_n\".",
+            f"{indent}  snakelet_pure_step; iNext; snakelet_simpl.",
+            f"{indent}  iApply (wp_load s E l ({bound})",
+            f"{indent}    (λ v', {LCEIL}(v' = LitInt ({bound_val}))%Z{RCEIL} )%I",
+            f"{indent}    with \"Hc_n\").",
+            f"{indent}  {{ iIntros \"_\". iPureIntro; reflexivity. }} }}"]
+
+
+
+
 
 _HEADER = (
     "(* Generated by iris_proof_gen -- staged Iris proof. *)\n"
@@ -421,6 +509,7 @@ class IrisProof:
     axioms: list[str]
     table_coq: str
     stages: list[StageNode]
+    aux_lemmas: list[str] = field(default_factory=list)
 
     def stage_list(self) -> list[Stage]:
         """Flattened stages (for trace/cache consumers)."""
@@ -430,9 +519,10 @@ class IrisProof:
             for n in nodes:
                 if isinstance(n, Stage):
                     out.append(n)
-                else:
+                elif isinstance(n, Branch):
                     for arm in n.arms:
                         walk(arm)
+                # WhileInv carries auxiliary-lemma info, not a stage.
         walk(self.stages)
         return out
 
@@ -445,14 +535,15 @@ class IrisProof:
         parts.append(self.table_coq)
         parts.append("")
         parts.append("Section generated_proofs.")
-        parts.append("  Context `{!snakelet_heapGS_gen hlc Sg}.")
+        parts.append("  Context `{!snakelet_heapGS_gen hlc Σ}.")
         parts.append("")
+        for lemma_text in self.aux_lemmas:
+            parts.append(lemma_text)
+            parts.append("")
         binders = "".join(f" ({p} : Z)" for p in self.params)
         parts.append(f"  Lemma {self.name}_correct s E{binders} :")
         if self.pre:
             parts.append(f"    ({self.pre}) ->")
-        # %Z: inside the WP pure bracket, +/* would otherwise resolve in
-        # type_scope (sum/prod) rather than Z_scope.
         parts.append(f"    {TSTILE} WP {self.body_coq} @ s; E "
                      f"{{{{ v, {LCEIL}({self.post})%Z{RCEIL} }}}}.")
         parts.append("  Proof.")
@@ -463,6 +554,99 @@ class IrisProof:
         parts.append("  Qed.")
         parts.append("End generated_proofs.")
         return "\n".join(parts) + "\n"
+
+def _emit_while_inv_lemma(wi: WhileInv) -> str:
+    """Generate a per-loop Coq lemma following the proven loop_inv_lemma pattern.
+
+    Lemma <lemma_name> s E l bound (z : Z) (Φ : sn_val → iProp Σ) :
+      ⊢ pointsto l (DfracOwn 1) (LitInt z) -∗ ⌜P_inv(z)⌝ -∗
+         (pointsto l (DfracOwn 1) (LitInt bound) -∗ Φ LitUnit) -∗
+         WP (While cond body) @ s; E {{ Φ }}.
+    """
+    import re
+    # Post-process invariants: replace cell-value references with z.
+    # The ContractLinter may produce either plain Var references like "c"
+    # or string-encoded references like 'asZ (s "c" % string)'.
+    cell_pat = re.escape(wi.cell_name)
+    # Also replace the bound parameter reference (e.g. "n") with "bound".
+    bound_pat = wi.bound_expr
+    bound_name = None
+    if bound_pat.startswith("LitInt "):
+        # Extract the inner name: LitInt n -> n
+        bound_name = bound_pat.removeprefix("LitInt ").strip()
+    elif bound_pat.startswith("LitLoc "):
+        pass  # location literal, no substitution needed
+    else:
+        bound_name = bound_pat  # bare variable
+    invs = []
+    for inv in wi.invariants:
+        # Replace asZ (s "c" % string) -> z
+        inv_subst = re.sub(
+            r'asZ\s*\(\s*s\s+"' + cell_pat + r'"\s*%\s*string\s*\)',
+            'z', inv)
+        # Replace plain variable references to the cell name -> z
+        inv_subst = re.sub(
+            r'\b' + cell_pat + r'\b',
+            'z', inv_subst)
+        # Replace bound parameter references (e.g., "n") -> bound
+        if bound_name:
+            inv_subst = re.sub(
+                r'\b' + re.escape(bound_name) + r'\b',
+                'bound', inv_subst)
+        invs.append(inv_subst)
+    inv_parts = " /\\ ".join(invs) if invs else "True"
+    inv_prop = f"{LCEIL}{inv_parts}{RCEIL}"
+    # Replace cell variable references with the location l in cond/body,
+    # and replace bound variable references with the lemma parameter "bound".
+    cond_coq = re.sub(rf'\(Var "{re.escape(wi.cell_name)}"\)',
+                      '(Val (LitLoc l))', wi.cond_coq)
+    body_coq = re.sub(rf'\(Var "{re.escape(wi.cell_name)}"\)',
+                      '(Val (LitLoc l))', wi.body_coq)
+    if bound_name:
+        cond_coq = cond_coq.replace(f'(LitInt {bound_name})',
+                                    '(LitInt bound)')
+        body_coq = body_coq.replace(f'(LitInt {bound_name})',
+                                    '(LitInt bound)')
+    return f"""  Lemma {wi.lemma_name} s E l (bound : Z) (z : Z)
+      (Φ : sn_val → iProp Σ) :
+    {TSTILE} pointsto l (DfracOwn 1) (LitInt z) -∗
+       {inv_prop} -∗
+       (pointsto l (DfracOwn 1) (LitInt bound) -∗ Φ LitUnit) -∗
+       WP (While ({cond_coq}) ({body_coq})) @ s; E {{{{ Φ }}}}.
+  Proof.
+    iLöb as "IH" forall (z Φ).
+    iIntros "Hc %Hz Hwand".
+    loop_unfold.
+    heap_load. pure_step.
+    case_bool.
+    - apply bool_decide_eq_true_1 in Hcond.
+      pure_step.
+      heap_load. pure_step. pure_step. cbn. pure_step. heap_store. pure_step.
+      iApply ("IH" $! (z + 1)%Z Φ with "Hc [] Hwand").
+      {{ iPureIntro. lia. }}
+    - apply bool_decide_eq_false_1 in Hcond.
+      assert (z = bound) by lia.
+      subst z.
+      iApply wp_if_false.
+      iNext. iApply wp_value'.
+      iApply "Hwand".
+      iExact "Hc".
+  Qed."""
+
+
+def _collect_while_invs(stages: list[StageNode]) -> list[WhileInv]:
+    """Walk the stage tree and collect all WhileInv nodes."""
+    out: list[WhileInv] = []
+
+    def walk(nodes: list[StageNode]) -> None:
+        for n in nodes:
+            if isinstance(n, WhileInv):
+                out.append(n)
+            elif isinstance(n, Branch):
+                for arm in n.arms:
+                    walk(arm)
+    walk(stages)
+    return out
 
 
 def generate(name: str,
@@ -487,9 +671,13 @@ def generate(name: str,
                    the axioms (the SMT escalation slot).
     """
     overrides = pre_overrides or {}
+    inv_counter = [0]
     stages = _gen(body, table, overrides,
                   lambda: [Stage("finish_pure", "finish_pure",
-                                 comment="postcondition")])
+                                 comment="postcondition")],
+                  func_name=name, _inv_counter=inv_counter)
+    aux_lemmas = [_emit_while_inv_lemma(wi)
+                  for wi in _collect_while_invs(stages)]
     return IrisProof(
         name=name,
         body_coq=body.to_coq(),
@@ -499,4 +687,5 @@ def generate(name: str,
         axioms=axioms or [],
         table_coq=_emit_table_section(table),
         stages=stages,
+        aux_lemmas=aux_lemmas,
     )

@@ -161,7 +161,7 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
     s, rest = stmts[0], stmts[1:]
 
     if isinstance(s, PyAssert):
-        return _fold(rest, lw)
+        return _fold(rest, lw, invs_iter=invs_iter)
 
     if isinstance(s, PyAssign):
         rhs = lw.lower_expr(s.value)
@@ -170,7 +170,7 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
                 f"cannot lower assignment to '{s.target}'")
         if not rest:
             return SLet(var=s.target, value=rhs, body=SVar(name=s.target))
-        return SLet(var=s.target, value=rhs, body=_fold(rest, lw))
+        return SLet(var=s.target, value=rhs, body=_fold(rest, lw, invs_iter=invs_iter))
 
     if isinstance(s, PyAugAssign):
         if s.op not in _AUG_OPS:
@@ -181,7 +181,7 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
                 f"cannot lower augmented assignment to '{s.target}'")
         binop = SBinOp(op=_AUG_OPS[s.op], left=SVar(name=s.target),
                        right=rhs)
-        body = _fold(rest, lw) if rest else SVar(name=s.target)
+        body = _fold(rest, lw, invs_iter=invs_iter) if rest else SVar(name=s.target)
         return SLet(var=s.target, value=binop, body=body)
 
     if isinstance(s, PyReturn):
@@ -196,8 +196,8 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
         cond = lw.lower_expr(s.test)
         if cond is None:
             raise IrisGenError("cannot lower if-condition")
-        then_b = _fold(list(s.body) + rest, lw)
-        else_b = _fold(list(s.orelse) + rest, lw)
+        then_b = _fold(list(s.body) + rest, lw, invs_iter=invs_iter)
+        else_b = _fold(list(s.orelse) + rest, lw, invs_iter=invs_iter)
         return SIf(cond=cond, then_branch=then_b, else_branch=else_b)
 
     if isinstance(s, PyWhile):
@@ -205,8 +205,8 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
         if cond is None:
             raise IrisGenError("cannot lower while-condition")
         invs = next_invs()
-        body = _fold(list(s.body), lw)
-        rest_e = _fold(rest, lw)
+        body = _fold(list(s.body), lw, invs_iter=invs_iter)
+        rest_e = _fold(rest, lw, invs_iter=invs_iter)
         return SLet(var="_", value=SWhile(cond=cond, body=body,
                                           invariants=invs),
                     body=rest_e)
@@ -217,30 +217,30 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
             raise IrisGenError("cannot lower expression statement")
         if not rest:
             return val
-        return SLet(var="_", value=val, body=_fold(rest, lw))
+        return SLet(var="_", value=val, body=_fold(rest, lw, invs_iter=invs_iter))
 
     if isinstance(s, PyRaise):
         exc_val = SLit(lit_type="string", value=s.exc_type)
         if not rest:
             return SReturn(value=exc_val)
         return SLet(var="_", value=SReturn(value=exc_val),
-                    body=_fold(rest, lw))
+                    body=_fold(rest, lw, invs_iter=invs_iter))
 
     if isinstance(s, PyTry):
-        body_e = _fold(list(s.body), lw)
+        body_e = _fold(list(s.body), lw, invs_iter=invs_iter)
         if s.handlers:
             h = s.handlers[0]
             exc_name = h.exc_var or "_ex"
-            handler_e = _fold(list(h.body), lw)
+            handler_e = _fold(list(h.body), lw, invs_iter=invs_iter)
             if not rest:
                 return STry(body=body_e, exc_var=exc_name,
                             handler=handler_e)
             return SLet(var="_", value=STry(body=body_e, exc_var=exc_name,
                                             handler=handler_e),
-                        body=_fold(rest, lw))
+                        body=_fold(rest, lw, invs_iter=invs_iter))
         if not rest:
             return body_e
-        return SLet(var="_", value=body_e, body=_fold(rest, lw))
+        return SLet(var="_", value=body_e, body=_fold(rest, lw, invs_iter=invs_iter))
 
     if isinstance(s, PyFor):
         # Desugar: for x in range(lo, hi): body
@@ -266,11 +266,11 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
                       *(list(s.body)),
                       PyAugAssign(target=ivar, op="+",
                                   value=PyConstant(value=1, py_type="int"))]
-        body_e = _fold(body_stmts, lw)
+        body_e = _fold(body_stmts, lw, invs_iter=invs_iter)
         while_e = SWhile(cond=SBinOp(op="lt", left=SVar(name=ivar),
                                      right=hi_val),
                          body=body_e)
-        rest_e = _fold(rest, lw)
+        rest_e = _fold(rest, lw, invs_iter=invs_iter)
         # Chain: let ivar = lo in (while ivar < hi: ...); rest
         return SLet(var=ivar, value=lo_val,
                     body=SLet(var="_", value=while_e, body=rest_e))
@@ -306,7 +306,8 @@ def _subst_params(e: SExpr, params: set[str], bound: set[str]) -> SExpr:
                    else_branch=_subst_params(e.else_branch, params, bound))
     if isinstance(e, SWhile):
         return SWhile(cond=_subst_params(e.cond, params, bound),
-                      body=_subst_params(e.body, params, bound))
+                      body=_subst_params(e.body, params, bound),
+                      invariants=e.invariants)
     if isinstance(e, SApp):
         return SApp(func=e.func,
                     args=[_subst_params(a, params, bound) for a in e.args])
@@ -406,7 +407,8 @@ def _anf(e: SExpr, ctr: list[int]) -> SExpr:
         elif not _is_atom(cond):
             raise IrisGenError(
                 "while condition must be an atom or a simple binop")
-        return SWhile(cond=cond, body=_anf(e.body, ctr))
+        return SWhile(cond=cond, body=_anf(e.body, ctr),
+                      invariants=e.invariants)
     raise IrisGenError(f"unsupported node in ANF: {type(e).__name__}")
 
 

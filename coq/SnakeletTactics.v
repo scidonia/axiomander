@@ -441,6 +441,26 @@ Ltac loop_unfold :=
   | _ => fail "loop_unfold: goal is not a WP"
   end.
 
+(** Focus a symbolic while loop and apply its per-loop lemma.
+    Called by the generator as: [loop_inv_call lemma_name l bound exit_cont]. *)
+(** [focus_while] focuses onto a While sub-expression inside an
+    evaluation context (e.g. [;; Load c]), so that the next stage
+    can call a per-loop lemma on the bare [WP While ...]. *)
+Ltac focus_while :=
+  snakelet_popvals;
+  lazymatch goal with
+  | |- envs_entails _ (wp _ _ (While _ _) _) => idtac
+  | |- envs_entails _ (wp _ _ ?e _) =>
+    reshape_expr e ltac:(fun K e' =>
+      lazymatch e' with
+      | While _ _ =>
+        let revK := rev_ectx K (@nil sn_ectx_item) in
+        iApply (wp_bind (fill_K revK))
+      | _ => fail "focus_while: redex is not a While"
+      end)
+  | _ => fail "focus_while: goal is not a WP"
+  end.
+
 (** * Exception handling
 
     [raise_val] reduces [Raise (Val v)] to [Val v] (under current

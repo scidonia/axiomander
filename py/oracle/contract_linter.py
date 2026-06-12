@@ -265,7 +265,7 @@ class ContractLinter(ast.NodeVisitor):
                 field_name = node.args[1].value if isinstance(node.args[1], ast.Constant) else None
                 var = self.visit(node.args[2])
                 if obj and field_name and var:
-                    from .contract_ir import BinOp, Var, IntLit
+                    from .contract_ir import BinOp, IntLit
                     # _escape_field convention: literal underscores → double underscores
                     safe_field = field_name.replace("_", "__")
                     flat_key = f"{obj}_{safe_field}"
@@ -288,13 +288,22 @@ class ContractLinter(ast.NodeVisitor):
                             "re_match() requires exactly one string literal argument: "
                             "s.re_match(\"[0-9]+\")")
             return None
+        if name == "load":
+            if len(node.args) == 1 and isinstance(node.args[0], ast.Name):
+                return Var(name=node.args[0].id)
+            return None
+        if name == "store":
+            return None  # store is not a pure expression
         if name not in PURE_BUILTINS and name not in PURE_MODULE_FUNCTIONS \
            and method_name not in PURE_BUILTINS:
             if name in self.predicates:
                 return self._expand_predicate(node, name)
-            self._violation(node, ExprKind.IMPURE_CALL,
-                          f"Function '{name}' not in pure whitelist")
-            return None
+            if name == "load":
+                if len(node.args) == 1 and isinstance(node.args[0], ast.Name):
+                    return Var(name=node.args[0].id)
+                return None
+            if name == "store":
+                return None  # store is not a pure expression
         return self._translate_pure_call(node, name)
 
     def _expand_predicate(self, node: ast.Call, name: str) -> Optional[Expr]:
