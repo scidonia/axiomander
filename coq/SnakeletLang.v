@@ -401,18 +401,12 @@ Proof. discriminate. Qed.
 #[export] Instance default_fun_ctx : FunCtx | 100 :=
   {| fun_entries := λ _, None; fun_specs_total := empty_table_total |}.
 
-(** Ghost-state call table via [exclR] (per-function exclusive ownership).
-    The caller holds [own γ (Excl (FunSpec pre post))] — an exclusive resource
-    proving [f] maps to [FunSpec pre post].  The authority uses [authR] over
-    [gmapUR string (exclR ...)] for a unique table.  Simpler than [agreeR]:
-    [exclR] does not need the unresolved implicits in Rocq 9.1. *)
-From iris.algebra Require Import excl auth gmap.
-From iris.base_logic.lib Require Import own.
-Definition call_tableRA : cmra :=
-  authR (gmapUR string (exclR (leibnizO fun_entry))).
-Class call_tableG Σ := CallTableG {
-  call_table_inG :> inG Σ call_tableRA;
-}.
+(** Ghost-state call table via [ghost_map] (standard Iris library).
+    The caller holds [ghost_map_elem γ f (DfracOwn 1) (FunSpec pre post)]
+    — a persistent fragment witnessing the spec in the ghost table.
+    The authoritative [ghost_map_auth γ m] lives in an invariant. *)
+From iris.base_logic.lib Require Import ghost_map.
+Notation call_tableG Σ := (ghost_mapG Σ string fun_entry) (only parsing).
 
 (** Substitute value arguments for parameters, left to right.  Arguments
     are values (closed), so sequential substitution is capture-free. *)
