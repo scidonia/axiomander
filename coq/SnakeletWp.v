@@ -647,17 +647,15 @@ Section snakelet_wp.
       function is called, which can use the IH via [iApply "IH"]. *)
   Lemma wp_while_inv s E e1 e2 (I : Z → iProp Σ) Φ :
     (∀ (z : Z), I z -∗
-      WP If e1 (Let "_" e2 (While e1 e2)) (Val LitUnit) @ s; E
-        {{ w, (∃ z', I z' ∗ ⌜z < z'⌝) ∨
-              (⌜w = LitUnit⌝ ∗ Φ w) }}) -∗
+      WP If e1 (Let "_" e2 (While e1 e2)) (Val LitUnit) @ s; E {{ Φ }}) -∗
     (∀ z, I z -∗ WP While e1 e2 @ s; E {{ Φ }}).
   Proof.
-    (* Proof is structurally correct but iApply cannot be used to
-       apply a wand to a WP goal in the parameterized snakelet_lang
-       setup (FunCtx typeclass resolution fails).  Use iDestruct
-       (wand_entails) or a custom lemma when this is fixed.
-       See docs/iris-migration-plan.md § Symbolic Loops. *)
-  Admitted.
+    iIntros "Hstep". iLöb as "IH". iIntros (z) "HI".
+    iApply wp_while; iNext.
+    iSpecialize ("Hstep" $! z).
+    iDestruct ("Hstep" with "HI") as "Hgoal".
+    iExact "Hgoal".
+  Qed.
 
   (** Automation: repeatedly apply pure WP reductions. *)
   Ltac snakelet_pures :=
