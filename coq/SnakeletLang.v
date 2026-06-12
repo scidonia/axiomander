@@ -401,20 +401,18 @@ Proof. discriminate. Qed.
 #[export] Instance default_fun_ctx : FunCtx | 100 :=
   {| fun_entries := λ _, None; fun_specs_total := empty_table_total |}.
 
-(** * Ghost-state call table
-
-    Opaque calls are verified against an authoritative table stored in
-    Iris ghost state.  [call_tableRA] is the RA; [call_tableG Σ] says
-    Σ contains it.  Each entry is an [agreeR] so the table is
-    functional — at most one body/spec per function name. *)
-
-(** Ghost-state call table (Phase 5 infrastructure — pending agreeR
-    typeclass resolution in Rocq 9.1).
-
-    The caller holds [own γ (◯ {[f := to_agree spec]})] — a persistent
-    fragment asserting the ghost table maps [f] to [spec].  The
-    authoritative part lives in an invariant.  When agreeR compiles:
-    [wp_call_ghost] replaces [wp_call] for opaque verification. *)
+(** Ghost-state call table via [exclR] (per-function exclusive ownership).
+    The caller holds [own γ (Excl (FunSpec pre post))] — an exclusive resource
+    proving [f] maps to [FunSpec pre post].  The authority uses [authR] over
+    [gmapUR string (exclR ...)] for a unique table.  Simpler than [agreeR]:
+    [exclR] does not need the unresolved implicits in Rocq 9.1. *)
+From iris.algebra Require Import excl auth gmap.
+From iris.base_logic.lib Require Import own.
+Definition call_tableRA : cmra :=
+  authR (gmapUR string (exclR (leibnizO fun_entry))).
+Class call_tableG Σ := CallTableG {
+  call_table_inG :> inG Σ call_tableRA;
+}.
 
 (** Substitute value arguments for parameters, left to right.  Arguments
     are values (closed), so sequential substitution is capture-free. *)
