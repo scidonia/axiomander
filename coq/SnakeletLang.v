@@ -418,14 +418,6 @@ Proof.
   - injection H as Hv Hvs. f_equal; [exact Hv | apply IH, Hvs].
 Qed.
 
-(** Everything from [head_step] to the language instance is parameterized
-    by the ambient [FunCtx] instance.  The parameter is typeclass-implicit,
-    so [snakelet_lang] applied notations stay clean: the instance is resolved
-    by typeclass search at each use site instead of being baked in at
-    definition time. *)
-Section with_fun_ctx.
-Context `{FC : FunCtx}.
-
 (** * Head steps *)
 Inductive head_step : sn_expr → sn_state → sn_expr → sn_state → list sn_expr → Prop :=
   | HeadLoad l v σ :
@@ -450,12 +442,14 @@ Inductive head_step : sn_expr → sn_state → sn_expr → sn_state → list sn_
   | HeadTryBody body handler σ body' σ' efs :
       head_step body σ body' σ' efs →
       head_step (Try body handler) σ body' σ' efs
-  | HeadCallSpec f vs σ pre post v :
+  | HeadCallSpec : ∀ {FC : FunCtx} (f : string) (vs : list sn_val) (σ : sn_state)
+      (pre : list sn_val → Prop) (post : list sn_val → sn_val → Prop) (v : sn_val),
       fun_entries f = Some (FunSpec pre post) →
       pre vs →
       post vs v →
       head_step (Call f (map Val vs)) σ (Val v) σ []
-  | HeadCallUnfold f vs σ params body :
+  | HeadCallUnfold : ∀ {FC : FunCtx} (f : string) (vs : list sn_val) (σ : sn_state)
+      (params : list string) (body : sn_expr),
       fun_entries f = Some (FunDef params body) →
       length vs = length params →
       head_step (Call f (map Val vs)) σ (subst_list params vs body) σ [].
@@ -596,11 +590,11 @@ Proof.
   - apply fill_step_inv_list.
 Defined.
 
-End with_fun_ctx.
-
-(** After section discharge, [snakelet_lang : ∀ {FC : FunCtx}, language]
-    remains canonical.  During canonical structure resolution the [FC]
-    parameter is left as an evar and solved by typeclass search. *)
+(** [snakelet_lang] is a plain canonical structure — no implicit
+    typeclass parameters.  Call rules ([HeadCallSpec], [HeadCallUnfold])
+    carry their own [FunCtx] argument, so the language works uniformly
+    across all proof contexts and [iApply]/[iLöb] composition resolves
+    correctly. *)
 
 (** Notations for writing SnakeletLang programs tersely.
 
