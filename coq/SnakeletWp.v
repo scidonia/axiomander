@@ -21,6 +21,7 @@ Notation snakelet_heapGS := (snakelet_heapGS_gen HasLc).
 
 Section snakelet_wp.
   Context `{!snakelet_heapGS_gen hlc Σ}.
+  Context `{FC : FunCtx}.
 
   Definition snakelet_state_interp (σ : sn_state) (ns : nat) (κs : list observation) (nt : nat) : iProp Σ :=
     gen_heap_interp σ.
@@ -543,11 +544,9 @@ Section snakelet_wp.
   Lemma prim_call_inv f vs σ κ e2 σ2 efs :
     prim_step (Call f (map Val vs)) σ κ e2 σ2 efs →
     κ = [] ∧ σ2 = σ ∧ efs = [] ∧
-    ((∃ (FC : FunCtx) pre post w,
-        fun_entries (FunCtx := FC) f = Some (FunSpec pre post) ∧
+    ((∃ pre post w, fun_entries f = Some (FunSpec pre post) ∧
         pre vs ∧ post vs w ∧ e2 = Val w) ∨
-     (∃ (FC : FunCtx) params body,
-        fun_entries (FunCtx := FC) f = Some (FunDef params body) ∧
+     (∃ params body, fun_entries f = Some (FunDef params body) ∧
         length vs = length params ∧ e2 = subst_list params vs body)).
   Proof.
     intros Hprim. inversion Hprim; subst.
@@ -557,10 +556,12 @@ Section snakelet_wp.
       ].
     - destruct K as [|Ki K']; simpl in H; [
         subst x; inversion H0; subst; simpl;
-        [ match goal with Hm : map Val _ = map Val _ |- _ => apply map_Val_inj in Hm as -> end;
-          do 3 (split; [done|]); left; eexists _, _, _, _; eauto
-        | match goal with Hm : map Val _ = map Val _ |- _ => apply map_Val_inj in Hm as -> end;
-          do 3 (split; [done|]); right; eexists _, _, _; eauto ]
+        [ do 3 (split; [done|]); left; eexists _, _, _;
+          match goal with Hm : map Val _ = map Val _ |- _ => apply map_Val_inj in Hm as -> end;
+          eauto 10
+        | do 3 (split; [done|]); right; eexists _, _;
+          match goal with Hm : map Val _ = map Val _ |- _ => apply map_Val_inj in Hm as -> end;
+          eauto 10 ]
       | destruct Ki; simpl in H; discriminate H
       ].
   Qed.
@@ -589,8 +590,8 @@ Section snakelet_wp.
     iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
     pose proof (prim_call_inv f vs σ1 κ e2 σ2 efs Hprim)
       as (Hκ & Hσ2 & Hefs &
-          [(FC0 & pre' & post' & w & Hentry' & Hpre' & Hpost' & He2)
-          | (FC1 & params & body & Hentry' & _ & _)]);
+          [(pre' & post' & w & Hentry' & Hpre' & Hpost' & He2)
+          | (params & body & Hentry' & _ & _)]);
       last congruence.
     assert (post' = post) as -> by congruence.
     rewrite He2 Hκ Hσ2 Hefs.
@@ -621,8 +622,8 @@ Section snakelet_wp.
     iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
     pose proof (prim_call_inv f vs σ1 κ e2 σ2 efs Hprim)
       as (Hκ & Hσ2 & Hefs &
-          [(FC0 & pre & post & w & Hentry' & _ & _)
-          | (FC1 & params' & body' & Hentry' & _ & He2)]);
+          [(pre & post & w & Hentry' & _ & _)
+          | (params' & body' & Hentry' & _ & He2)]);
       first congruence.
     assert (params' = params) as -> by congruence.
     assert (body' = body) as -> by congruence.
