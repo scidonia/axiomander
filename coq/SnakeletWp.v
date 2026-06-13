@@ -61,17 +61,17 @@ Section snakelet_wp.
     - destruct K as [|Ki K']; simpl in H.
       + subst x. inversion H0; subst; repeat split; reflexivity.
       + destruct Ki; simpl in H;
-          [discriminate H
-          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end;
+           inversion H0; subst; repeat split; reflexivity).
     - destruct K as [|Ki K']; simpl in H.
       + subst x. inversion H0.
       + destruct Ki; simpl in H;
-          [discriminate H
-          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end;
+           inversion H0; subst; repeat split; reflexivity).
   Qed.
 
   Lemma prim_let_det x v e σ κ e2 σ2 efs :
@@ -82,13 +82,17 @@ Section snakelet_wp.
     - destruct K as [|Ki K']; simpl in H.
       + subst x0. inversion H0; subst; repeat split; reflexivity.
       + destruct Ki; simpl in H;
-          [inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end;
+           inversion H0; subst; repeat split; reflexivity).
     - destruct K as [|Ki K']; simpl in H.
       + subst x0. inversion H0.
       + destruct Ki; simpl in H;
-          [inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end;
+           inversion H0; subst; repeat split; reflexivity).
   Qed.
 
   Lemma prim_if_true_det e1 e2 σ κ e2' σ2 efs :
@@ -99,15 +103,17 @@ Section snakelet_wp.
     - destruct K as [|Ki K']; simpl in H.
       + subst x. inversion H0; subst; repeat split; reflexivity.
       + destruct Ki; simpl in H;
-          [discriminate H |discriminate H |discriminate H
-          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end;
+           inversion H0; subst; repeat split; reflexivity).
     - destruct K as [|Ki K']; simpl in H.
       + subst x. inversion H0.
       + destruct Ki; simpl in H;
-          [discriminate H |discriminate H |discriminate H
-          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end;
+           inversion H0; subst; repeat split; reflexivity).
   Qed.
 
   Lemma prim_if_false_det e1 e2 σ κ e2' σ2 efs :
@@ -118,15 +124,17 @@ Section snakelet_wp.
     - destruct K as [|Ki K']; simpl in H.
       + subst x. inversion H0; subst; repeat split; reflexivity.
       + destruct Ki; simpl in H;
-          [discriminate H |discriminate H |discriminate H
-          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end;
+           inversion H0; subst; repeat split; reflexivity).
     - destruct K as [|Ki K']; simpl in H.
       + subst x. inversion H0.
       + destruct Ki; simpl in H;
-          [discriminate H |discriminate H |discriminate H
-          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end;
+           inversion H0; subst; repeat split; reflexivity).
   Qed.
 
   Lemma prim_while_det e1 e2 σ κ e2' σ2 efs :
@@ -141,6 +149,52 @@ Section snakelet_wp.
     - destruct K as [|Ki K']; simpl in H.
       + subst x. inversion H0.
       + destruct Ki; simpl in H; discriminate H.
+  Qed.
+
+  (* For-loop reductions: the list operand is already a value, so the only
+     step is the pure peel at K = []. A ForCtx around a value list is
+     impossible (fill_K_val rules it out). *)
+  Lemma prim_for_nil_det x body σ κ e2' σ2 efs :
+    prim_step (For x (Val (LitList [])) body) σ κ e2' σ2 efs →
+    κ = [] ∧ σ2 = σ ∧ efs = [] ∧ e2' = Val LitUnit.
+  Proof.
+    intros Hprim. inversion Hprim; subst.
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x0. inversion H0; subst; repeat split; reflexivity.
+      + destruct Ki; simpl in H;
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ =>
+             apply fill_K_val in H as [-> ->] end; inversion H0).
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x0. inversion H0.
+      + destruct Ki; simpl in H;
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ =>
+             apply fill_K_val in H as [-> ->] end; inversion H0).
+  Qed.
+
+  Lemma prim_for_cons_det x v vs body σ κ e2' σ2 efs :
+    prim_step (For x (Val (LitList (v :: vs))) body) σ κ e2' σ2 efs →
+    κ = [] ∧ σ2 = σ ∧ efs = [] ∧
+    e2' = Let "_" (subst x v body) (For x (Val (LitList vs)) body).
+  Proof.
+    intros Hprim. inversion Hprim; subst.
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x0. inversion H0; subst; repeat split; reflexivity.
+      + destruct Ki; simpl in H;
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ =>
+             apply fill_K_val in H as [-> ->] end; inversion H0).
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x0. inversion H0.
+      + destruct Ki; simpl in H;
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ =>
+             apply fill_K_val in H as [-> ->] end; inversion H0).
   Qed.
 
   (** Head-step determinant lemmas *)
@@ -210,16 +264,18 @@ Section snakelet_wp.
     - destruct K as [|Ki K']; simpl in H.
       + subst x. exfalso; inversion H0.
       + destruct Ki; simpl in H;
-          [discriminate H |discriminate H |discriminate H |discriminate H
-          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end;
+           inversion H0; subst; repeat split; reflexivity).
     - destruct K as [|Ki K']; simpl in H.
       + subst x. edestruct head_load_det as (v'&Hlook'&->&->&->); eauto.
         assert (v = v') by congruence; subst v'. auto.
       + destruct Ki; simpl in H;
-          [discriminate H |discriminate H |discriminate H |discriminate H
-          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H].
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end;
+           inversion H0; subst; repeat split; reflexivity).
   Qed.
 
   Lemma prim_store_det l v σ κ e2 σ2 efs :
@@ -231,17 +287,17 @@ Section snakelet_wp.
     - destruct K as [|Ki K']; simpl in H.
       + subst x. exfalso; inversion H0.
       + destruct Ki; simpl in H;
-          [discriminate H |discriminate H |discriminate H |discriminate H |discriminate H
-          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |discriminate H |discriminate H |discriminate H].
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end;
+           inversion H0; subst; repeat split; reflexivity).
     - destruct K as [|Ki K']; simpl in H.
       + subst x. eapply head_store_det in H0 as (?&->&->&->). auto.
       + destruct Ki; simpl in H;
-          [discriminate H |discriminate H |discriminate H |discriminate H |discriminate H
-          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |discriminate H |discriminate H |discriminate H].
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end;
+           inversion H0; subst; repeat split; reflexivity).
   Qed.
 
   Lemma prim_alloc_det v σ κ e2 σ2 efs :
@@ -252,15 +308,17 @@ Section snakelet_wp.
     - destruct K as [|Ki K']; simpl in H.
       + subst x. exfalso; inversion H0.
       + destruct Ki; simpl in H;
-          [discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H
-          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |discriminate H |discriminate H].
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end;
+           inversion H0; subst; repeat split; reflexivity).
     - destruct K as [|Ki K']; simpl in H.
       + subst x. eapply head_alloc_det in H0 as (l&?&->&->&->). exists l; split; [done|]. auto.
       + destruct Ki; simpl in H;
-          [discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H |discriminate H
-          |inversion H; clear H; match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end; inversion H0
-          |discriminate H |discriminate H].
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ => apply fill_K_val in H as [-> ->] end;
+           inversion H0; subst; repeat split; reflexivity).
   Qed.
 
   (** Pure WP lemmas *)
@@ -367,6 +425,74 @@ Section snakelet_wp.
       rewrite He2.
       iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
       iFrame "HΦ".
+  Qed.
+
+  (** For-loop WP rules.  The list operand is a value; one pure step peels
+      the head (or terminates on []).  [wp_for_list] does the induction. *)
+
+  Lemma wp_for_nil s E x body Φ :
+    ▷ Φ LitUnit -∗
+    WP For x (Val (LitList [])) body @ s; E {{ Φ }}.
+  Proof.
+    iIntros "HΦ".
+    iApply wp_lift_pure_step_no_fork; [ | | ].
+    - intros σ. destruct s.
+      + apply reducible_no_obs_reducible,
+          (reducible_no_obs_pure_step _ _ σ (PureForNil x body)).
+      + simpl. reflexivity.
+    - intros κ σ1 e2' σ2 efs Hprim.
+      pose proof (prim_for_nil_det _ _ _ _ _ _ _ Hprim) as (->&->&->&_); done.
+    - iModIntro. iNext. iModIntro. iIntros (κ e2' efs σ Hprim) "Hcred".
+      pose proof (prim_for_nil_det _ _ _ _ _ _ _ Hprim) as [_ [_ [_ He2]]].
+      rewrite He2. iApply wp_value'. by iFrame.
+  Qed.
+
+  Lemma wp_for_cons s E x v vs body Φ :
+    ▷ WP Let "_" (subst x v body) (For x (Val (LitList vs)) body) @ s; E {{ Φ }} -∗
+    WP For x (Val (LitList (v :: vs))) body @ s; E {{ Φ }}.
+  Proof.
+    iIntros "HΦ".
+    iApply wp_lift_pure_step_no_fork; [ | | ].
+    - intros σ. destruct s.
+      + apply reducible_no_obs_reducible,
+          (reducible_no_obs_pure_step _ _ σ (PureForCons x v vs body)).
+      + simpl. reflexivity.
+    - intros κ σ1 e2' σ2 efs Hprim.
+      pose proof (prim_for_cons_det _ _ _ _ _ _ _ _ _ Hprim) as (->&->&->&_); done.
+    - iModIntro. iNext. iModIntro. iIntros (κ e2' efs σ Hprim) "Hcred".
+      pose proof (prim_for_cons_det _ _ _ _ _ _ _ _ _ Hprim) as [_ [_ [_ He2]]].
+      rewrite He2.
+      iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
+      iFrame "HΦ".
+  Qed.
+
+  (** The fold rule: iterate [body] over the list model [M].  The invariant
+      [P : list sn_val -> iProp] holds over the *remaining* suffix.  Proven by
+      structural induction on [M] -- no iLoeb, no later beyond the per-step
+      pure delay.  [Hclosed] states the loop body does not capture the "_"
+      sequencing binder (always true for generated bodies, which use fresh
+      names); it lets the post-iteration continuation match the inner For. *)
+  Lemma wp_for_list s E x body (M : list sn_val) (P : list sn_val -> iProp Σ) :
+    (forall w, subst "_" w body = body) ->
+    P M -∗
+    (□ ∀ v vs, P (v :: vs) -∗
+        WP subst x v body @ s; E {{ _, P vs }}) -∗
+    WP For x (Val (LitList M)) body @ s; E {{ _, P [] }}.
+  Proof.
+    iIntros (Hclosed) "HP #Hstep".
+    iInduction M as [|v vs] "IH"; simpl.
+    - iApply wp_for_nil. by iFrame.
+    - iApply wp_for_cons. iNext.
+      iApply (wp_bind (fill_item (LetCtx "_" _))).
+      iApply (wp_wand with "[HP]").
+      { iApply ("Hstep" with "HP"). }
+      iIntros (w) "HPvs". simpl.
+      iApply wp_let. iNext.
+      assert (subst "_" w (For x (Val (LitList vs)) body)
+              = For x (Val (LitList vs)) body) as Heq.
+      { cbn [subst]. destruct (String.eqb "_" x); by rewrite ?Hclosed. }
+      rewrite Heq.
+      iApply ("IH" with "HPvs").
   Qed.
 
   Lemma wp_raise s E v Φ :

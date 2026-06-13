@@ -59,6 +59,7 @@ Inductive sn_expr :=
   | Alloc (e : sn_expr)
   | If (e0 e1 e2 : sn_expr)
   | While (e1 e2 : sn_expr)
+  | For (x : string) (e1 e2 : sn_expr)
   | FAA (e1 e2 : sn_expr)
   | Fork (e : sn_expr)
   | DictGet (l key : sn_expr)
@@ -77,6 +78,7 @@ Inductive sn_ectx_item :=
   | StoreLCtx (v2 : sn_val)
   | StoreRCtx (e1 : sn_expr)
   | AllocCtx
+  | ForCtx (x : string) (e2 : sn_expr)
   | FaaLCtx (v2 : sn_val)
   | FaaRCtx (v1 : sn_val).
 
@@ -90,6 +92,7 @@ Definition fill_item (Ki : sn_ectx_item) (x : sn_expr) : sn_expr :=
   | StoreLCtx v2 => Store x (Val v2)
   | StoreRCtx e1 => Store e1 x
   | AllocCtx => Alloc x
+  | ForCtx x0 e2 => For x0 x e2
   | FaaLCtx v2 => FAA x (Val v2)
   | FaaRCtx v1 => FAA (Val v1) x
   end.
@@ -134,6 +137,8 @@ Fixpoint subst (x : string) (v : sn_val) (e : sn_expr) : sn_expr :=
   | Alloc e => Alloc (subst x v e)
   | If e0 e1 e2 => If (subst x v e0) (subst x v e1) (subst x v e2)
   | While e1 e2 => While (subst x v e1) (subst x v e2)
+  | For y e1 e2 =>
+      For y (subst x v e1) (if String.eqb x y then e2 else subst x v e2)
   | FAA e1 e2 => FAA (subst x v e1) (subst x v e2)
   | Fork e => Fork (subst x v e)
   | DictGet l key => DictGet (subst x v l) (subst x v key)
@@ -348,6 +353,11 @@ Inductive pure_step : sn_expr → sn_expr → Prop :=
   | PureIfTrue e1 e2 : pure_step (If (Val (LitBool true)) e1 e2) e1
   | PureIfFalse e1 e2 : pure_step (If (Val (LitBool false)) e1 e2) e2
   | PureWhile e1 e2 : pure_step (While e1 e2) (If e1 (Let "_" e2 (While e1 e2)) (Val LitUnit))
+  | PureForNil x body :
+      pure_step (For x (Val (LitList [])) body) (Val LitUnit)
+  | PureForCons x v vs body :
+      pure_step (For x (Val (LitList (v :: vs))) body)
+                (Let "_" (subst x v body) (For x (Val (LitList vs)) body))
   | PureTryReturn v handler : pure_step (Try (Val v) handler) (Val v).
 
 Definition lit_as_z (v : sn_val) : Z :=
