@@ -123,6 +123,91 @@ def extract_contracts(
 _AUG_OPS = {"+": "add", "-": "sub", "*": "mul"}
 
 
+def _classify_iterable(it: "object") -> str:
+    """Classify a for-loop iterable for a precise unsupported-feature
+    diagnostic.  Returns one of: 'list', 'dict', 'set', 'str', 'generator',
+    'enumerate', 'zip', 'comprehension', 'name', 'unknown'.
+
+    See docs/finite-iterable-relations.md and docs/generator-specs.md for the
+    planned verification rules for each kind."""
+    cls = type(it).__name__
+    if cls == "PyListLiteral":
+        return "list"
+    if cls == "PyDictLiteral":
+        return "dict"
+    if cls == "PySetLiteral":
+        return "set"
+    if cls == "PyConstant":
+        val = getattr(it, "value", None)
+        if isinstance(val, str):
+            return "str"
+        return "unknown"
+    if cls == "PyCall":
+        fname = getattr(it, "func", "")
+        if fname in ("list", "tuple"):
+            return "list"
+        if fname == "dict":
+            return "dict"
+        if fname in ("set", "frozenset"):
+            return "set"
+        if fname == "enumerate":
+            return "enumerate"
+        if fname == "zip":
+            return "zip"
+        if fname in ("sorted", "reversed", "filter", "map"):
+            return "generator"
+        # A user call returning an iterable: treat as a (possibly opaque)
+        # generator -- needs a GeneratorSpec contract.
+        return "generator"
+    if cls in ("PyListComp",):
+        return "comprehension"
+    if cls == "PyName":
+        # A bound variable: could be a list/dict/set parameter.  Without a
+        # type annotation or contract we cannot tell which.
+        return "name"
+    return "unknown"
+
+
+# Per-kind guidance pointing at the design docs.  These features are
+# recognised but not yet lowered to a proof; the diagnostic is precise so
+# the pipeline can fall through to IMP (or report a clear gap) rather than
+# emitting a confusing generic error.
+_ITERABLE_GUIDANCE = {
+    "list": ("list iteration: needs the `list` Iterable instance "
+             "(fold_left over `list val`). See docs/finite-iterable-relations.md."),
+    "dict": ("dict iteration: needs the `dict` Iterable instance "
+             "(ordered assoc-list model + gmap lookup). "
+             "See docs/finite-iterable-relations.md."),
+    "set": ("set iteration: needs the `set` Iterable instance with a "
+            "COMMUTATIVE fold (wp_for_set). Order-dependent bodies are "
+            "rejected. See docs/finite-iterable-relations.md."),
+    "str": ("string iteration: reuse the `list` instance over ascii. "
+            "See docs/finite-iterable-relations.md."),
+    "generator": ("generator iteration: needs a GeneratorSpec contract "
+                  "(produces(result, count) + element(result, i)). "
+                  "See docs/generator-specs.md."),
+    "enumerate": ("enumerate(): a composed Iterable (index, element). "
+                  "See docs/finite-iterable-relations.md open questions."),
+    "zip": ("zip(): a composed Iterable over tuples. "
+            "See docs/finite-iterable-relations.md open questions."),
+    "comprehension": ("comprehension as iterable: lower the comprehension "
+                      "first, then iterate its `list` model."),
+    "name": ("iterating a bound variable: annotate its type (list/dict/set) "
+             "or supply a contract so the right Iterable instance is chosen. "
+             "See docs/finite-iterable-relations.md."),
+    "unknown": ("unrecognised iterable: only range(hi)/range(lo,hi) lower "
+                "directly today; list/dict/set/generator need their Iterable "
+                "instances (docs/finite-iterable-relations.md, "
+                "docs/generator-specs.md)."),
+}
+
+
+def _iterable_not_supported_msg(kind: str, var: str) -> str:
+    guidance = _ITERABLE_GUIDANCE.get(kind, _ITERABLE_GUIDANCE["unknown"])
+    return (f"for-loop over a {kind} (binding '{var}') is not yet lowered "
+            f"to an Iris proof. {guidance}")
+
+
 def _extract_while_invariants(stmts: list[ast.stmt], acc: list[list[str]],
                                linter: ContractLinter) -> None:
     """Walk [stmts] depth-first, collecting invariant asserts from
@@ -258,8 +343,9 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
             else:
                 lo_val, hi_val = SLit(lit_type="int", value="0"), lo_val
         if hi_val is None:
-            raise IrisGenError(
-                "for loop: only range(hi) or range(lo, hi) supported")
+            # Not a range(): classify the iterable for a precise diagnostic.
+            kind = _classify_iterable(s.iterable)
+            raise IrisGenError(_iterable_not_supported_msg(kind, s.var))
         ivar = f"_{s.var}_i"
         body_stmts = [PyAssign(target=s.var,
                                value=PyName(name=ivar)),
