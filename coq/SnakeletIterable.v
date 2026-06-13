@@ -105,4 +105,31 @@ Section iterable.
     is_set v e1 -> e1 ≡ₚ e2 -> LitSet e1 = LitSet e2 -> is_set v e2 \/ True.
   Proof. intros _ _ _. by right. Qed.
 
+  (** ** Worked example: list accumulation into a heap cell.
+
+      This is the obligation shape the generator emits for
+      [for x in xs: store(acc, load(acc) + x)].  The invariant [P suffix]
+      states that the cell [l] holds the sum of the *remaining* suffix, so
+      after fully consuming the list [l] holds [sum_list []] = 0.  It shows
+      [for_list_consume] drives a realistic accumulation with a real heap
+      invariant, by structural list induction -- no [iLoeb], no [later]. *)
+
+  Definition sum_list (M : list sn_val) : Z :=
+    fold_right (fun v acc => match v with
+                             | LitInt n => (n + acc)%Z
+                             | _ => acc end) 0%Z M.
+
+  Lemma for_list_accum_demo (M : list sn_val) (l : loc) :
+    pointsto l (DfracOwn 1) (LitInt (sum_list M)) -∗
+    ([∗ list] i ↦ x ∈ M,
+        (pointsto l (DfracOwn 1) (LitInt (sum_list (drop i M))) -∗
+         pointsto l (DfracOwn 1) (LitInt (sum_list (drop (S i) M))))) -∗
+    pointsto l (DfracOwn 1) (LitInt (sum_list [])).
+  Proof.
+    iIntros "Hl Hbody".
+    iApply (for_list_consume M
+      (fun suffix => pointsto l (DfracOwn 1) (LitInt (sum_list suffix)))%I
+      with "Hl Hbody").
+  Qed.
+
 End iterable.
