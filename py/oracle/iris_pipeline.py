@@ -347,7 +347,7 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
             # The iterable must lower to a value that evaluates to a LitList
             # (a list literal, or a list-typed bound variable / parameter).
             kind = _classify_iterable(s.iterable)
-            if kind in ("list", "str"):
+            if kind in ("list", "str", "name"):
                 lst_e = lw.lower_expr(s.iterable)
                 if lst_e is not None:
                     # for x in lst: body  ->  For x lst (body with x bound)
@@ -380,48 +380,53 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
 
 # -- Parameter substitution -------------------------------------------------
 
-def _subst_params(e: SExpr, params: set[str], bound: set[str]) -> SExpr:
+def _subst_params(e: SExpr, params: set[str], bound: set[str],
+                   list_params: set[str] | None = None) -> SExpr:
     """Replace free references to function parameters with Coq-level
     binders: SVar("x") -> SLit("int", "x") prints as (Val (LitInt x)).
+    List params (in list_params) become SLit("val", name) printing as (Val name).
     Respects shadowing by let-bound program variables."""
+    lp = list_params or set()
     if isinstance(e, SVar):
         if e.name in params and e.name not in bound:
+            if e.name in lp:
+                return SLit(lit_type="val", value=e.name)
             return SLit(lit_type="int", value=e.name)
         return e
     if isinstance(e, SLit):
         return e
     if isinstance(e, SBinOp):
         return SBinOp(op=e.op,
-                      left=_subst_params(e.left, params, bound),
-                      right=_subst_params(e.right, params, bound))
+                      left=_subst_params(e.left, params, bound, lp),
+                      right=_subst_params(e.right, params, bound, lp))
     if isinstance(e, SLet):
         return SLet(var=e.var,
-                    value=_subst_params(e.value, params, bound),
-                    body=_subst_params(e.body, params, bound | {e.var}))
+                    value=_subst_params(e.value, params, bound, lp),
+                    body=_subst_params(e.body, params, bound | {e.var}, lp))
     if isinstance(e, SIf):
-        return SIf(cond=_subst_params(e.cond, params, bound),
-                   then_branch=_subst_params(e.then_branch, params, bound),
-                   else_branch=_subst_params(e.else_branch, params, bound))
+        return SIf(cond=_subst_params(e.cond, params, bound, lp),
+                   then_branch=_subst_params(e.then_branch, params, bound, lp),
+                   else_branch=_subst_params(e.else_branch, params, bound, lp))
     if isinstance(e, SWhile):
-        return SWhile(cond=_subst_params(e.cond, params, bound),
-                      body=_subst_params(e.body, params, bound),
+        return SWhile(cond=_subst_params(e.cond, params, bound, lp),
+                      body=_subst_params(e.body, params, bound, lp),
                       invariants=e.invariants)
     if isinstance(e, SFor):
         return SFor(var=e.var,
-                    lst=_subst_params(e.lst, params, bound),
-                    body=_subst_params(e.body, params, bound | {e.var}),
+                    lst=_subst_params(e.lst, params, bound, lp),
+                    body=_subst_params(e.body, params, bound | {e.var}, lp),
                     invariants=e.invariants)
     if isinstance(e, SApp):
         return SApp(func=e.func,
-                    args=[_subst_params(a, params, bound) for a in e.args])
+                    args=[_subst_params(a, params, bound, lp) for a in e.args])
     if isinstance(e, SAlloc):
-        return SAlloc(value=_subst_params(e.value, params, bound))
+        return SAlloc(value=_subst_params(e.value, params, bound, lp))
     if isinstance(e, SStore):
-        return SStore(loc=e.loc, value=_subst_params(e.value, params, bound))
+        return SStore(loc=e.loc, value=_subst_params(e.value, params, bound, lp))
     if isinstance(e, SLoad):
         return e
     if isinstance(e, SReturn):
-        return _subst_params(e.value, params, bound)
+        return _subst_params(e.value, params, bound, lp)
     raise IrisGenError(
         f"unsupported node in parameter substitution: {type(e).__name__}")
 
@@ -563,6 +568,47 @@ def _validate_ops(e: SExpr) -> None:
 
 # -- Entry point --------------------------------------------------------------
 
+def _detect_list_params(body: SExpr, params: set[str]) -> dict[str, str]:
+    """Find params used as for-loop iterables and assign model variable names."""
+    out: dict[str, str] = {}
+    def walk(e: SExpr) -> None:
+        if isinstance(e, SFor):
+            if isinstance(e.lst, SVar) and e.lst.name in params:
+                out[e.lst.name] = f"M_{e.lst.name}"
+            walk(e.lst)
+            walk(e.body)
+        elif isinstance(e, SLet):
+            walk(e.value)
+            walk(e.body)
+        elif isinstance(e, SIf):
+            walk(e.cond)
+            walk(e.then_branch)
+            if e.else_branch:
+                walk(e.else_branch)
+        elif isinstance(e, SWhile):
+            walk(e.cond)
+            walk(e.body)
+        elif isinstance(e, SBinOp):
+            walk(e.left)
+            walk(e.right)
+        elif isinstance(e, SApp):
+            for a in e.args:
+                walk(a)
+        elif isinstance(e, SAlloc):
+            walk(e.value)
+        elif isinstance(e, SStore):
+            walk(e.value)
+        elif isinstance(e, SLoad):
+            pass
+        elif isinstance(e, (SLit, SVar)):
+            pass
+        else:
+            raise IrisGenError(
+                f"unsupported node in list-param detection: {type(e).__name__}")
+    walk(body)
+    return out
+
+
 def python_to_iris_proof(source: str,
                          table: FunTable,
                          func_name: Optional[str] = None,
@@ -594,7 +640,8 @@ def python_to_iris_proof(source: str,
     lw = IrisLowerer(loc_map={}, func_name=fn.name)
     invs_iter = iter(contracts.loop_invariants) if contracts.loop_invariants else None
     body = _fold(fn.body, lw, invs_iter=iter(contracts.loop_invariants))
-    body = _subst_params(body, set(fn.params), set())
+    list_params = _detect_list_params(body, set(fn.params))
+    body = _subst_params(body, set(fn.params), set(), set(list_params.keys()))
     body = _anf(body, [0])
     _validate_ops(body)
 
@@ -607,4 +654,5 @@ def python_to_iris_proof(source: str,
         pre=contracts.pre,
         axioms=axioms,
         pre_overrides=pre_overrides,
+        list_params=list_params,
     )

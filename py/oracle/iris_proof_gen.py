@@ -266,34 +266,36 @@ def _extract_while_bound(cond: SExpr) -> str:
 
 
 def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
-         k, func_name: str = "", _inv_counter: list[int] | None = None) -> list[StageNode]:
+         k, func_name: str = "", _inv_counter: list[int] | None = None,
+         list_params: dict[str, str] | None = None) -> list[StageNode]:
     """Generate stages reducing e to a value, then continue with k().
 
     k is a thunk producing the continuation stages; it is invoked once
     per execution path (duplicated into each arm of a case split).
     """
+    lp = list_params or {}
     if isinstance(e, (SLit, SVar)):
         return k()
 
     if isinstance(e, SReturn):
-        return _gen(e.value, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter)
+        return _gen(e.value, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp)
 
     if isinstance(e, SSeq):
         if not e.exprs:
             return k()
         if len(e.exprs) == 1:
-            return _gen(e.exprs[0], table, overrides, k, func_name=func_name, _inv_counter=_inv_counter)
+            return _gen(e.exprs[0], table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp)
         head, rest = e.exprs[0], SSeq(e.exprs[1:])
         return _gen(SLet("_", head, rest), table, overrides, k,
-                     func_name=func_name, _inv_counter=_inv_counter)
+                     func_name=func_name, _inv_counter=_inv_counter, list_params=lp)
 
     if isinstance(e, SBinOp):
         def after_left():
             def after_right():
                 return [Stage("pure_step", "pure_step",
                               comment=f"binop {e.op}")] + k()
-            return _gen(e.right, table, overrides, after_right, func_name=func_name, _inv_counter=_inv_counter)
-        return _gen(e.left, table, overrides, after_left, func_name=func_name, _inv_counter=_inv_counter)
+            return _gen(e.right, table, overrides, after_right, func_name=func_name, _inv_counter=_inv_counter, list_params=lp)
+        return _gen(e.left, table, overrides, after_left, func_name=func_name, _inv_counter=_inv_counter, list_params=lp)
 
     if isinstance(e, SApp):
         if e.func not in table:
@@ -317,18 +319,18 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         # continuation resumes.
         st = Stage(f'call_transparent "{e.func}"', "call_transparent",
                    comment="unfolds")
-        return [st] + _gen(entry.body, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter)
+        return [st] + _gen(entry.body, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp)
 
     if isinstance(e, SLet):
         def after_rhs():
             return [Stage("pure_step", "pure_step",
                           comment=f'bind "{e.var}"')] + \
-                   _gen(e.body, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter)
-        return _gen(e.value, table, overrides, after_rhs, func_name=func_name, _inv_counter=_inv_counter)
+                   _gen(e.body, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp)
+        return _gen(e.value, table, overrides, after_rhs, func_name=func_name, _inv_counter=_inv_counter, list_params=lp)
 
     if isinstance(e, SWhile):
-        cond_stages = _gen(e.cond, table, overrides, lambda: [], func_name=func_name, _inv_counter=_inv_counter)
-        body_stages = _gen(e.body, table, overrides, lambda: [], func_name=func_name, _inv_counter=_inv_counter)
+        cond_stages = _gen(e.cond, table, overrides, lambda: [], func_name=func_name, _inv_counter=_inv_counter, list_params=lp)
+        body_stages = _gen(e.body, table, overrides, lambda: [], func_name=func_name, _inv_counter=_inv_counter, list_params=lp)
 
         # Symbolic loop with invariants: generate the per-loop lemma.
         if e.invariants:
@@ -421,15 +423,19 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         # the loop has no accumulator contract.
         cont = k()
         body_stages = _gen(e.body, table, overrides, lambda: [],
-                           func_name=func_name, _inv_counter=_inv_counter)
+                           func_name=func_name, _inv_counter=_inv_counter, list_params=lp)
         # wp_for_list takes the list MODEL (list sn_val), not the wrapped
-        # value.  For a list literal, strip the LitList wrapper.
+        # value.  For a list literal, strip the LitList wrapper.  For a
+        # list-typed parameter, use the model variable from list_params.
         if isinstance(e.lst, SLit) and e.lst.lit_type == "list":
             model_coq = e.lst.to_coq_val()  # (LitList (... :: nil))
             # strip outer "(LitList " ... ")"
             inner = model_coq.strip()
             if inner.startswith("(LitList ") and inner.endswith(")"):
                 model_coq = inner[len("(LitList "):-1].strip()
+        elif isinstance(e.lst, SLit) and e.lst.lit_type == "val":
+            param_name = e.lst.value
+            model_coq = lp.get(param_name, f"M_{param_name}")
         else:
             # variable / parameter holding a list value: not yet supported
             raise IrisGenError(
@@ -466,18 +472,18 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                       else e.else_branch)
             return ([Stage("pure_step", "pure_step",
                            comment="literal conditional")] +
-                    _gen(chosen, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter))
+                    _gen(chosen, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp))
 
         def after_cond():
             then_arm = ([Stage("pure_step", "pure_step",
                                comment="select then-branch")] +
-                        _gen(e.then_branch, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter))
+                        _gen(e.then_branch, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp))
             else_arm = ([Stage("pure_step", "pure_step",
                                comment="select else-branch")] +
-                        _gen(e.else_branch, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter))
+                        _gen(e.else_branch, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp))
             return [Stage("case_bool", "case_bool", comment="path fork"),
                     Branch([then_arm, else_arm])]
-        return _gen(e.cond, table, overrides, after_cond, func_name=func_name, _inv_counter=_inv_counter)
+        return _gen(e.cond, table, overrides, after_cond, func_name=func_name, _inv_counter=_inv_counter, list_params=lp)
 
     raise IrisGenError(
         f"unsupported node for staged generation: {type(e).__name__} "
@@ -582,6 +588,7 @@ class IrisProof:
     table_coq: str
     stages: list[StageNode]
     aux_lemmas: list[str] = field(default_factory=list)
+    list_params: dict[str, str] = field(default_factory=dict)
 
     def stage_list(self) -> list[Stage]:
         """Flattened stages (for trace/cache consumers)."""
@@ -616,13 +623,22 @@ class IrisProof:
         for lemma_text in self.aux_lemmas:
             parts.append(lemma_text)
             parts.append("")
-        binders = "".join(f" ({p} : Z)" for p in self.params)
+        binders = "".join(f" ({p} : Z)" for p in self.params if p not in self.list_params)
+        for lp, mv in self.list_params.items():
+            binders += f" ({lp} : sn_val) ({mv} : list sn_val)"
         parts.append(f"  Lemma {self.name}_correct s E{binders} :")
+        if self.list_params:
+            list_pre_terms = " -> ".join(
+                f"{lp} = LitList {mv}" for lp, mv in self.list_params.items())
+            parts.append(f"    ({list_pre_terms}) ->")
         if self.pre:
             parts.append(f"    ({self.pre}) ->")
         parts.append(f"    {TSTILE} WP {self.body_coq}%S @ s; E "
                      f"{{{{ v, {LCEIL}({self.post})%Z{RCEIL} }}}}.")
         parts.append("  Proof.")
+        for lp, mv in self.list_params.items():
+            parts.append(f"    intros H_{lp}.")
+            parts.append(f"    subst {lp}.")
         if self.pre:
             parts.append("    intros Hpre.")
         parts.append("    iStartProof.")
@@ -735,7 +751,8 @@ def generate(name: str,
              params: Optional[list[str]] = None,
              pre: Optional[str] = None,
              axioms: Optional[list[str]] = None,
-             pre_overrides: Optional[dict[str, str]] = None) -> IrisProof:
+             pre_overrides: Optional[dict[str, str]] = None,
+             list_params: Optional[dict[str, str]] = None) -> IrisProof:
     """Generate a staged Iris proof for a SnakeletIR body.
 
     name: function name (theorem is <name>_correct).
@@ -754,7 +771,8 @@ def generate(name: str,
     stages = _gen(body, table, overrides,
                   lambda: [Stage("finish_pure", "finish_pure",
                                  comment="postcondition")],
-                  func_name=name, _inv_counter=inv_counter)
+                  func_name=name, _inv_counter=inv_counter,
+                  list_params=list_params or {})
     aux_lemmas = [_emit_while_inv_lemma(wi)
                   for wi in _collect_while_invs(stages)]
     return IrisProof(
@@ -767,4 +785,5 @@ def generate(name: str,
         table_coq=_emit_table_section(table),
         stages=stages,
         aux_lemmas=aux_lemmas,
+        list_params=list_params or {},
     )

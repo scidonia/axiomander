@@ -849,7 +849,21 @@ Section snakelet_wp.
      iSpecialize ("Hstep" $! z).
      iDestruct ("Hstep" with "HI") as "Hgoal".
      iExact "Hgoal".
-   Qed.
+  Qed.
+
+  Lemma wp_for_list_var s E x body (v : sn_val) (M : list sn_val)
+      (P : list sn_val -> iProp Σ) (Φ : sn_val -> iProp Σ) :
+    v = LitList M ->
+    (forall w, subst "_" w body = body) ->
+    P M -∗
+    (□ ∀ v vs, P (v :: vs) -∗
+        WP subst x v body @ s; E {{ _, P vs }}) -∗
+    (P [] -∗ Φ LitUnit) -∗
+    WP For x (Val v) body @ s; E {{ Φ }}.
+  Proof.
+    intros -> ?. iApply wp_for_list'; eauto.
+  Qed.
+
 
   (** Automation: repeatedly apply pure WP reductions. *)
   Ltac snakelet_pures :=

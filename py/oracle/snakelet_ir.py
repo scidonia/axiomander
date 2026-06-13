@@ -148,6 +148,8 @@ class SLit:
         return "LitUnit"
 
     def to_coq(self) -> str:
+        if self.lit_type == "val":
+            return f"(Val {self.value})"
         if self.lit_type in ("tuple", "list", "set", "dict"):
             return f"(Val {self.to_coq_val()})"
         if self.lit_type == "int": return f"(Val (LitInt {self.value}))"
