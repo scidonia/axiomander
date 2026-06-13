@@ -35,7 +35,7 @@ from typing import Optional, Union
 
 from oracle.snakelet_ir import (
     SAlloc, SApp, SBinOp, SExpr, SIf, SLet, SLit, SLoad, SReturn, SSeq,
-    SStore, SVar, SWhile,
+    SStore, SVar, SWhile, SFor,
 )
 
 # Coq unicode tokens, kept out of literals so the Python source stays ASCII.
@@ -108,9 +108,25 @@ class WhileInv:
     body_coq: str              # Coq While body expression
     invariants: list[str]      # Coq Props (from contract asserts)
     order_hint: str = ""       # "ascending" or "descending"
+    pure_counter: bool = False  # True if counter is a local var (no heap)
 
 
-StageNode = Union[Stage, Branch, WhileInv]
+@dataclass
+class ForList:
+    """For-each loop over a list value, proven via wp_for_list.
+
+    For the no-accumulator case the suffix invariant is trivial (emp), so the
+    proof is fully automatic: apply wp_for_list with P := emp, discharge the
+    "_"-closedness side-goal, and run the body stages per element."""
+    var: str                   # loop variable name
+    lst_coq: str               # Coq expression for the list value
+    body_coq: str              # Coq body expression
+    body_stages: list["StageNode"]  # stage tactics for one body execution
+    invariants: list[str]      # Coq Props (suffix invariant); [] => emp
+    continuation_stages: list["StageNode"]  # stages for code after the for-loop
+
+
+StageNode = Union[Stage, Branch, WhileInv, ForList]
 
 _BULLETS = ["-", "+", "*", "--", "++", "**"]
 
@@ -399,6 +415,36 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
             raise IrisGenError(
                 "symbolic while loop: needs Löb+invariant (phase 5)")
 
+    if isinstance(e, SFor):
+        # for x in xs: body  ->  wp_for_list fold.  Generate the body's stage
+        # script for one iteration; the suffix invariant defaults to emp when
+        # the loop has no accumulator contract.
+        cont = k()
+        body_stages = _gen(e.body, table, overrides, lambda: [],
+                           func_name=func_name, _inv_counter=_inv_counter)
+        # wp_for_list takes the list MODEL (list sn_val), not the wrapped
+        # value.  For a list literal, strip the LitList wrapper.
+        if isinstance(e.lst, SLit) and e.lst.lit_type == "list":
+            model_coq = e.lst.to_coq_val()  # (LitList (... :: nil))
+            # strip outer "(LitList " ... ")"
+            inner = model_coq.strip()
+            if inner.startswith("(LitList ") and inner.endswith(")"):
+                model_coq = inner[len("(LitList "):-1].strip()
+        else:
+            # variable / parameter holding a list value: not yet supported
+            raise IrisGenError(
+                "for-loop over a non-literal list: needs a list contract "
+                "(is_list) to expose the model. See "
+                "docs/finite-iterable-relations.md.")
+        return [ForList(
+            var=e.var,
+            lst_coq=model_coq,
+            body_coq=e.body.to_coq(),
+            body_stages=body_stages,
+            invariants=e.invariants,
+            continuation_stages=cont,
+        )]  # continuation handled by inferred Phi via wp_for_list'
+
     if isinstance(e, SAlloc):
         return [Stage("heap_alloc", "heap_alloc",
                       comment="fresh location"),
@@ -458,10 +504,43 @@ def _emit_stage_lines(nodes: list[StageNode], depth: int,
                 lines.extend(arm_lines[1:])
         elif isinstance(n, WhileInv):
             lines.extend(_emit_while_inv_stage(n, indent, post))
+        elif isinstance(n, ForList):
+            lines.extend(_emit_for_list_stage(n, indent))
     return lines
 
 
 # -- Top-level ------------------------------------------------------------
+
+def _emit_for_list_stage(fl: ForList, indent: str) -> list[str]:
+    """Emit a wp_for_list' application for a list for-loop.
+
+    Focuses the For under any trailing continuation, applies wp_for_list'
+    with the trivial suffix invariant (emp) and inferred continuation Φ.
+    The no-accumulator body runs per element with the loop variable bound to
+    an abstract element value; the final continuation runs after the loop."""
+    lines = [
+        f"{indent}focus_for.",
+        f"{indent}iApply (wp_for_list' s E \"{fl.var}\" ({fl.body_coq})",
+        f"{indent}  ({fl.lst_coq}) (fun _ => ⌜True⌝%I) _).",
+        f"{indent}{{ intros w; reflexivity. }}",
+        f"{indent}{{ (* invariant at full list *) done. }}",
+        f"{indent}{{ (* per-element body step *)",
+        f"{indent}  iModIntro. iIntros (vfor vrest) \"_\".",
+        f"{indent}  simpl.",
+    ]
+    body_lines = _emit_stage_lines(fl.body_stages, 0, indent + "  ")
+    lines.extend(body_lines)
+    lines.append(f"{indent}  finish_pure.")
+    lines.append(f"{indent}}}")
+    lines.append(f"{indent}(* post-loop continuation *)")
+    lines.append(f"{indent}{{ iIntros \"_\".")
+    lines.append(f"{indent}  rewrite /fill_K /=.")
+    lines.append(f"{indent}  unfold of_val.")
+    cont_lines = _emit_stage_lines(fl.continuation_stages, 0, indent + "  ")
+    lines.extend(cont_lines)
+    lines.append(f"{indent}}}")
+    return lines
+
 
 def _emit_while_inv_stage(wi: WhileInv, indent: str, post: str = "") -> list[str]:
     bound = wi.bound_expr
@@ -515,6 +594,9 @@ class IrisProof:
                 elif isinstance(n, Branch):
                     for arm in n.arms:
                         walk(arm)
+                elif isinstance(n, ForList):
+                    walk(n.body_stages)
+                    walk(n.continuation_stages)
                 # WhileInv carries auxiliary-lemma info, not a stage.
         walk(self.stages)
         return out
@@ -639,6 +721,9 @@ def _collect_while_invs(stages: list[StageNode]) -> list[WhileInv]:
             elif isinstance(n, Branch):
                 for arm in n.arms:
                     walk(arm)
+            elif isinstance(n, ForList):
+                walk(n.body_stages)
+                walk(n.continuation_stages)
     walk(stages)
     return out
 

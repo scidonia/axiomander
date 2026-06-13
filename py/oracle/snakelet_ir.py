@@ -109,6 +109,22 @@ class SWhile:
 
 
 @dataclass
+class SFor:
+    """For-each loop over a list value.  Iris: For + wp_for_list fold rule.
+    Iterates [body] with [var] bound to each element of [lst]; the loop value
+    is LitUnit (results flow through heap cells), proven by induction on the
+    list model.  No iLoeb -- this is the bounded/decreasing-measure class."""
+    var: str
+    lst: "SExpr"
+    body: "SExpr"
+    invariants: list[str] = field(default_factory=list)  # Coq Props (suffix invariant)
+    kind: Literal["for"] = "for"
+
+    def to_coq(self) -> str:
+        return f'(For "{self.var}" {self.lst.to_coq()} {self.body.to_coq()})'
+
+
+@dataclass
 class SLit:
     """Literal.  Iris: LitV (LitInt n) / LitV (LitLoc l)."""
     lit_type: str    # "int" | "bool" | "float" | "string" | "tuple" | "list" | "dict" | "set" | "loc" | "unit"
@@ -248,7 +264,7 @@ class SDictSet:
         raise NotImplementedError("SDictSet lowering to SnakeletLang: phase 3")
 
 
-SExpr = SLit | SVar | SBinOp | SLoad | SStore | SAlloc | SLet | SIf | SWhile | SReturn | SApp | SSeq | SFork | SFAA | SRaise | STry | SDictGet | SDictSet
+SExpr = SLit | SVar | SBinOp | SLoad | SStore | SAlloc | SLet | SIf | SWhile | SFor | SReturn | SApp | SSeq | SFork | SFAA | SRaise | STry | SDictGet | SDictSet
 
 
 # ── Resource layer ───────────────────────────────────────────────

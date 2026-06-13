@@ -45,7 +45,7 @@ from oracle.py_ir import (
 from oracle.py_ir_translator import PyIRTranslator
 from oracle.snakelet_ir import (
     SAlloc, SApp, SBinOp, SExpr, SIf, SLet, SLit, SLoad, SReturn, SStore,
-    STry, SVar, SWhile,
+    STry, SVar, SWhile, SFor,
 )
 
 # Binops supported by SnakeletLang's binop_eval on integers.
@@ -343,8 +343,20 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
             else:
                 lo_val, hi_val = SLit(lit_type="int", value="0"), lo_val
         if hi_val is None:
-            # Not a range(): classify the iterable for a precise diagnostic.
+            # Not a range(): try list-iteration via the For primitive.
+            # The iterable must lower to a value that evaluates to a LitList
+            # (a list literal, or a list-typed bound variable / parameter).
             kind = _classify_iterable(s.iterable)
+            if kind in ("list", "str"):
+                lst_e = lw.lower_expr(s.iterable)
+                if lst_e is not None:
+                    # for x in lst: body  ->  For x lst (body with x bound)
+                    body_e = _fold(list(s.body), lw, invs_iter=invs_iter)
+                    invs = next_invs()
+                    for_e = SFor(var=s.var, lst=lst_e, body=body_e,
+                                 invariants=invs)
+                    rest_e = _fold(rest, lw, invs_iter=invs_iter)
+                    return SLet(var="_", value=for_e, body=rest_e)
             raise IrisGenError(_iterable_not_supported_msg(kind, s.var))
         ivar = f"_{s.var}_i"
         body_stmts = [PyAssign(target=s.var,
@@ -394,6 +406,11 @@ def _subst_params(e: SExpr, params: set[str], bound: set[str]) -> SExpr:
         return SWhile(cond=_subst_params(e.cond, params, bound),
                       body=_subst_params(e.body, params, bound),
                       invariants=e.invariants)
+    if isinstance(e, SFor):
+        return SFor(var=e.var,
+                    lst=_subst_params(e.lst, params, bound),
+                    body=_subst_params(e.body, params, bound | {e.var}),
+                    invariants=e.invariants)
     if isinstance(e, SApp):
         return SApp(func=e.func,
                     args=[_subst_params(a, params, bound) for a in e.args])
@@ -495,6 +512,16 @@ def _anf(e: SExpr, ctr: list[int]) -> SExpr:
                 "while condition must be an atom or a simple binop")
         return SWhile(cond=cond, body=_anf(e.body, ctr),
                       invariants=e.invariants)
+    if isinstance(e, SFor):
+        # The list operand must already be a value (atom): a list literal or
+        # a bound variable.  The For evaluation context evaluates it, but the
+        # generated proof expects a Val (LitList ...) head.
+        if not _is_atom(e.lst):
+            raise IrisGenError(
+                "for-loop iterable must be an atom (list literal or "
+                "variable); lower complex iterables to a let-bound list first")
+        return SFor(var=e.var, lst=e.lst, body=_anf(e.body, ctr),
+                    invariants=e.invariants)
     raise IrisGenError(f"unsupported node in ANF: {type(e).__name__}")
 
 
@@ -517,6 +544,9 @@ def _validate_ops(e: SExpr) -> None:
         _validate_ops(e.else_branch)
     elif isinstance(e, SWhile):
         _validate_ops(e.cond)
+        _validate_ops(e.body)
+    elif isinstance(e, SFor):
+        _validate_ops(e.lst)
         _validate_ops(e.body)
     elif isinstance(e, SApp):
         for a in e.args:

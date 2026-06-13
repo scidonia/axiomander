@@ -466,6 +466,29 @@ Ltac focus_while :=
   | _ => fail "focus_while: goal is not a WP"
   end.
 
+(* Focus a For sub-expression under an evaluation context (e.g. a trailing
+   [;; rest]), so wp_for_list applies with the continuation in the
+   postcondition.  Mirrors focus_while. *)
+Ltac focus_for :=
+  iStartProof;
+  snakelet_popvals;
+  lazymatch goal with
+  | |- envs_entails _ (wp _ _ (For _ _ _) _) => idtac
+  | |- envs_entails _ (wp _ _ ?e _) =>
+    reshape_expr e ltac:(fun K e' =>
+      lazymatch e' with
+      | For _ _ _ => idtac
+      | _ => fail "focus_for: redex is not a For"
+      end;
+      lazymatch K with
+      | [] => idtac
+      | _ =>
+        let revK := rev_ectx K (@nil sn_ectx_item) in
+        iApply (wp_bind (fill_K revK))
+      end)
+  | _ => fail "focus_for: goal is not a WP"
+  end.
+
 (** * Exception handling
 
     [raise_val] reduces [Raise (Val v)] to [Val v] (under current

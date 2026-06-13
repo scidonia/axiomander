@@ -495,6 +495,35 @@ Section snakelet_wp.
       iApply ("IH" with "HPvs").
   Qed.
 
+  (* Variant with a general postcondition Φ: the loop result is always
+     LitUnit, so [Φ] need only hold at LitUnit once the list is consumed.
+     This shape lets the call site keep an arbitrary continuation
+     postcondition (the For sits under a [;; rest]). *)
+  Lemma wp_for_list' s E x body (M : list sn_val)
+      (P : list sn_val -> iProp Σ) (Φ : sn_val -> iProp Σ) :
+    (forall w, subst "_" w body = body) ->
+    P M -∗
+    (□ ∀ v vs, P (v :: vs) -∗
+        WP subst x v body @ s; E {{ _, P vs }}) -∗
+    (P [] -∗ Φ LitUnit) -∗
+    WP For x (Val (LitList M)) body @ s; E {{ Φ }}.
+  Proof.
+    iIntros (Hclosed) "HP #Hstep Hpost".
+    iInduction M as [|v vs] "IH"; simpl.
+    - iApply wp_for_nil. iNext. by iApply "Hpost".
+    - iApply wp_for_cons. iNext.
+      iApply (wp_bind (fill_item (LetCtx "_" _))).
+      iApply (wp_wand with "[HP]").
+      { iApply ("Hstep" with "HP"). }
+      iIntros (w) "HPvs". simpl.
+      iApply wp_let. iNext.
+      assert (subst "_" w (For x (Val (LitList vs)) body)
+              = For x (Val (LitList vs)) body) as Heq.
+      { cbn [subst]. destruct (String.eqb "_" x); by rewrite ?Hclosed. }
+      rewrite Heq.
+      iApply ("IH" with "HPvs Hpost").
+  Qed.
+
   Lemma wp_raise s E v Φ :
     ▷ Φ v -∗ WP Raise (Val v) @ s; E {{ Φ }}.
   Proof.
