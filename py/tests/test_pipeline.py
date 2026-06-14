@@ -1046,6 +1046,11 @@ NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "we
 }
 
 
+@pytest.mark.slow
+@pytest.mark.skipif(
+    not __import__("shutil").which("coqc"),
+    reason="Coq toolchain (coqc) not on PATH -- run `eval $(opam env)` first",
+)
 @pytest.mark.parametrize("name,source", EXAMPLES)
 def test_verification_passes(name, source):
     goal = run_verification(source, name)
@@ -1055,3 +1060,97 @@ def test_verification_passes(name, source):
     else:
         assert goal.is_proved(), f"Not proved ({goal.level}): {goal.error_detail[:200]}"
         assert goal.level == ProofLevel.LEVEL1_LTAC
+
+
+# ---------------------------------------------------------------------------
+# Integration tests for run_pipeline (require Coq toolchain on PATH)
+# ---------------------------------------------------------------------------
+
+import shutil
+import tempfile
+from oracle.pipeline import run_pipeline, _enumerate_functions
+
+
+# Minimal 2-function file with assert-based contracts that prove at Level 1.
+_PIPELINE_FIXTURE = """\
+def add(a: int, b: int) -> int:
+    assert True
+    result = a + b
+    assert result == a + b
+    return result
+
+
+def clamp_pos(n: int) -> int:
+    assert n >= 0
+    result = n
+    assert result >= 0
+    return result
+"""
+
+
+def test_enumerate_functions_top_level():
+    """_enumerate_functions returns top-level function names in order."""
+    tree = ast.parse(_PIPELINE_FIXTURE)
+    names = _enumerate_functions(tree)
+    assert names == ["add", "clamp_pos"]
+
+
+def test_enumerate_functions_class_methods():
+    """_enumerate_functions descends into ClassDef for methods."""
+    src = """\
+class Foo:
+    def bar(self): pass
+    def baz(self): pass
+
+def top(x): pass
+"""
+    tree = ast.parse(src)
+    names = _enumerate_functions(tree)
+    assert "bar" in names
+    assert "baz" in names
+    assert "top" in names
+    # Nested inner functions inside a method should NOT appear
+    src2 = """\
+def outer():
+    def inner(): pass
+    return 1
+"""
+    tree2 = ast.parse(src2)
+    names2 = _enumerate_functions(tree2)
+    assert names2 == ["outer"]
+    assert "inner" not in names2
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(shutil.which("coqc") is None, reason="Coq toolchain not on PATH")
+def test_run_pipeline_proves_simple_functions():
+    """run_pipeline returns a PipelineReport with correct proved/total counts.
+
+    Uses a small 2-function inline fixture with assert contracts that are
+    provable at Level 1 (wp_reduce + lia).  Skipped when coqc is absent so
+    the unit suite stays fast and CI-portable.
+    """
+    import os
+    os.environ.setdefault(
+        "AXIOMANDER_ROOT",
+        str(Path(__file__).resolve().parent.parent.parent),
+    )
+
+    with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
+        f.write(_PIPELINE_FIXTURE)
+        tmp_path = Path(f.name)
+
+    try:
+        report = run_pipeline(tmp_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    assert report.total_goals == 2, (
+        f"Expected 2 functions, got {report.total_goals}"
+    )
+    assert report.proved_goals == report.total_goals, (
+        f"Expected all proved; got {report.proved_goals}/{report.total_goals}. "
+        f"Details: {[(g.name, g.level, g.error_detail) for g in report.goals]}"
+    )
+    assert report.source_file.endswith(".py")
+    assert report.elapsed_total_ms >= 0
