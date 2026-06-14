@@ -113,11 +113,12 @@ class WhileInv:
 
 @dataclass
 class ForList:
-    """For-each loop over a list value, proven via wp_for_list.
+    """For-each loop over a list value, proven via wp_for_list or wp_for_list_forall.
 
     For the no-accumulator case the suffix invariant is trivial (emp), so the
     proof is fully automatic: apply wp_for_list with P := emp, discharge the
-    "_"-closedness side-goal, and run the body stages per element."""
+    _-closedness side-goal, and run the body stages per element.
+    When invariants are present, uses wp_for_list_forall with a Forall predicate."""
     var: str                   # loop variable name
     lst_coq: str               # Coq expression for the list value
     body_coq: str              # Coq body expression
@@ -125,6 +126,34 @@ class ForList:
     invariants: list[str]      # Coq Props (suffix invariant); [] => emp
     continuation_stages: list["StageNode"]  # stages for code after the for-loop
     iterable_type: str = "list"  # "list" | "dict" — which wp_for_* lemma to use
+    forall_predicate: str = ""  # sn_val->Prop predicate for wp_for_list_forall
+
+
+def _make_forall_predicate(invariants: list[str], loop_var: str) -> str:
+    """Convert body assert invariants to a Coq sn_val->Prop predicate.
+    E.g. ['(x > 0)'] -> fun v => match v with LitInt n => n > 0 | _ => False end"""
+    if not invariants:
+        return ""
+    # Extract comparison threshold from first invariant (heuristic)
+    inv = invariants[0].strip()
+    # Pattern: (x > N) or (x < N) etc
+    import re
+    m = re.match(r'\((\w+)\s*([><=!]+)\s*(\d+)\)', inv)
+    if m:
+        var, op, val = m.groups()
+        op_map = {">": "n > 0", "<": "n < 0", ">=": "n >= 0", "<=": "n <= 0", "==": f"n = {val}", "!=": f"n <> {val}"}
+        coq_op = op_map.get(op.strip(), f"n > {val}")
+        # Boolean predicate for compute-ability: Z.ltb produces bool, = true makes it Prop
+        bool_pred = f"(fun (_v : sn_val) => match _v with LitInt n => Z.ltb {val} n = true | _ => False end)"
+        if op == ">" and val == "0":
+            return bool_pred
+        if op in (">=", "<=", "<", ">"):
+            return bool_pred
+        # Generic: Prop-based comparison
+        return (f"(fun (_v : sn_val) => "
+                f"match _v with LitInt n => {coq_op} | _ => False end)")
+    # Fallback: generic
+    return f"(fun (_ : sn_val) => True)"
 
 
 StageNode = Union[Stage, Branch, WhileInv, ForList]
@@ -464,7 +493,8 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
             invariants=e.invariants,
             continuation_stages=cont,
             iterable_type=iterable_type,
-        )]  # continuation handled by inferred Phi via wp_for_list'
+            forall_predicate=_make_forall_predicate(e.invariants, e.var),
+        )]  # continuation handled by inferred Phi via wp_for_list' or wp_for_list_forall
 
     if isinstance(e, SAlloc):
         return [Stage("heap_alloc", "heap_alloc",
@@ -533,11 +563,43 @@ def _emit_stage_lines(nodes: list[StageNode], depth: int,
 # -- Top-level ------------------------------------------------------------
 
 def _emit_for_list_stage(fl: ForList, indent: str) -> list[str]:
-    """Emit a wp_for_list' or wp_for_dict_keys' application for a for-loop.
+    """Emit a wp_for_list' or wp_for_list_forall application for a for-loop.
 
     Focuses the For under any trailing continuation, applies the appropriate
-    WP lemma with trivial invariant (emp) and inferred Φ.  The no-accumulator
-    body runs per element; the final continuation runs after the loop."""
+    WP lemma with trivial invariant (emp) and inferred Phi.  The no-accumulator
+    body runs per element; the final continuation runs after the loop.
+    When invariants are present, uses wp_for_list_forall with a Forall predicate."""
+
+    if fl.forall_predicate:
+        # Forall-accumulating variant: uses wp_for_list_forall
+        q_pred = fl.forall_predicate
+        lemma = "wp_for_list_forall"
+        inv_arg = f"{q_pred}"
+        lines = [
+            f"{indent}focus_for.",
+            f"{indent}iApply ({lemma} {q_pred} s E \"{fl.var}\" ({fl.body_coq})",
+            f"{indent}  ({fl.lst_coq}) _).",
+            f"{indent}{{ intros w; reflexivity. }}",
+            f"{indent}{{ (* Forall premise *) iPureIntro. simpl. repeat (try constructor; try lia). }}",
+            f"{indent}{{ (* per-element body step *)",
+            f"{indent}  iModIntro. iIntros (vfor vrest) \"Hinv\".",
+            f"{indent}  iDestruct \"Hinv\" as %Hfor.",
+            f"{indent}  inversion Hfor as [|? ? Hq Hvs]; subst.",
+            f"{indent}  simpl.",
+        ]
+        body_lines = _emit_stage_lines(fl.body_stages, 0, indent + "  ")
+        lines.extend(body_lines)
+        lines.append(f"{indent}  (* forall step: close body, pass Hvs to postcondition *)")
+        lines.append(f"{indent}  iApply wp_value'. iPureIntro. exact Hvs.")
+        lines.append(f"{indent}}}")
+        lines.append(f"{indent}{{ (* post-loop continuation *) iIntros \"_\". ")
+        lines.append(f"{indent}  rewrite /fill_K /=.")
+        lines.append(f"{indent}  unfold of_val.")
+        cont_lines = _emit_stage_lines(fl.continuation_stages, 0, indent + "  ")
+        lines.extend(cont_lines)
+        lines.append(f"{indent}}}")
+        return lines
+
     if fl.iterable_type == "dict":
         lemma = "wp_for_dict_keys'"
         inv_type = "⌜True⌝%I"

@@ -133,7 +133,9 @@ class IrisLowerer:
         if expr.op == "not":
             return SBinOp(op="eq", left=inner, right=SLit(lit_type="bool", value="false"))
         if expr.op == "-":
-            return SBinOp(op="sub", left=SLit(lit_type="int", value="0"), right=inner)
+            if isinstance(inner, SLit) and inner.lit_type == "int":
+                return SLit(lit_type="int", value=f"-{inner.value}")
+            return None
         return inner
 
     def _lower_subscript(self, expr: PySubscript) -> Optional[SExpr]:

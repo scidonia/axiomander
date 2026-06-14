@@ -135,7 +135,11 @@ class SLit:
 
     def to_coq_val(self) -> str:
         """Generate just the val part (no Val wrapper), for use inside LitTuple etc."""
-        if self.lit_type == "int": return f"(LitInt {self.value})"
+        if self.lit_type == "int":
+            v = self.value
+            if v.startswith("-"):
+                return f"(LitInt ({v}))"
+            return f"(LitInt {self.value})"
         if self.lit_type == "bool": return f"(LitBool {'true' if self.value.lower() == 'true' else 'false'})"
         if self.lit_type == "float": return f"(LitFloat (PrimFloat.of_uint63 (of_Z {self.value})))"
         if self.lit_type == "string": return f'(LitString "{self.value}")'

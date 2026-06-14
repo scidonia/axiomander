@@ -223,7 +223,7 @@ def _iterable_not_supported_msg(kind: str, var: str) -> str:
 def _extract_while_invariants(stmts: list[ast.stmt], acc: list[list[str]],
                                linter: ContractLinter) -> None:
     """Walk [stmts] depth-first, collecting invariant asserts from
-    [ast.While] bodies.  Each while loop contributes one list of
+    [ast.While] and [ast.For] bodies.  Each loop contributes one list of
     Coq Prop strings (in encounter order)."""
     for s in stmts:
         if isinstance(s, ast.While):
@@ -235,12 +235,22 @@ def _extract_while_invariants(stmts: list[ast.stmt], acc: list[list[str]],
                         invs.append(compile_precondition(linted.ir))
             acc.append(invs)
             _extract_while_invariants(s.body, acc, linter)
+        elif isinstance(s, ast.For):
+            invs = []
+            for b in s.body:
+                if isinstance(b, ast.Assert):
+                    linted = linter.lint_expression(b.test)
+                    if linted.ir is not None:
+                        invs.append(compile_precondition(linted.ir))
+            acc.append(invs)
+            _extract_while_invariants(s.body, acc, linter)
         elif isinstance(s, ast.If):
             _extract_while_invariants(s.body, acc, linter)
             _extract_while_invariants(s.orelse, acc, linter)
-        elif isinstance(s, (ast.For, ast.Try)):
-            # recurse into bodies that can contain loops
-            pass  # not yet supported; extend when for/try lowering added
+        elif isinstance(s, ast.Try):
+            _extract_while_invariants(s.body, acc, linter)
+            for h in s.handlers:
+                _extract_while_invariants(h.body, acc, linter)
 
 
 def _fold(stmts: list[PyStmt], lw: IrisLowerer,
