@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Union
 
 from oracle.snakelet_ir import (
-    SAlloc, SApp, SBinOp, SExpr, SIf, SLet, SLit, SLoad, SReturn, SSeq,
+    SAlloc, SApp, SBinOp, SExpr, SIf, SLet, SLit, SLoad, SRaise, SReturn, SSeq,
     SStore, SVar, SWhile, SFor,
 )
 

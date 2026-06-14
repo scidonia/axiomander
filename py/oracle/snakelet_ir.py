@@ -228,7 +228,7 @@ class SRaise:
     kind: Literal["raise"] = "raise"
 
     def to_coq(self) -> str:
-        raise NotImplementedError("SRaise lowering to SnakeletLang: phase 3")
+        return f'(Raise {self.exc.to_coq()})'
 
 
 @dataclass
