@@ -124,6 +124,7 @@ class ForList:
     body_stages: list["StageNode"]  # stage tactics for one body execution
     invariants: list[str]      # Coq Props (suffix invariant); [] => emp
     continuation_stages: list["StageNode"]  # stages for code after the for-loop
+    iterable_type: str = "list"  # "list" | "dict" — which wp_for_* lemma to use
 
 
 StageNode = Union[Stage, Branch, WhileInv, ForList]
@@ -433,9 +434,17 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
             inner = model_coq.strip()
             if inner.startswith("(LitList ") and inner.endswith(")"):
                 model_coq = inner[len("(LitList "):-1].strip()
+            iterable_type = "list"
+        elif isinstance(e.lst, SLit) and e.lst.lit_type == "dict":
+            model_coq = e.lst.to_coq_val()  # (LitDict ((k,v) :: ... nil))
+            inner = model_coq.strip()
+            if inner.startswith("(LitDict ") and inner.endswith(")"):
+                model_coq = inner[len("(LitDict "):-1].strip()
+            iterable_type = "dict"
         elif isinstance(e.lst, SLit) and e.lst.lit_type == "val":
             param_name = e.lst.value
             model_coq = lp.get(param_name, f"M_{param_name}")
+            iterable_type = "list"
         else:
             # variable / parameter holding a list value: not yet supported
             raise IrisGenError(
@@ -449,6 +458,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
             body_stages=body_stages,
             invariants=e.invariants,
             continuation_stages=cont,
+            iterable_type=iterable_type,
         )]  # continuation handled by inferred Phi via wp_for_list'
 
     if isinstance(e, SAlloc):
@@ -518,20 +528,27 @@ def _emit_stage_lines(nodes: list[StageNode], depth: int,
 # -- Top-level ------------------------------------------------------------
 
 def _emit_for_list_stage(fl: ForList, indent: str) -> list[str]:
-    """Emit a wp_for_list' application for a list for-loop.
+    """Emit a wp_for_list' or wp_for_dict_keys' application for a for-loop.
 
-    Focuses the For under any trailing continuation, applies wp_for_list'
-    with the trivial suffix invariant (emp) and inferred continuation Φ.
-    The no-accumulator body runs per element with the loop variable bound to
-    an abstract element value; the final continuation runs after the loop."""
+    Focuses the For under any trailing continuation, applies the appropriate
+    WP lemma with trivial invariant (emp) and inferred Φ.  The no-accumulator
+    body runs per element; the final continuation runs after the loop."""
+    if fl.iterable_type == "dict":
+        lemma = "wp_for_dict_keys'"
+        inv_type = "⌜True⌝%I"
+        vars_intro = 'iModIntro. iIntros (vfor vval vrest) "_".'
+    else:
+        lemma = "wp_for_list'"
+        inv_type = "⌜True⌝%I"
+        vars_intro = 'iModIntro. iIntros (vfor vrest) "_".'
     lines = [
         f"{indent}focus_for.",
-        f"{indent}iApply (wp_for_list' s E \"{fl.var}\" ({fl.body_coq})",
-        f"{indent}  ({fl.lst_coq}) (fun _ => ⌜True⌝%I) _).",
+        f"{indent}iApply ({lemma} s E \"{fl.var}\" ({fl.body_coq})",
+        f"{indent}  ({fl.lst_coq}) (fun _ => {inv_type}) _).",
         f"{indent}{{ intros w; reflexivity. }}",
         f"{indent}{{ (* invariant at full list *) done. }}",
         f"{indent}{{ (* per-element body step *)",
-        f"{indent}  iModIntro. iIntros (vfor vrest) \"_\".",
+        f"{indent}  {vars_intro}",
         f"{indent}  simpl.",
     ]
     body_lines = _emit_stage_lines(fl.body_stages, 0, indent + "  ")

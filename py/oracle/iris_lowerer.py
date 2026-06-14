@@ -71,7 +71,23 @@ class IrisLowerer:
         if isinstance(expr, PyListLiteral):
             return self._lower_compound(expr.elements, "list", "[]")
         if isinstance(expr, PyDictLiteral):
-            return None
+            keys = []
+            vals = []
+            for p in expr.pairs:
+                k = self.lower_expr(p["key"])
+                v = self.lower_expr(p["value"])
+                if k is None or v is None:
+                    return None
+                if not isinstance(k, SLit) or not isinstance(v, SLit):
+                    return None
+                keys.append(k)
+                vals.append(v)
+            # Interleave keys and values: [k1, v1, k2, v2, ...]
+            elements: list[SLit] = []
+            for k, v in zip(keys, vals):
+                elements.append(k)
+                elements.append(v)
+            return SLit(lit_type="dict", value="", elements=elements)
         if isinstance(expr, PySetLiteral):
             return self._lower_compound(expr.elements, "set", "{}")
         if isinstance(expr, PyTupleLiteral):

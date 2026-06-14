@@ -159,6 +159,13 @@ Fixpoint val_list_len (vs : list sn_val) : Z :=
   | _ :: vs' => 1 + val_list_len vs'
   end%Z.
 
+(** Extract the ordered key list from a dict's key-value pair list. *)
+Fixpoint dict_keys (kvs : list (sn_val * sn_val)) : list sn_val :=
+  match kvs with
+  | [] => []
+  | (k, _) :: rest => k :: dict_keys rest
+  end.
+
 Fixpoint val_eqb (fuel : nat) (v1 v2 : sn_val) : bool :=
   match fuel with
   | O => false
@@ -358,6 +365,11 @@ Inductive pure_step : sn_expr → sn_expr → Prop :=
   | PureForCons x v vs body :
       pure_step (For x (Val (LitList (v :: vs))) body)
                 (Let "_" (subst x v body) (For x (Val (LitList vs)) body))
+  | PureForDictNil x body :
+      pure_step (For x (Val (LitDict [])) body) (Val LitUnit)
+  | PureForDictCons x k v kvs body :
+      pure_step (For x (Val (LitDict ((k, v) :: kvs))) body)
+                (Let "_" (subst x k body) (For x (Val (LitDict kvs)) body))
   | PureTryReturn v handler : pure_step (Try (Val v) handler) (Val v).
 
 Definition lit_as_z (v : sn_val) : Z :=

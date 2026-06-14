@@ -145,6 +145,17 @@ class SLit:
                 elems = " :: ".join(e.to_coq_val() for e in self.elements)
                 return f"({tag} ({elems} :: nil)%list)"
             return f"({tag} nil)"
+        if self.lit_type == "dict":
+            if self.elements:
+                pairs = []
+                elems = list(self.elements)
+                for i in range(0, len(elems), 2):
+                    key = elems[i].to_coq_val()
+                    val = elems[i+1].to_coq_val() if i+1 < len(elems) else "LitUnit"
+                    pairs.append(f"({key}, {val})")
+                pair_list = " :: ".join(pairs)
+                return f"(LitDict ({pair_list} :: nil)%list)"
+            return "(LitDict nil)"
         return "LitUnit"
 
     def to_coq(self) -> str:

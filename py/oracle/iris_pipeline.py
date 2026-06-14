@@ -347,7 +347,7 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
             # The iterable must lower to a value that evaluates to a LitList
             # (a list literal, or a list-typed bound variable / parameter).
             kind = _classify_iterable(s.iterable)
-            if kind in ("list", "str", "name"):
+            if kind in ("list", "str", "name", "dict"):
                 lst_e = lw.lower_expr(s.iterable)
                 if lst_e is not None:
                     # for x in lst: body  ->  For x lst (body with x bound)

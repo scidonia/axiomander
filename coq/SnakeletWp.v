@@ -197,6 +197,50 @@ Section snakelet_wp.
              apply fill_K_val in H as [-> ->] end; inversion H0).
   Qed.
 
+  (* Dict-key For-loop det lemmas — same proof structure as list For. *)
+  Lemma prim_for_dict_nil_det x body σ κ e2' σ2 efs :
+    prim_step (For x (Val (LitDict [])) body) σ κ e2' σ2 efs →
+    κ = [] ∧ σ2 = σ ∧ efs = [] ∧ e2' = Val LitUnit.
+  Proof.
+    intros Hprim. inversion Hprim; subst.
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x0. inversion H0; subst; repeat split; reflexivity.
+      + destruct Ki; simpl in H;
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ =>
+             apply fill_K_val in H as [-> ->] end; inversion H0).
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x0. inversion H0.
+      + destruct Ki; simpl in H;
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ =>
+             apply fill_K_val in H as [-> ->] end; inversion H0).
+  Qed.
+
+  Lemma prim_for_dict_cons_det x k v kvs body σ κ e2' σ2 efs :
+    prim_step (For x (Val (LitDict ((k, v) :: kvs))) body) σ κ e2' σ2 efs →
+    κ = [] ∧ σ2 = σ ∧ efs = [] ∧
+    e2' = Let "_" (subst x k body) (For x (Val (LitDict kvs)) body).
+  Proof.
+    intros Hprim. inversion Hprim; subst.
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x0. inversion H0; subst; repeat split; reflexivity.
+      + destruct Ki; simpl in H;
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ =>
+             apply fill_K_val in H as [-> ->] end; inversion H0).
+    - destruct K as [|Ki K']; simpl in H.
+      + subst x0. inversion H0.
+      + destruct Ki; simpl in H;
+          try discriminate H;
+          (inversion H; clear H;
+           match goal with H: fill_K _ _ = Val _ |- _ =>
+             apply fill_K_val in H as [-> ->] end; inversion H0).
+  Qed.
+
   (** Head-step determinant lemmas *)
   Lemma head_load_det l σ e2 σ2 efs :
     head_step (Load (Val (LitLoc l))) σ e2 σ2 efs →
@@ -892,6 +936,100 @@ Section snakelet_wp.
     intros -> ?. iApply wp_for_list'; eauto.
   Qed.
 
+  (** Dict-key For-loop WP rules.  Same structure as list For, but the
+      iteration binds the KEY (first element of each pair).  The invariant
+      [P : list sn_val -> iProp] operates on the *key list* extracted from
+      the dict's key-value pairs by [dict_keys]. *)
+  Lemma wp_for_dict_nil s E x body Φ :
+    ▷ Φ LitUnit -∗
+    WP For x (Val (LitDict [])) body @ s; E {{ Φ }}.
+  Proof.
+    iIntros "HΦ".
+    iApply wp_lift_pure_step_no_fork; [ | | ].
+    - intros σ. destruct s.
+      + apply reducible_no_obs_reducible,
+          (reducible_no_obs_pure_step _ _ σ (PureForDictNil x body)).
+      + simpl. reflexivity.
+    - intros κ σ1 e2' σ2 efs Hprim.
+      pose proof (prim_for_dict_nil_det _ _ _ _ _ _ _ Hprim) as (->&->&->&_); done.
+    - iModIntro. iNext. iModIntro. iIntros (κ e2' efs σ Hprim) "Hcred".
+      pose proof (prim_for_dict_nil_det _ _ _ _ _ _ _ Hprim) as [_ [_ [_ He2]]].
+      rewrite He2. iApply wp_value'. by iFrame.
+  Qed.
+
+  Lemma wp_for_dict_cons s E x k v kvs body Φ :
+    ▷ WP Let "_" (subst x k body) (For x (Val (LitDict kvs)) body) @ s; E {{ Φ }} -∗
+    WP For x (Val (LitDict ((k, v) :: kvs))) body @ s; E {{ Φ }}.
+  Proof.
+    iIntros "HΦ".
+    iApply wp_lift_pure_step_no_fork; [ | | ].
+    - intros σ. destruct s.
+      + apply reducible_no_obs_reducible,
+          (reducible_no_obs_pure_step _ _ σ (PureForDictCons x k v kvs body)).
+      + simpl. reflexivity.
+    - intros κ σ1 e2' σ2 efs Hprim.
+      pose proof (prim_for_dict_cons_det _ _ _ _ _ _ _ _ _ _ Hprim) as (->&->&->&_); done.
+    - iModIntro. iNext. iModIntro. iIntros (κ e2' efs σ Hprim) "Hcred".
+      pose proof (prim_for_dict_cons_det _ _ _ _ _ _ _ _ _ _ Hprim) as [_ [_ [_ He2]]].
+      rewrite He2.
+      iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
+      iFrame "HΦ".
+  Qed.
+
+  (** Dict-key fold rule.  Induction over the key-value pair list [kvs];
+      the invariant [P] holds over the remaining *key list* extracted by
+      [dict_keys]. *)
+   Lemma wp_for_dict_keys s E x body (kvs : list (sn_val * sn_val))
+       (P : list sn_val -> iProp Σ) :
+     (forall w, subst "_" w body = body) ->
+     P (dict_keys kvs) -∗
+     (□ ∀ (k v : sn_val) (rest : list (sn_val * sn_val)),
+         P (k :: dict_keys rest) -∗
+         WP subst x k body @ s; E {{ _, P (dict_keys rest) }}) -∗
+     WP For x (Val (LitDict kvs)) body @ s; E {{ _, P [] }}.
+  Proof.
+    iIntros (Hclosed) "HP #Hstep".
+    iInduction kvs as [|[k v] kvs'] "IH"; simpl.
+    - iApply wp_for_dict_nil. by iFrame.
+    - iApply wp_for_dict_cons. iNext.
+      iApply (wp_bind (fill_item (LetCtx "_" _))).
+      iApply (wp_wand with "[HP]").
+      { iApply ("Hstep" $! k v kvs' with "HP"). }
+      iIntros (w) "HPvs". simpl.
+      iApply wp_let. iNext.
+      assert (subst "_" w (For x (Val (LitDict kvs')) body)
+              = For x (Val (LitDict kvs')) body) as Heq.
+      { cbn [subst]. destruct (String.eqb "_" x); by rewrite ?Hclosed. }
+      rewrite Heq.
+      iApply ("IH" with "HPvs").
+  Qed.
+
+  (** Dict-key variant with general postcondition Φ. *)
+  Lemma wp_for_dict_keys' s E x body (kvs : list (sn_val * sn_val))
+      (P : list sn_val -> iProp Σ) (Φ : sn_val -> iProp Σ) :
+    (forall w, subst "_" w body = body) ->
+     P (dict_keys kvs) -∗
+     (□ ∀ (k v : sn_val) (rest : list (sn_val * sn_val)),
+         P (k :: dict_keys rest) -∗
+         WP subst x k body @ s; E {{ _, P (dict_keys rest) }}) -∗
+     (P [] -∗ Φ LitUnit) -∗
+     WP For x (Val (LitDict kvs)) body @ s; E {{ Φ }}.
+  Proof.
+    iIntros (Hclosed) "HP #Hstep Hpost".
+    iInduction kvs as [|[k v] kvs'] "IH"; simpl.
+    - iApply wp_for_dict_nil. iNext. by iApply "Hpost".
+    - iApply wp_for_dict_cons. iNext.
+      iApply (wp_bind (fill_item (LetCtx "_" _))).
+      iApply (wp_wand with "[HP]").
+      { iApply ("Hstep" $! k v kvs' with "HP"). }
+      iIntros (w) "HPvs". simpl.
+      iApply wp_let. iNext.
+      assert (subst "_" w (For x (Val (LitDict kvs')) body)
+              = For x (Val (LitDict kvs')) body) as Heq.
+      { cbn [subst]. destruct (String.eqb "_" x); by rewrite ?Hclosed. }
+      rewrite Heq.
+      iApply ("IH" with "HPvs Hpost").
+  Qed.
 
   (** Automation: repeatedly apply pure WP reductions. *)
   Ltac snakelet_pures :=
