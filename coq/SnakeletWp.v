@@ -524,6 +524,34 @@ Section snakelet_wp.
       iApply ("IH" with "HPvs Hpost").
   Qed.
 
+  (** Forall-accumulating for-loop.  Mirrors wp_for_list' but decomposes
+      the Forall-invariant into per-element [Q v] premises. *)
+  Lemma wp_for_list_forall (Q : sn_val -> Prop) s E x body (M : list sn_val)
+      (Φ : sn_val -> iProp Σ) :
+    (forall w, subst "_" w body = body) ->
+    ⌜Forall Q M⌝ -∗
+    (□ ∀ v vs,
+        ⌜Forall Q (v :: vs)⌝ -∗
+        WP subst x v body @ s; E {{ _, ⌜Forall Q vs⌝ }}) -∗
+    (⌜Forall Q []⌝ -∗ Φ LitUnit) -∗
+    WP For x (Val (LitList M)) body @ s; E {{ Φ }}.
+  Proof.
+    iIntros (Hclosed) "HP #Hstep Hpost".
+    iInduction M as [|v vs] "IH"; simpl.
+    - iApply wp_for_nil. iNext. by iApply "Hpost".
+    - iApply wp_for_cons. iNext.
+      iApply (wp_bind (fill_item (LetCtx "_" _))).
+      iApply (wp_wand with "[HP]").
+      { iApply ("Hstep" $! v vs with "HP"). }
+      iIntros (w) "HPvs". simpl.
+      iApply wp_let. iNext.
+      assert (subst "_" w (For x (Val (LitList vs)) body)
+              = For x (Val (LitList vs)) body) as Heq.        
+      { cbn [subst]. destruct (String.eqb "_" x); by rewrite ?Hclosed. }
+      rewrite Heq.
+      iApply ("IH" with "HPvs Hpost").
+  Qed.
+
   Lemma wp_raise s E v Φ :
     ▷ Φ v -∗ WP Raise (Val v) @ s; E {{ Φ }}.
   Proof.
