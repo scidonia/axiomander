@@ -123,6 +123,18 @@ def extract_contracts(
 _AUG_OPS = {"+": "add", "-": "sub", "*": "mul"}
 
 
+def _iterable_type_for_kind(kind: str, iterable, lw) -> str:
+    """Determine iterable_type for an SFor from the classifier kind."""
+    if kind == "dict":
+        return "dict"
+    if kind in ("str", "name"):
+        if (hasattr(iterable, 'name') and hasattr(lw, '_dict_params')
+                and iterable.name in lw._dict_params):
+            return "dict"
+        return "list"
+    return kind  # "list", etc.
+
+
 def _classify_iterable(it: "object") -> str:
     """Classify a for-loop iterable for a precise unsupported-feature
     diagnostic.  Returns one of: 'list', 'dict', 'set', 'str', 'generator',
@@ -354,7 +366,8 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
                     body_e = _fold(list(s.body), lw, invs_iter=invs_iter)
                     invs = next_invs()
                     for_e = SFor(var=s.var, lst=lst_e, body=body_e,
-                                 invariants=invs)
+                                 invariants=invs,
+                                 iterable_type=_iterable_type_for_kind(kind, s.iterable, lw))
                     rest_e = _fold(rest, lw, invs_iter=invs_iter)
                     return SLet(var="_", value=for_e, body=rest_e)
             raise IrisGenError(_iterable_not_supported_msg(kind, s.var))
@@ -415,7 +428,8 @@ def _subst_params(e: SExpr, params: set[str], bound: set[str],
         return SFor(var=e.var,
                     lst=_subst_params(e.lst, params, bound, lp),
                     body=_subst_params(e.body, params, bound | {e.var}, lp),
-                    invariants=e.invariants)
+                    invariants=e.invariants,
+                    iterable_type=e.iterable_type)
     if isinstance(e, SApp):
         return SApp(func=e.func,
                     args=[_subst_params(a, params, bound, lp) for a in e.args])
@@ -526,7 +540,8 @@ def _anf(e: SExpr, ctr: list[int]) -> SExpr:
                 "for-loop iterable must be an atom (list literal or "
                 "variable); lower complex iterables to a let-bound list first")
         return SFor(var=e.var, lst=e.lst, body=_anf(e.body, ctr),
-                    invariants=e.invariants)
+                    invariants=e.invariants,
+                    iterable_type=e.iterable_type)
     raise IrisGenError(f"unsupported node in ANF: {type(e).__name__}")
 
 
@@ -569,11 +584,93 @@ def _validate_ops(e: SExpr) -> None:
 # -- Entry point --------------------------------------------------------------
 
 def _detect_list_params(body: SExpr, params: set[str]) -> dict[str, str]:
-    """Find params used as for-loop iterables and assign model variable names."""
+    """Find params used as list for-loop iterables and assign model variable names."""
     out: dict[str, str] = {}
     def walk(e: SExpr) -> None:
         if isinstance(e, SFor):
-            if isinstance(e.lst, SVar) and e.lst.name in params:
+            if isinstance(e.lst, SVar) and e.lst.name in params \
+               and e.iterable_type in ("list", "str", "name"):
+                out[e.lst.name] = f"M_{e.lst.name}"
+            walk(e.lst)
+            walk(e.body)
+        elif isinstance(e, SLet):
+            walk(e.value)
+            walk(e.body)
+        elif isinstance(e, SIf):
+            walk(e.cond)
+            walk(e.then_branch)
+            if e.else_branch:
+                walk(e.else_branch)
+        elif isinstance(e, SWhile):
+            walk(e.cond)
+            walk(e.body)
+        elif isinstance(e, SBinOp):
+            walk(e.left)
+            walk(e.right)
+        elif isinstance(e, SApp):
+            for a in e.args:
+                walk(a)
+        elif isinstance(e, SAlloc):
+            walk(e.value)
+        elif isinstance(e, SStore):
+            walk(e.value)
+        elif isinstance(e, SLoad):
+            pass
+        elif isinstance(e, (SLit, SVar)):
+            pass
+        else:
+            raise IrisGenError(
+                f"unsupported node in list-param detection: {type(e).__name__}")
+    walk(body)
+    return out
+
+
+def _detect_dict_params(body: SExpr, params: set[str]) -> dict[str, str]:
+    """Find params used as dict for-loop iterables and assign model variable names."""
+    out: dict[str, str] = {}
+    def walk(e: SExpr) -> None:
+        if isinstance(e, SFor):
+            if isinstance(e.lst, SVar) and e.lst.name in params \
+               and e.iterable_type == "dict":
+                out[e.lst.name] = f"kvs_{e.lst.name}"
+            walk(e.lst)
+            walk(e.body)
+        elif isinstance(e, SLet):
+            walk(e.value)
+            walk(e.body)
+        elif isinstance(e, SIf):
+            walk(e.cond)
+            walk(e.then_branch)
+            if e.else_branch:
+                walk(e.else_branch)
+        elif isinstance(e, SWhile):
+            walk(e.cond)
+            walk(e.body)
+        elif isinstance(e, SBinOp):
+            walk(e.left)
+            walk(e.right)
+        elif isinstance(e, SApp):
+            for a in e.args:
+                walk(a)
+        elif isinstance(e, SAlloc):
+            walk(e.value)
+        elif isinstance(e, SStore):
+            walk(e.value)
+        elif isinstance(e, SLoad):
+            pass
+        elif isinstance(e, (SLit, SVar)):
+            pass
+        else:
+            raise IrisGenError(
+                f"unsupported node in dict-param detection: {type(e).__name__}")
+    walk(body)
+    return out
+    """Find params used as list for-loop iterables and assign model variable names."""
+    out: dict[str, str] = {}
+    def walk(e: SExpr) -> None:
+        if isinstance(e, SFor):
+            if isinstance(e.lst, SVar) and e.lst.name in params \
+               and e.iterable_type in ("list", "str", "name"):
                 out[e.lst.name] = f"M_{e.lst.name}"
             walk(e.lst)
             walk(e.body)
@@ -614,6 +711,7 @@ def python_to_iris_proof(source: str,
                          func_name: Optional[str] = None,
                          axioms: Optional[list[str]] = None,
                          pre_overrides: Optional[dict[str, str]] = None,
+                         dict_params: Optional[set[str]] = None,
                          ) -> IrisProof:
     """Lower a Python function with assert contracts to a staged Iris proof.
 
@@ -621,6 +719,7 @@ def python_to_iris_proof(source: str,
     table: callee contract/definition table (FunTable).
     func_name: which function to verify (default: the first def).
     axioms / pre_overrides: SMT escalation inputs, passed through.
+    dict_params: set of parameter names that are dicts (for for-loop detection).
     """
     tree = ast.parse(source)
     target = None
@@ -637,11 +736,14 @@ def python_to_iris_proof(source: str,
 
     # Body: PyIR -> SnakeletIR -> ANF
     fn = PyIRTranslator().translate_function(target)
-    lw = IrisLowerer(loc_map={}, func_name=fn.name)
+    user_dict = dict_params or set()
+    lw = IrisLowerer(loc_map={}, func_name=fn.name, dict_params=user_dict)
     invs_iter = iter(contracts.loop_invariants) if contracts.loop_invariants else None
     body = _fold(fn.body, lw, invs_iter=iter(contracts.loop_invariants))
     list_params = _detect_list_params(body, set(fn.params))
-    body = _subst_params(body, set(fn.params), set(), set(list_params.keys()))
+    detected_dict = _detect_dict_params(body, set(fn.params))
+    body = _subst_params(body, set(fn.params), set(),
+                         set(list_params.keys()) | set(detected_dict.keys()))
     body = _anf(body, [0])
     _validate_ops(body)
 
@@ -655,4 +757,5 @@ def python_to_iris_proof(source: str,
         axioms=axioms,
         pre_overrides=pre_overrides,
         list_params=list_params,
+        dict_params=detected_dict,
     )

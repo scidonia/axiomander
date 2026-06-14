@@ -29,11 +29,13 @@ class IrisLowerer:
     """Lower PyIR functions to SnakeletIR functions for Iris verification."""
 
     def __init__(self, loc_map: dict[str, str], func_name: str = "",
-                 contract_map: dict | None = None, param_types: dict[str, str] | None = None):
+                 contract_map: dict | None = None, param_types: dict[str, str] | None = None,
+                 dict_params: set[str] | None = None):
         self.loc_map = loc_map      # "box.value" → "l__box_value"
         self._func_name = func_name
         self._contract_map = contract_map or {}
         self._param_types = param_types or {}
+        self._dict_params = dict_params or set()
         self._vc = 0
         self._pure_conditions: list[SPure] = []
 

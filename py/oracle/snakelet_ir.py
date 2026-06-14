@@ -118,6 +118,7 @@ class SFor:
     lst: "SExpr"
     body: "SExpr"
     invariants: list[str] = field(default_factory=list)  # Coq Props (suffix invariant)
+    iterable_type: str = "list"   # "list" | "dict" | "name" — which wp_for_* lemma to use
     kind: Literal["for"] = "for"
 
     def to_coq(self) -> str:
