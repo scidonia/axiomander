@@ -14,11 +14,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
-from oracle.dim_ir import (
+from axiomander.oracle.dim_ir import (
     DimVec, dim_parse, parse_units_section,
     DimConstraint, check_constraints,
 )
-from oracle.dim_checker import check_dimensions_from_source
+from axiomander.oracle.dim_checker import check_dimensions_from_source
 
 
 # ── 1. DimVec algebra ─────────────────────────────────────────────
@@ -498,8 +498,8 @@ def wrong(a: float, b: float) -> float:
             "AXIOMANDER_ROOT",
             str(Path(__file__).resolve().parent.parent.parent)
         )
-        from oracle.mcp_server import _verify_function_full
-        from oracle.reporting import ProofLevel
+        from axiomander.oracle.mcp_server import _verify_function_full
+        from axiomander.oracle.reporting import ProofLevel
 
         source = '''
 def wrong_add(revenue: float, headcount: int) -> float:
@@ -536,8 +536,8 @@ def wrong_add(revenue: float, headcount: int) -> float:
             "AXIOMANDER_ROOT",
             str(Path(__file__).resolve().parent.parent.parent)
         )
-        from oracle.mcp_server import _verify_function_full
-        from oracle.reporting import ProofLevel
+        from axiomander.oracle.mcp_server import _verify_function_full
+        from axiomander.oracle.reporting import ProofLevel
 
         source = '''
 def revenue_per_user(revenue: float, users: int) -> float:

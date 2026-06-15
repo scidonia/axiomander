@@ -5,13 +5,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from oracle.mcp_server import (
+from axiomander.oracle.mcp_server import (
     _generate_coq, _render_obligations_coq, _gen_imp_body, _build_contract_map,
     ContractLinter, _classify_assert, _infer_var_types, _func_params,
     _expand_params, _collect_predicates, _detect_ghost_vars,
     _docstring_contract_asserts,
 )
-from oracle.imp_ir import ImpCCall
+from axiomander.oracle.imp_ir import ImpCCall
 
 
 def dump_obligations(source: str, func_name: str, outdir: str) -> str:
@@ -42,7 +42,7 @@ def dump_obligations(source: str, func_name: str, outdir: str) -> str:
             cls = _classify_assert(func_node, stmt)
             linter = linter_pre if cls == "precondition" else linter_post
             lr = linter.lint_expression(stmt.test)
-            from oracle.mcp_server import AssertInfo
+            from axiomander.oracle.mcp_server import AssertInfo
             lint_results.append(AssertInfo(
                 node=stmt, lineno=stmt.lineno, col_offset=stmt.col_offset,
                 classification=cls, lint_result=lr,
@@ -50,7 +50,7 @@ def dump_obligations(source: str, func_name: str, outdir: str) -> str:
     for stmt, cls in _docstring_contract_asserts(func_node):
         linter = linter_pre if cls == "precondition" else linter_post
         lr = linter.lint_expression(stmt.test)
-        from oracle.mcp_server import AssertInfo
+        from axiomander.oracle.mcp_server import AssertInfo
         lint_results.append(AssertInfo(
             node=stmt, lineno=stmt.lineno, col_offset=stmt.col_offset,
             classification=cls, lint_result=lr,

@@ -1,13 +1,13 @@
 """Tests for the case extractor (case-dispatch verification Phase 1)."""
 
 import pytest
-from oracle.case_extractor import (
+from axiomander.oracle.case_extractor import (
     CaseBranch,
     extract_cases,
     _has_loops,
     validate_mutual_exclusivity,
 )
-from oracle.imp_ir import (
+from axiomander.oracle.imp_ir import (
     ImpCIf, ImpCSeq, ImpCWhile, ImpCAss,
     ImpBEq, ImpBTrue, ImpBFalse, ImpBNot,
     ImpANum, ImpAVar,
@@ -201,7 +201,7 @@ def test_has_loops_no_loop():
 
 def test_condition_conjunct():
     """condition_conjunct builds BAnd chain."""
-    from oracle.imp_ir import ImpBAnd
+    from axiomander.oracle.imp_ir import ImpBAnd
     br = CaseBranch(
         path_conditions=[ImpBTrue(), ImpBTrue()],
         assignments=[],

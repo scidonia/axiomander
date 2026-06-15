@@ -1,4 +1,4 @@
-from py.contracts import requires, ensures
+from axiomander.contracts import requires, ensures
 
 
 # ─── add ───

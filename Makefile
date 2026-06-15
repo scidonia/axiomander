@@ -26,15 +26,15 @@ build: setup-coq
 # ─── Test ─────────────────────────────────────────────────────────
 
 test: build
-	eval $$(opam env) && PYTHONPATH=py uv run pytest py/tests/ -v
+	eval $$(opam env) && uv run pytest py/tests/ -v
 
 # ─── Oracle (interactive coq-lsp proving) ─────────────────────────
 
 oracle-test:
-	eval $$(opam env) && PYTHONPATH=py uv run python3 -c "\
-		from oracle.mcp_server import _try_coqlsp_oracle; \
-		from oracle.reporting import GoalStatus, ProofLevel; \
-		source = open('py/examples/demo.py').read(); \
+	eval $$(opam env) && uv run python3 -c "\
+		from axiomander.oracle.mcp_server import _try_coqlsp_oracle; \
+		from axiomander.oracle.reporting import GoalStatus, ProofLevel; \
+		source = open('py/axiomander/examples/demo.py').read(); \
 		goal = GoalStatus(name='demo', goal_statement='', level=ProofLevel.UNPROVED); \
 		r = _try_coqlsp_oracle(source, 'add', goal); \
 		print(f'Result: {r.level.value}')"
@@ -42,7 +42,7 @@ oracle-test:
 # ─── MCP Server ───────────────────────────────────────────────────
 
 run-mcp:
-	eval $$(opam env) && PYTHONPATH=py uv run python3 -m oracle.mcp_server
+	eval $$(opam env) && uv run python3 -m axiomander.oracle.mcp_server
 
 # ─── Clean ────────────────────────────────────────────────────────
 

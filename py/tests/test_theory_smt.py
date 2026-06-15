@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 with warnings.catch_warnings():
     warnings.simplefilter("ignore", DeprecationWarning)
-    from oracle.theory_smt import (
+    from axiomander.oracle.theory_smt import (
         _python_re_to_smt,
         TheoryDispatcher,
         classify_goal,
@@ -35,8 +35,8 @@ with warnings.catch_warnings():
         STRING_THEORY,
         FLOAT_THEORY,
     )
-from oracle.mcp_server import _verify_function
-from oracle.reporting import ProofLevel
+from axiomander.oracle.mcp_server import _verify_function
+from axiomander.oracle.reporting import ProofLevel
 
 
 # ── Helpers ───────────────────────────────────────────────────────

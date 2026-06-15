@@ -206,7 +206,7 @@ def run_langgraph_oracle(
     if ChatOpenAI is None:
         return False, "", "langgraph not installed"
 
-    from oracle.client import _consume_credit
+    from axiomander.oracle.client import _consume_credit
 
     est_calls = min(max_steps, 5)
     for _ in range(est_calls):

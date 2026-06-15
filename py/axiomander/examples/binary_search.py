@@ -12,7 +12,7 @@ Properties to prove:
   4. Termination: (hi - lo) strictly decreases each iteration
 """
 
-from py.contracts import requires, ensures
+from axiomander.contracts import requires, ensures
 
 
 @requires(lambda arr, target: len(arr) >= 0)  # array may be empty

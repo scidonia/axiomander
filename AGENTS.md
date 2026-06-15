@@ -111,7 +111,7 @@ eval $(opam env)
 dune build
 
 # Python side (when present)
-eval $(opam env); PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
+eval $(opam env); uv run pytest py/tests/ -v
 
 # rocq-piler MCP server (for AI tool-calling)
 cd vendor/rocq-piler && npm install && npm run build
@@ -120,8 +120,8 @@ cd vendor/rocq-piler && npm install && npm run build
 # Add to ~/.config/opencode/opencode.json:
 #   "mcp": {
 #     "axiomander": {
-#       "command": ["/path/to/axiomander/.venv/bin/python3", "-u", "-m", "oracle.mcp_server"],
-#       "environment": { "PYTHONPATH": "/path/to/axiomander/py", "AXIOMANDER_ROOT": "/path/to/axiomander", ... }
+#       "command": ["/path/to/axiomander/.venv/bin/python3", "-u", "-m", "axiomander.oracle.mcp_server"],
+#       "environment": { "AXIOMANDER_ROOT": "/path/to/axiomander", ... }
 #     },
 #     "rocq-piler": {
 #       "command": ["node", "/path/to/axiomander/vendor/rocq-piler/dist/index.js", "--coq-lsp-path", "/path/to/coq-lsp"]

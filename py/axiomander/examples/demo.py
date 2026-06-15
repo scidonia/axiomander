@@ -5,7 +5,7 @@ Each function demonstrates a specific proof obligation pattern.
 Run the WP transformer on these to generate Coq proof goals.
 """
 
-from py.contracts import requires, ensures, invariant
+from axiomander.contracts import requires, ensures, invariant
 
 
 # ─── Example 1: Simple arithmetic ──────────────────────────────────

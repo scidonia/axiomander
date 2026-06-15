@@ -44,8 +44,8 @@ def _compute_diagnostics(source: str) -> list[lsp.Diagnostic]:
     if not funcs:
         return diagnostics
 
-    from oracle.mcp_server import tool_verify_changed
-    from oracle.cache import VerificationCache
+    from axiomander.oracle.mcp_server import tool_verify_changed
+    from axiomander.oracle.cache import VerificationCache
     try:
         result = tool_verify_changed({"source": source})
     except Exception:
@@ -55,7 +55,7 @@ def _compute_diagnostics(source: str) -> list[lsp.Diagnostic]:
     if "All functions up to date" in result:
         cache = VerificationCache()
         for node in funcs:
-            from oracle.mcp_server import _compute_hashes
+            from axiomander.oracle.mcp_server import _compute_hashes
             h = _compute_hashes(source, node.name)
             if h:
                 cached = cache.lookup(node.name, h)

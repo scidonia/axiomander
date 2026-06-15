@@ -1,7 +1,7 @@
 [project]
 name = "axiomander"
 version = "0.9.0"
-description = "Hoare-logic verification pipeline for Python — assert contracts → Coq + SMT + LLM"
+description = "Hoare-logic verification pipeline for Python -- assert contracts -> Coq + SMT + LLM"
 requires-python = ">=3.11"
 dependencies = [
     "typer>=0.9",
@@ -19,16 +19,16 @@ dependencies = [
 testgen = ["hypothesis>=6.0"]
 
 [project.scripts]
-axiomander-mcp = "oracle.mcp_server:main"
-axiomander = "oracle.mcp_server:main"
+axiomander-mcp = "axiomander.oracle.mcp_server:main"
+axiomander = "axiomander.oracle.mcp_server:main"
 
 [build-system]
 requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["py", "py.*"]
+where = ["py"]
+include = ["axiomander*"]
 
 [tool.uv.sources]
 coqpyt = { git = "https://github.com/sr-lab/coqpyt.git" }

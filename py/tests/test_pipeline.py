@@ -14,13 +14,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
 
-from oracle.contract_linter import ContractLinter, AssertInfo
-from oracle.python_to_imp import python_to_imp
-from oracle.mcp_server import (
+from axiomander.oracle.contract_linter import ContractLinter, AssertInfo
+from axiomander.oracle.python_to_imp import python_to_imp
+from axiomander.oracle.mcp_server import (
     _generate_coq, _classify_assert, _expand_params, _infer_var_types,
     _verify_function,
 )
-from oracle.reporting import GoalStatus, ProofLevel
+from axiomander.oracle.reporting import GoalStatus, ProofLevel
 
 
 BUILD_DIR = Path(__file__).resolve().parent.parent.parent / "_build" / "default" / "coq"

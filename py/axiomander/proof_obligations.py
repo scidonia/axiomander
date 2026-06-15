@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from py.wp_transformer import (
+from axiomander.wp_transformer import (
     parse_python,
     get_decorated_functions,
     get_decorator_name,

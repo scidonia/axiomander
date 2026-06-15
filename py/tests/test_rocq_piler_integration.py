@@ -16,14 +16,14 @@ pytestmark = [pytest.mark.slow]
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "py"))
 
-from oracle.mcp_server import _verify_function, _gen_imp_body, _build_contract_map, _generate_coq
-from oracle.rocq_robot_client import RocqRobotClient
+from axiomander.oracle.mcp_server import _verify_function, _gen_imp_body, _build_contract_map, _generate_coq
+from axiomander.oracle.rocq_robot_client import RocqRobotClient
 
 
 def generate_coq(source: str, func_name: str) -> str:
     """Generate the Coq theorem file for a function (same path as MCP server)."""
-    from oracle.python_to_imp import translator
-    from oracle.assertion_finder import find_assertions
+    from axiomander.oracle.python_to_imp import translator
+    from axiomander.oracle.assertion_finder import find_assertions
 
     tree = translator.parse_source(source)
     func_node = tree.find_function(func_name)

@@ -431,7 +431,7 @@ MCP_INTEGRATION_GUIDE = """
 ### Step 1: Annotate
 Add contracts to your Python code:
 
-    from py.contracts import requires, ensures
+    from axiomander.contracts import requires, ensures
 
     @requires(lambda n: n >= 0)
     @ensures(lambda n, result: result == n * (n + 1) // 2)

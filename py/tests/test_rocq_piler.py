@@ -16,10 +16,11 @@ from pathlib import Path
 
 import pytest
 
+from axiomander.oracle.rocq_robot_client import RocqRobotClient, GoalState
 # Every test in this module invokes the full Coq toolchain.
 pytestmark = [pytest.mark.slow]
 
-from oracle.rocq_robot_client import RocqRobotClient, GoalState
+from axiomander.oracle.rocq_robot_client import RocqRobotClient, GoalState
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 IMPORT_PREAMBLE = """From Stdlib Require Import ZArith List.
@@ -144,7 +145,7 @@ class TestRocqPilerAxiomander:
 
     def _generate_proof_file(self, source: str, func_name: str) -> Path:
         """Generate a .v file with the proof obligation for a Python function."""
-        from oracle.mcp_server import _verify_function
+        from axiomander.oracle.mcp_server import _verify_function
 
         result = _verify_function(source, func_name)
         if result is None:
@@ -167,7 +168,7 @@ class TestRocqPilerAxiomander:
     result = a + b
     assert result == a + b
     return result"""
-        from oracle.mcp_server import _verify_function
+        from axiomander.oracle.mcp_server import _verify_function
 
         result = _verify_function(source, "add")
         assert result is not None

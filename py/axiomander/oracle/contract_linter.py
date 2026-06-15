@@ -539,12 +539,12 @@ class ContractLinter(ast.NodeVisitor):
                 type_arg = node.args[1]
                 type_name = None
                 if isinstance(type_arg, ast.Attribute):
-                    from oracle.mcp_server import _dotted_path
+                    from axiomander.oracle.mcp_server import _dotted_path
                     type_name = _dotted_path(type_arg)
                 elif isinstance(type_arg, ast.Name):
                     type_name = type_arg.id
                 if type_name:
-                    from oracle.py_to_imp import PyToImpLowerer
+                    from axiomander.oracle.py_to_imp import PyToImpLowerer
                     tag = PyToImpLowerer._TYPE_TAG_MAP.get(type_name)
                     if tag is not None:
                         tag_var = f"{obj_name}_tag"

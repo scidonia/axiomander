@@ -46,7 +46,7 @@ uv pip install -e .
 
 # Run the test suite
 eval $(opam env)
-PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
+uv run pytest py/tests/ -v
 ```
 
 ## Usage
@@ -409,7 +409,7 @@ MCP tool `frame-report` shows contracts and frame conditions for any function.
 
 ```bash
 eval $(opam env)
-PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
+uv run pytest py/tests/ -v
 ```
 
 130 pipeline tests covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, docstring contracts, old-state syntax, reads/modifies frames, range quantifiers, stub integration, tuple/bytes/dict/set/None value comparisons, implication, loop-predicate contract inlining, user-defined predicates, exception contracts, validate_assignment enforcement, nested Pydantic models, constructor CCalls, isinstance dispatch with type-tag lowering, and collection fields.
@@ -442,7 +442,7 @@ Axiomander exposes its tools as an MCP server. Wire it into your editor for inli
   "mcpServers": {
     "axiomander": {
       "command": "uv",
-      "args": ["run", "python", "-m", "oracle.mcp_server"],
+      "args": ["run", "python", "-m", "axiomander.oracle.mcp_server"],
       "cwd": "/path/to/axiomander",
       "env": {
         "AXIOMANDER_ROOT": "/path/to/axiomander",
@@ -474,7 +474,8 @@ Axiomander exposes its tools as an MCP server. Wire it into your editor for inli
 
 ```
 py/
-  oracle/
+  axiomander/
+    oracle/
     contract_linter.py   # Python AST → IR (Coq + SMT targets)
     contract_ir.py       # Expression IR (Pydantic models)
     python_to_imp.py     # Python AST → IMP commands
