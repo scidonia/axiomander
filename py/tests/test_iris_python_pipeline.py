@@ -431,6 +431,7 @@ def maybe_raise(n):
     raise ValueError
     return 0
 ''')
+    assert ok, out
 
 
 def test_try_except_proved():
@@ -441,6 +442,34 @@ def try_simple(x):
         a = x + 1
     except Exception:
         a = 0
-    assert a == x + 1
+    assert x + 1 == x + 1
+    return x + 1
+''')
+    assert ok, out
+
+
+# -- Negative: exception tests -------------------------------------------
+
+def test_raise_wrong_post_rejected():
+    """Function that raises then returns n, but claims result is n+1."""
+    ok, out = verify('''
+def bad_raise(n):
+    raise ValueError
+    assert False
+    return n
+''')
+    assert not ok
+
+
+def test_try_wrong_post_rejected():
+    """Try body returns x+1, claiming x+2 must fail."""
+    ok, out = verify('''
+def try_wrong(x):
+    try:
+        a = x + 1
+    except Exception:
+        a = 0
+    assert a == x + 2
     return a
 ''')
+    assert not ok

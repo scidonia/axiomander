@@ -548,15 +548,16 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
 
     if isinstance(e, SRaise):
         def after_exc():
-            return [Stage("raise_val", "raise_val",
+            return [Stage("pure_step", "pure_step",
                           comment="raise exception")] + k()
         return _gen(e.exc, table, overrides, after_exc, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
 
     if isinstance(e, STry):
-        def after_body():
-            return [Stage("try_val", "try_val",
-                          comment="try/except: body returned normally")] + k()
-        return _gen(e.body, table, overrides, after_body, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+        # ANF ensures the body is an atom (value or variable), so after
+        # substitution/sub-reduction it becomes Try (Val v) handler.
+        # pure_step_redex handles Try (Val _) _ via wp_try_val.
+        return [Stage("pure_step", "pure_step",
+                       comment="try/except: body returned normally")] + k()
 
     raise IrisGenError(
         f"unsupported node for staged generation: {type(e).__name__} "

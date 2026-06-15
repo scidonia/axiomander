@@ -232,6 +232,10 @@ Ltac pure_step_redex :=
       snakelet_pure_step; iNext; snakelet_simpl
   | |- envs_entails _ (wp _ _ (DictSet (Val _) (Val _) (Val _)) _) =>
       snakelet_pure_step; iNext; snakelet_simpl
+  | |- envs_entails _ (wp _ _ (Try (Val _) _) _) =>
+      iApply wp_try_val; iNext; snakelet_simpl
+  | |- envs_entails _ (wp _ _ (Raise (Val _)) _) =>
+      iApply wp_raise; iNext; snakelet_simpl
   | |- envs_entails _ (wp _ _ (If (Val (LitBool true)) _ _) _) =>
       snakelet_pure_step; iNext; snakelet_simpl
   | |- envs_entails _ (wp _ _ (If (Val (LitBool false)) _ _) _) =>

@@ -588,9 +588,13 @@ def _anf(e: SExpr, ctr: list[int]) -> SExpr:
         exc = _atomize(e.exc, ctr, binds)
         return _wrap(binds, SRaise(exc=exc))
     if isinstance(e, STry):
-        return STry(body=_anf(e.body, ctr),
-                    exc_var=e.exc_var,
-                    handler=_anf(e.handler, ctr))
+        # Atomize the body so the Try body is always a value/atom.
+        # This avoids needing TryCtx in reshape_expr.
+        binds: list[tuple[str, SExpr]] = []
+        body_atom = _atomize(e.body, ctr, binds)
+        handler_nf = _anf(e.handler, ctr)
+        return _wrap(binds, STry(body=body_atom, exc_var=e.exc_var,
+                                 handler=handler_nf))
     raise IrisGenError(f"unsupported node in ANF: {type(e).__name__}")
 
 
