@@ -1,5 +1,5 @@
 """
-test_gen.py -- Hypothesis property-test generator from assert contracts.
+generate_property_tests.py -- Hypothesis property-test generator from assert contracts.
 
 Level A of the executable-tests feature.  Reads a Python source file,
 extracts assert-based contracts (preconditions / postconditions) via the

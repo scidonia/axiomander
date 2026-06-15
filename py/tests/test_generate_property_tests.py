@@ -1,4 +1,4 @@
-"""Tests for py/oracle/test_gen.py -- Hypothesis test generator.
+"""Tests for py/oracle/generate_property_tests.py -- Hypothesis test generator.
 
 Public API under test:
     generate_tests(source, func_name=None, module_path="") -> str
@@ -12,7 +12,7 @@ import ast
 import textwrap
 import pytest
 
-from oracle.test_gen import (
+from oracle.generate_property_tests import (
     generate_tests,
     extract_function_contracts,
     counterexample_to_test,
