@@ -299,6 +299,58 @@ Section snakelet_wp.
       | destruct Ki; simpl in H; discriminate H].
   Qed.
 
+  Lemma prim_dict_get_det kvs k v σ κ e2 σ2 efs :
+    dict_lookup kvs k = Some v →
+    prim_step (DictGet (Val (LitDict kvs)) (Val k)) σ κ e2 σ2 efs →
+    κ = [] ∧ σ2 = σ ∧ efs = [] ∧ e2 = Val v.
+  Proof.
+    intros Hl Hprim. inversion Hprim; subst.
+    { (* PrimPureStep *)
+      destruct K as [|Ki K']; simpl in H; [|destruct Ki; simpl in H;
+        try discriminate H;
+        (inversion H; clear H;
+         match goal with Hf: fill_K _ _ = Val _ |- _ =>
+           apply fill_K_val in Hf as [-> ->] end;
+         inversion H0)].
+      subst x. simpl. inversion H0.
+      - match goal with Hd : dict_lookup kvs k = Some ?w |- _ =>
+          rewrite Hl in Hd; injection Hd as -> end.
+        repeat split; reflexivity.
+      - match goal with Hd : dict_lookup kvs k = None |- _ =>
+          rewrite Hl in Hd; discriminate Hd end. }
+    { (* PrimHeadStep *)
+      destruct K as [|Ki K']; simpl in H; [|destruct Ki; simpl in H;
+        try discriminate H;
+        (inversion H; clear H;
+         match goal with Hf: fill_K _ _ = Val _ |- _ =>
+           apply fill_K_val in Hf as [-> ->] end;
+         inversion H0)].
+      subst x. inversion H0. }
+  Qed.
+
+  Lemma prim_dict_set_det kvs k v σ κ e2 σ2 efs :
+    prim_step (DictSet (Val (LitDict kvs)) (Val k) (Val v)) σ κ e2 σ2 efs →
+    κ = [] ∧ σ2 = σ ∧ efs = [] ∧ e2 = Val (LitDict (dict_insert kvs k v)).
+  Proof.
+    intros Hprim. inversion Hprim; subst.
+    { (* PrimPureStep *)
+      destruct K as [|Ki K']; simpl in H; [|destruct Ki; simpl in H;
+        try discriminate H;
+        (inversion H; clear H;
+         match goal with Hf: fill_K _ _ = Val _ |- _ =>
+           apply fill_K_val in Hf as [-> ->] end;
+         inversion H0)].
+      subst x. simpl. inversion H0; subst. repeat split; reflexivity. }
+    { (* PrimHeadStep *)
+      destruct K as [|Ki K']; simpl in H; [|destruct Ki; simpl in H;
+        try discriminate H;
+        (inversion H; clear H;
+         match goal with Hf: fill_K _ _ = Val _ |- _ =>
+           apply fill_K_val in Hf as [-> ->] end;
+         inversion H0)].
+      subst x. inversion H0. }
+  Qed.
+
   Lemma prim_load_det l σ κ e2 σ2 efs v :
     σ !! l = Some v →
     prim_step (Load (Val (LitLoc l))) σ κ e2 σ2 efs →
@@ -1031,6 +1083,50 @@ Section snakelet_wp.
       iApply ("IH" with "HPvs Hpost").
   Qed.
 
+  Lemma wp_dict_get s E kvs k v Φ :
+    dict_lookup kvs k = Some v →
+    ▷ Φ v -∗
+    WP DictGet (Val (LitDict kvs)) (Val k) @ s; E {{ Φ }}.
+  Proof.
+    iIntros (Hl) "HΦ".
+    iApply wp_lift_pure_step_no_fork; [ | | ].
+    - intros σ. destruct s.
+      + pose proof (reducible_no_obs_pure_step
+            (DictGet (Val (LitDict kvs)) (Val k)) (Val v) σ
+            (PureDictGet kvs k v Hl)) as Hred.
+        apply reducible_no_obs_reducible, Hred.
+      + simpl. reflexivity.
+    - intros κ σ1 e2' σ2 efs Hprim.
+      pose proof (prim_dict_get_det _ _ _ _ _ _ _ _ Hl Hprim) as (->&->&->&_); done.
+    - iModIntro. iNext. iModIntro. iIntros (κ e2' efs σ Hprim) "Hcred".
+      pose proof (prim_dict_get_det _ _ _ _ _ _ _ _ Hl Hprim) as [Hκ [Hσ [Hefs He2]]].
+      rewrite He2.
+      iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
+      iApply (wp_value' with "HΦ").
+  Qed.
+
+  Lemma wp_dict_set s E kvs k v Φ :
+    ▷ Φ (LitDict (dict_insert kvs k v)) -∗
+    WP DictSet (Val (LitDict kvs)) (Val k) (Val v) @ s; E {{ Φ }}.
+  Proof.
+    iIntros "HΦ".
+    iApply wp_lift_pure_step_no_fork; [ | | ].
+    - intros σ. destruct s.
+      + pose proof (reducible_no_obs_pure_step
+            (DictSet (Val (LitDict kvs)) (Val k) (Val v))
+            (Val (LitDict (dict_insert kvs k v))) σ
+            (PureDictSet kvs k v)) as Hred.
+        apply reducible_no_obs_reducible, Hred.
+      + simpl. reflexivity.
+    - intros κ σ1 e2' σ2 efs Hprim.
+      pose proof (prim_dict_set_det _ _ _ _ _ _ _ _ Hprim) as (->&->&->&_); done.
+    - iModIntro. iNext. iModIntro. iIntros (κ e2' efs σ Hprim) "Hcred".
+      pose proof (prim_dict_set_det _ _ _ _ _ _ _ _ Hprim) as [Hκ [Hσ [Hefs He2]]].
+      rewrite He2.
+      iDestruct (lc_weaken 1 with "Hcred") as "Hcred"; first done.
+      iApply (wp_value' with "HΦ").
+  Qed.
+
   (** Automation: repeatedly apply pure WP reductions. *)
   Ltac snakelet_pures :=
     repeat (iApply wp_binop || iApply wp_let || iApply wp_if_true || iApply wp_if_false).
@@ -1049,6 +1145,12 @@ Ltac snakelet_pure_step :=
       iApply (@wp_if_true _ _ _ _ _ _ e1 e2 Φ)
   | |- environments.envs_entails _ (wp _ _ (If (Val (LitBool false)) ?e1 ?e2) ?Φ) =>
       iApply (@wp_if_false _ _ _ _ _ _ e1 e2 Φ)
+  | |- environments.envs_entails _ (wp ?s ?E (DictGet (Val (LitDict ?kvs)) (Val ?k)) ?Φ) =>
+      let Hl := fresh "Hl" in
+      eapply (wp_dict_get s E kvs k _ Φ);
+      [ vm_compute; reflexivity | ]
+  | |- environments.envs_entails _ (wp _ _ (DictSet (Val (LitDict ?kvs)) (Val ?k) (Val ?v)) ?Φ) =>
+      iApply (@wp_dict_set _ _ _ _ _ _ kvs k v Φ)
   end.
 
 Ltac snakelet_pures := repeat snakelet_pure_step.

@@ -571,7 +571,21 @@ Section demo.
       { reflexivity. }
       { by exists 5%Z. }
       iIntros (w Hw). unfold square_post in Hw. subst w. iPureIntro. reflexivity.
-    Qed.
-  End ghost_calls.
+  Qed.
+End ghost_calls.
+
+(** * Dict operations *)
+Section dict_demo.
+  Context `{!snakelet_heapGS_gen hlc Σ}.
+
+  Lemma dict_get_hit s E :
+    ⊢ WP (DictGet (Val (LitDict [(LitInt 1, LitInt 100)])) (Val (LitInt 1)))
+      @ s; E {{ w, ⌜w = LitInt 100⌝ }}.
+  Proof.
+    iApply (@wp_dict_get _ _ _ _ _ _ [(LitInt 1, LitInt 100)] (LitInt 1) (LitInt 100) _).
+    - vm_compute. reflexivity.
+    - iNext. iPureIntro. reflexivity.
+  Qed.
+End dict_demo.
 
 End demo.

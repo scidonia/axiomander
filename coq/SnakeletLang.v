@@ -63,7 +63,7 @@ Inductive sn_expr :=
   | FAA (e1 e2 : sn_expr)
   | Fork (e : sn_expr)
   | DictGet (l key : sn_expr)
-  | DictSet (l key sn_val : sn_expr)
+  | DictSet (l key val : sn_expr)
   | Raise (e : sn_expr)
   | Try (body handler : sn_expr)
   | Call (f : string) (args : list sn_expr).
@@ -80,7 +80,8 @@ Inductive sn_ectx_item :=
   | AllocCtx
   | ForCtx (x : string) (e2 : sn_expr)
   | FaaLCtx (v2 : sn_val)
-  | FaaRCtx (v1 : sn_val).
+  | FaaRCtx (v1 : sn_val)
+  | DictGetCtx (key : sn_expr).
 
 Definition fill_item (Ki : sn_ectx_item) (x : sn_expr) : sn_expr :=
   match Ki with
@@ -95,6 +96,7 @@ Definition fill_item (Ki : sn_ectx_item) (x : sn_expr) : sn_expr :=
   | ForCtx x0 e2 => For x0 x e2
   | FaaLCtx v2 => FAA x (Val v2)
   | FaaRCtx v1 => FAA (Val v1) x
+  | DictGetCtx key => DictGet x key
   end.
 
 Definition fill_K (K : list sn_ectx_item) (x : sn_expr) : sn_expr :=
@@ -217,6 +219,20 @@ Fixpoint val_list_mem (fuel : nat) (x : sn_val) (vs : list sn_val) : bool :=
       | [] => false
       | v :: vs' => val_eqb fuel' x v || val_list_mem fuel' x vs'
       end
+  end.
+
+Fixpoint dict_lookup (kvs : list (sn_val * sn_val)) (k : sn_val) : option sn_val :=
+  match kvs with
+  | [] => None
+  | (k', v) :: rest =>
+      if val_eqb 50 k k' then Some v else dict_lookup rest k
+  end.
+
+Fixpoint dict_insert (kvs : list (sn_val * sn_val)) (k v : sn_val) : list (sn_val * sn_val) :=
+  match kvs with
+  | [] => [(k, v)]
+  | (k', v') :: rest =>
+      if val_eqb 50 k k' then (k, v) :: rest else (k', v') :: dict_insert rest k v
   end.
 
 Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
@@ -370,7 +386,16 @@ Inductive pure_step : sn_expr → sn_expr → Prop :=
   | PureForDictCons x k v kvs body :
       pure_step (For x (Val (LitDict ((k, v) :: kvs))) body)
                 (Let "_" (subst x k body) (For x (Val (LitDict kvs)) body))
-  | PureTryReturn v handler : pure_step (Try (Val v) handler) (Val v).
+  | PureTryReturn v handler : pure_step (Try (Val v) handler) (Val v)
+  | PureDictGet kvs k v :
+      dict_lookup kvs k = Some v →
+      pure_step (DictGet (Val (LitDict kvs)) (Val k)) (Val v)
+  | PureDictGetMiss kvs k :
+      dict_lookup kvs k = None →
+      pure_step (DictGet (Val (LitDict kvs)) (Val k)) (Val LitUnit)
+  | PureDictSet kvs k (v : sn_val) :
+      pure_step (DictSet (Val (LitDict kvs)) (Val k) (Val v))
+                (Val (LitDict (dict_insert kvs k v))).
 
 Definition lit_as_z (v : sn_val) : Z :=
   match v with LitInt n => n | _ => 0 end.

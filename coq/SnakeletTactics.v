@@ -228,6 +228,10 @@ Ltac pure_step_redex :=
       snakelet_pure_step; iNext; snakelet_simpl
   | |- envs_entails _ (wp _ _ (BinOp _ (Val _) (Val _)) _) =>
       snakelet_pure_step; iNext; snakelet_simpl
+  | |- envs_entails _ (wp _ _ (DictGet (Val _) (Val _)) _) =>
+      snakelet_pure_step; iNext; snakelet_simpl
+  | |- envs_entails _ (wp _ _ (DictSet (Val _) (Val _) (Val _)) _) =>
+      snakelet_pure_step; iNext; snakelet_simpl
   | |- envs_entails _ (wp _ _ (If (Val (LitBool true)) _ _) _) =>
       snakelet_pure_step; iNext; snakelet_simpl
   | |- envs_entails _ (wp _ _ (If (Val (LitBool false)) _ _) _) =>
@@ -535,6 +539,10 @@ Ltac snakelet_step :=
   | |- envs_entails _ (wp _ _ (Let _ (Val _) _) _) =>
       pure_step
   | |- envs_entails _ (wp _ _ (BinOp _ (Val _) (Val _)) _) =>
+      pure_step
+  | |- envs_entails _ (wp _ _ (DictGet (Val _) (Val _)) _) =>
+      pure_step
+  | |- envs_entails _ (wp _ _ (DictSet (Val _) (Val _) (Val _)) _) =>
       pure_step
   | |- envs_entails _ (wp _ _ (If (Val (LitBool true)) _ _) _) =>
       pure_step
