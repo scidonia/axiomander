@@ -249,6 +249,52 @@ Section gate.
         rewrite Hin in Hr. eapply raise_val_irreducible. exact Hr.
   Qed.
 
+  (** * GATE LEMMA 5: wp_bind -- composition against the Result postcondition.
+
+      The bind postcondition splits: on a value result, continue evaluating
+      the context [fill_item Ki (Val v)]; on an exception result, propagate
+      it (the raise unwinds through the neutral context).  This is THE
+      convergence-critical lemma -- it proves the exception WP composes. *)
+  Definition bind_post (Ki : sn_ectx_item) (Phi : Result -> iProp Sigma)
+      : Result -> iProp Sigma := fun r =>
+    match r with
+    | RVal v => WPE (fill_item Ki (Val v)) {{ Phi }}
+    | RExn lbl pay => Phi (RExn lbl pay)
+    end%I.
+
+  Lemma wp_bind_item Ki e Phi :
+    neutral Ki = true ->
+    WPE e {{ bind_post Ki Phi }} ⊢ WPE (fill_item Ki e) {{ Phi }}.
+  Proof.
+    intros Hneu. iIntros "H". iLöb as "IH" forall (e).
+    rewrite (wp_exn_unfold e) /wp_pre.
+    destruct (result_of e) as [r|] eqn:Hr.
+    - destruct r as [v | lbl pay].
+      + apply result_of_val in Hr as ->. iApply fupd_wp. simpl. done.
+      + apply result_of_exn in Hr as ->.
+        iApply (wp_lift_pure_det _ (Raise (Val (LitExn lbl pay)))).
+        { destruct Ki; reflexivity. }
+        { intros sigma. eapply reducible_pure.
+          apply (PureRaiseUnwind Ki (LitExn lbl pay)); exact Hneu. }
+        { intros sigma kappa e2 sigma2 efs Hps.
+          apply (prim_unwind_det _ _ _ _ _ _ _ Hneu) in Hps. tauto. }
+        iNext. simpl. iApply fupd_wp. iMod "H". iModIntro. by iApply wp_raise.
+    - assert (to_val e = None) as Hev by (destruct e; simpl in Hr |- *; congruence).
+      rewrite (wp_exn_unfold (fill_item Ki e)) /wp_pre.
+      rewrite (result_of_fill_none Ki e Hev).
+      iIntros (sigma) "Hs".
+      iMod ("H" $! sigma with "Hs") as "[%Hred Hstep]".
+      assert (forall v, e <> Raise (Val v)) as Hnr.
+      { intros vv Heq. rewrite Heq in Hred. eapply raise_val_irreducible, Hred. }
+      iModIntro. iSplit. { iPureIntro. by apply reducible_fill_item. }
+      iIntros (e2 sigma2 efs Hps).
+      destruct (fill_item_step_inv _ _ _ _ _ _ _ Hev Hnr Hps) as (e3 & -> & Hps3).
+      iMod ("Hstep" $! e3 sigma2 efs with "[%]") as "Hstep"; [exact Hps3|].
+      iModIntro. iNext.
+      iMod "Hstep" as "(Hs2 & Hwp & Hefs)". iModIntro.
+      iFrame "Hs2 Hefs". iApply ("IH" with "Hwp").
+  Qed.
+
   (** * GATE LEMMA 4: raise unwinding through a neutral (Let) context.
       [Let x (Raise (Val (LitExn lbl pay))) e2] unwinds the raise out of
       the let -- the continuation [e2] is discarded -- yielding the

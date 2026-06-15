@@ -65,6 +65,23 @@ Section wp.
   Lemma wp_exn_unfold e Phi : wp_exn e Phi ⊣⊢ wp_pre wp_exn e Phi.
   Proof. apply (fixpoint_unfold wp_pre). Qed.
 
+  (** Filling a non-value into any context yields a non-terminal expr. *)
+  Lemma result_of_fill_none Ki e :
+    to_val e = None -> result_of (fill_item Ki e) = None.
+  Proof.
+    intros Hev. destruct Ki; try reflexivity. simpl.
+    destruct e; simpl in Hev; try discriminate Hev; reflexivity.
+  Qed.
+
+  (** A fancy update in front of a WP can be absorbed. *)
+  Lemma fupd_wp e Phi : (|={top}=> wp_exn e Phi) ⊢ wp_exn e Phi.
+  Proof.
+    rewrite (wp_exn_unfold e) /wp_pre.
+    destruct (result_of e) as [r|] eqn:Hr.
+    - iIntros "H". by iMod "H".
+    - iIntros "H" (sigma) "Hs". iMod "H". iApply ("H" with "Hs").
+  Qed.
+
   Local Notation "'WPE' e {{ Q } }" := (wp_exn e Q)
     (at level 20, e, Q at level 200, format "'WPE'  e  {{  Q  } }") : bi_scope.
 
@@ -232,6 +249,38 @@ Section wp.
         apply fill_item_inj in Heq. subst e.
         exists (fill_K K2 x'). split; [reflexivity|].
         apply (PrimHeadStep K2 x _ x' _ efs Hhead).
+  Qed.
+
+  (** Determinism of the unwind step: [fill_item Ki (Raise (Val ev))] for
+      a neutral [Ki] steps only to [Raise (Val ev)] (raise propagation). *)
+  Lemma prim_unwind_det Ki ev sigma kappa er sigma2 efs :
+    neutral Ki = true ->
+    prim_step (fill_item Ki (Raise (Val ev))) sigma kappa er sigma2 efs ->
+    kappa = [] /\ er = Raise (Val ev) /\ sigma2 = sigma /\ efs = [].
+  Proof.
+    intros Hneu Hstep.
+    inversion Hstep as [K x sg x1 Hpure Heq | K x sg x1 sg2 efs2 Hhead Heq]; subst.
+    - destruct K as [|Ki2 K2]; simpl in Heq.
+      + subst x. inversion Hpure as [| | | | | | Ki0 w Hneu0 Hp]; subst; simpl in *.
+        1-6: destruct Ki; simpl in *; try discriminate; congruence.
+        assert (Ki0 = Ki) as ->.
+        { eapply (fill_item_no_val_inj Ki0 Ki (Raise (Val w)) (Raise (Val ev)));
+            [ reflexivity | reflexivity | exact Hp ]. }
+        apply fill_item_inj in Hp. injection Hp as ->. repeat split; reflexivity.
+      + assert (Ki2 = Ki) as ->.
+        { eapply (fill_item_no_val_inj Ki2 Ki (fill_K K2 x) (Raise (Val ev)));
+            [ apply fill_not_val; exact (to_val_pure_step _ _ Hpure) | reflexivity | exact Heq ]. }
+        apply fill_item_inj in Heq.
+        exfalso. pose proof (fill_reducible_pure K2 x x1 empty Hpure) as Hr.
+        rewrite Heq in Hr. eapply raise_val_irreducible. exact Hr.
+    - destruct K as [|Ki2 K2]; simpl in Heq.
+      + subst x. exfalso. eapply kempty_head. 2: exact Hhead. reflexivity.
+      + assert (Ki2 = Ki) as ->.
+        { eapply (fill_item_no_val_inj Ki2 Ki (fill_K K2 x) (Raise (Val ev)));
+            [ apply fill_not_val; exact (to_val_head_step _ _ _ _ _ Hhead) | reflexivity | exact Heq ]. }
+        apply fill_item_inj in Heq.
+        exfalso. pose proof (fill_reducible_head K2 x _ _ _ _ Hhead) as Hr.
+        rewrite Heq in Hr. eapply raise_val_irreducible. exact Hr.
   Qed.
 
 End wp.
