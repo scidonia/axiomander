@@ -1154,3 +1154,208 @@ def test_run_pipeline_proves_simple_functions():
     )
     assert report.source_file.endswith(".py")
     assert report.elapsed_total_ms >= 0
+
+
+# ---------------------------------------------------------------------------
+# Fast unit tests for reporting.py schema (Step C)
+# No Coq toolchain required.
+# ---------------------------------------------------------------------------
+
+from oracle.reporting import (
+    GoalStatus,
+    GoalOutcome,
+    PipelineReport,
+    ProofLevel,
+    Action,
+    build_report,
+    _outcome_for,
+)
+
+
+def _make_proved_goal(name: str = "f") -> GoalStatus:
+    return GoalStatus(
+        name=name,
+        goal_statement="",
+        level=ProofLevel.LEVEL1_LTAC,
+        elapsed_ms=42.0,
+        proof_method="wp_reduce",
+    )
+
+
+def _make_unproved_goal(name: str = "g") -> GoalStatus:
+    return GoalStatus(
+        name=name,
+        goal_statement="",
+        level=ProofLevel.UNPROVED,
+        error_detail="",
+    )
+
+
+def _make_counterexample_goal(name: str = "h") -> GoalStatus:
+    return GoalStatus(
+        name=name,
+        goal_statement="",
+        level=ProofLevel.COUNTEREXAMPLE,
+        counterexample={"x": -1},
+    )
+
+
+def _make_error_goal(name: str = "e") -> GoalStatus:
+    return GoalStatus(
+        name=name,
+        goal_statement="",
+        level=ProofLevel.UNPROVED,
+        error_detail="internal error: translation failed",
+    )
+
+
+class TestGoalOutcomeMapping:
+    """_outcome_for maps ProofLevel -> GoalOutcome correctly."""
+
+    def test_proved_level1_is_verified(self):
+        g = _make_proved_goal()
+        assert _outcome_for(g) == GoalOutcome.VERIFIED
+
+    def test_proved_level2_is_verified(self):
+        g = GoalStatus(name="f", goal_statement="", level=ProofLevel.LEVEL2_SMT)
+        assert _outcome_for(g) == GoalOutcome.VERIFIED
+
+    def test_proved_level3_is_verified(self):
+        g = GoalStatus(name="f", goal_statement="", level=ProofLevel.LEVEL3_LLM)
+        assert _outcome_for(g) == GoalOutcome.VERIFIED
+
+    def test_counterexample_level_is_counterexample(self):
+        g = _make_counterexample_goal()
+        assert _outcome_for(g) == GoalOutcome.COUNTEREXAMPLE
+
+    def test_unproved_no_error_is_unproved(self):
+        g = _make_unproved_goal()
+        assert _outcome_for(g) == GoalOutcome.UNPROVED
+
+    def test_unproved_with_error_detail_is_error(self):
+        g = _make_error_goal()
+        assert _outcome_for(g) == GoalOutcome.ERROR
+
+    def test_unproved_with_counterexample_dict_is_unproved_not_error(self):
+        # counterexample present -> not classified as ERROR even with error_detail
+        g = GoalStatus(
+            name="f", goal_statement="",
+            level=ProofLevel.UNPROVED,
+            error_detail="some detail",
+            counterexample={"x": 0},
+        )
+        assert _outcome_for(g) == GoalOutcome.UNPROVED
+
+
+class TestGoalStatusToDict:
+    """GoalStatus.to_dict() produces the canonical schema."""
+
+    REQUIRED_KEYS = {
+        "name", "outcome", "level", "elapsed_ms", "resource_count",
+        "proof_method", "counterexample", "theory_counterexample",
+        "error_detail", "suggested_action", "suggestion_text",
+        "dependencies", "obligations",
+    }
+
+    def test_all_keys_present_proved(self):
+        d = _make_proved_goal().to_dict()
+        assert self.REQUIRED_KEYS == set(d.keys())
+
+    def test_all_keys_present_unproved(self):
+        d = _make_unproved_goal().to_dict()
+        assert self.REQUIRED_KEYS == set(d.keys())
+
+    def test_proved_outcome_is_verified(self):
+        d = _make_proved_goal().to_dict()
+        assert d["outcome"] == "verified"
+
+    def test_proved_level_is_level_value(self):
+        d = _make_proved_goal().to_dict()
+        assert d["level"] == "level1"
+
+    def test_unproved_level_is_none(self):
+        d = _make_unproved_goal().to_dict()
+        assert d["level"] is None
+
+    def test_counterexample_outcome(self):
+        d = _make_counterexample_goal().to_dict()
+        assert d["outcome"] == "counterexample"
+
+    def test_error_outcome(self):
+        d = _make_error_goal().to_dict()
+        assert d["outcome"] == "error"
+
+    def test_resource_count_is_none(self):
+        d = _make_proved_goal().to_dict()
+        assert d["resource_count"] is None
+
+    def test_obligations_is_empty_list(self):
+        d = _make_proved_goal().to_dict()
+        assert d["obligations"] == []
+
+    def test_suggested_action_serializes_to_value(self):
+        g = _make_unproved_goal()
+        g.suggested_action = Action.ADD_INVARIANT
+        d = g.to_dict()
+        assert d["suggested_action"] == "add_loop_invariant"
+
+    def test_no_suggested_action_is_none(self):
+        d = _make_unproved_goal().to_dict()
+        assert d["suggested_action"] is None
+
+
+class TestPipelineReportToJson:
+    """PipelineReport.to_dict() / to_json() produce the canonical schema."""
+
+    REPORT_KEYS = {"source_file", "summary", "elapsed_total_ms", "goals"}
+    SUMMARY_KEYS = {"verified", "total", "percent"}
+
+    def _make_report(self) -> PipelineReport:
+        goals = [_make_proved_goal("f"), _make_unproved_goal("g")]
+        return build_report("demo.py", goals, elapsed_total_ms=100.0)
+
+    def test_top_level_keys(self):
+        d = self._make_report().to_dict()
+        assert self.REPORT_KEYS == set(d.keys())
+
+    def test_summary_keys(self):
+        d = self._make_report().to_dict()
+        assert self.SUMMARY_KEYS == set(d["summary"].keys())
+
+    def test_summary_counts(self):
+        d = self._make_report().to_dict()
+        assert d["summary"]["total"] == 2
+        assert d["summary"]["verified"] == 1
+        assert d["summary"]["percent"] == 50
+
+    def test_goals_list_length(self):
+        d = self._make_report().to_dict()
+        assert len(d["goals"]) == 2
+
+    def test_to_json_is_valid_json(self):
+        import json as _json
+        report = self._make_report()
+        text = report.to_json()
+        parsed = _json.loads(text)
+        assert parsed["source_file"] == "demo.py"
+
+    def test_to_json_round_trip_summary(self):
+        import json as _json
+        report = self._make_report()
+        parsed = _json.loads(report.to_json())
+        assert parsed["summary"]["verified"] == 1
+        assert parsed["summary"]["total"] == 2
+
+    def test_all_proved_report(self):
+        goals = [_make_proved_goal("a"), _make_proved_goal("b")]
+        report = build_report("x.py", goals)
+        d = report.to_dict()
+        assert d["summary"]["verified"] == 2
+        assert d["summary"]["percent"] == 100
+
+    def test_empty_report(self):
+        report = build_report("empty.py", [])
+        d = report.to_dict()
+        assert d["summary"]["total"] == 0
+        assert d["summary"]["verified"] == 0
+        assert d["goals"] == []
