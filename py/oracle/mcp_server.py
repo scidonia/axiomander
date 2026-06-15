@@ -5402,7 +5402,7 @@ def tool_gen_tests(args: dict) -> str:
     Returns:
         str: A complete pytest + Hypothesis test module as a string.
     """
-    from .generate_property_tests import generate_tests
+    from .property_test_gen import generate_tests
     source = args.get("source", "")
     func_name = args.get("function_name") or None
     module_path = args.get("module_path", "")
