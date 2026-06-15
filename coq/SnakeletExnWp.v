@@ -176,6 +176,64 @@ Section wp.
     by apply prim_step_fill_item.
   Qed.
 
+  (** A pure redex of shape [fill_item Ki e] with [e] non-value and not a
+      stuck raise is impossible -- the redex must be live inside [e]. *)
+  Lemma kempty Ki e e' :
+    to_val e = None -> (forall v, e <> Raise (Val v)) ->
+    pure_step (fill_item Ki e) e' -> False.
+  Proof.
+    intros Hnv Hnr Hpure.
+    inversion Hpure as [vv xx ee2 Hp | op vv1 vv2 Hp | ee1 ee2 Hp | ee1 ee2 Hp
+                       | vv xx hh Hp | ev xx hh Hp | Ki0 w Hneu Hp ]; subst.
+    1-5: destruct Ki; simpl in Hp; try discriminate Hp;
+         injection Hp; intros; subst; simpl in Hnv; discriminate.
+    - destruct Ki; simpl in Hp; try discriminate Hp.
+      injection Hp; intros; subst. exfalso. eapply Hnr. reflexivity.
+    - assert (Ki0 = Ki) as ->.
+      { eapply (fill_item_no_val_inj Ki0 Ki (Raise (Val w)) e);
+          [ reflexivity | exact Hnv | exact Hp ]. }
+      apply fill_item_inj in Hp. exfalso. eapply Hnr. symmetry. exact Hp.
+  Qed.
+
+  Lemma kempty_head Ki e sigma e' sigma' efs :
+    to_val e = None ->
+    head_step (fill_item Ki e) sigma e' sigma' efs -> False.
+  Proof.
+    intros Hnv Hhead.
+    destruct Ki; simpl in Hhead; inversion Hhead; subst;
+      simpl in Hnv; discriminate.
+  Qed.
+
+  (** Fill-context step inversion: if [fill_item Ki e] steps and [e] is
+      non-value and not a stuck raise (hence its redex is live), the step
+      happens inside [e].  This is the [step_by_val] analogue and the
+      linchpin for [wp_bind]. *)
+  Lemma fill_item_step_inv Ki e sigma kappa e2 sigma2 efs :
+    to_val e = None ->
+    (forall v, e <> Raise (Val v)) ->
+    prim_step (fill_item Ki e) sigma kappa e2 sigma2 efs ->
+    exists e', e2 = fill_item Ki e' /\ prim_step e sigma kappa e' sigma2 efs.
+  Proof.
+    intros Hnv Hnr Hstep.
+    inversion Hstep as [K x sg x' Hpure Heq | K x sg x' sg' efs' Hhead Heq]; subst.
+    - destruct K as [|Ki2 K2]; simpl in Heq.
+      + exfalso. subst x. eapply kempty; eauto.
+      + assert (Ki2 = Ki) as ->.
+        { eapply (fill_item_no_val_inj Ki2 Ki (fill_K K2 x) e); [ | exact Hnv | exact Heq ].
+          apply fill_not_val. by apply to_val_pure_step in Hpure. }
+        apply fill_item_inj in Heq. subst e.
+        exists (fill_K K2 x'). split; [reflexivity|].
+        apply (PrimPureStep K2 x _ x' Hpure).
+    - destruct K as [|Ki2 K2]; simpl in Heq.
+      + exfalso. subst x. eapply kempty_head; eauto.
+      + assert (Ki2 = Ki) as ->.
+        { eapply (fill_item_no_val_inj Ki2 Ki (fill_K K2 x) e); [ | exact Hnv | exact Heq ].
+          apply fill_not_val. by apply to_val_head_step in Hhead. }
+        apply fill_item_inj in Heq. subst e.
+        exists (fill_K K2 x'). split; [reflexivity|].
+        apply (PrimHeadStep K2 x _ x' _ efs Hhead).
+  Qed.
+
 End wp.
 
 (** Notation for the WP and the two-postcondition form. *)
