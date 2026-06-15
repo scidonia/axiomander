@@ -139,6 +139,43 @@ Section wp.
     apply (PrimHeadStep K x sigma x' sigma' efs Hh).
   Qed.
 
+  (** result_of inversion. *)
+  Lemma result_of_val e v : result_of e = Some (RVal v) -> e = Val v.
+  Proof.
+    destruct e; simpl; intros H; try discriminate H.
+    - injection H as ->; reflexivity.
+    - (* Raise case: result_of is Some (RExn..) or None, never RVal *)
+      destruct e; try discriminate H. destruct v0; discriminate H.
+  Qed.
+
+  Lemma result_of_exn e lbl pay :
+    result_of e = Some (RExn lbl pay) -> e = Raise (Val (LitExn lbl pay)).
+  Proof.
+    destruct e; simpl; try discriminate.
+    destruct e; simpl; try discriminate.
+    destruct v; simpl; try discriminate.
+    intros H; inversion H; subst; reflexivity.
+  Qed.
+
+  (** Single-item step lifting: a step of [e] lifts to a step of
+      [fill_item Ki e] in the same context.  Uses [fill_K (Ki :: K) = fill_item Ki o fill_K K]. *)
+  Lemma prim_step_fill_item Ki e sigma kappa e' sigma' efs :
+    prim_step e sigma kappa e' sigma' efs ->
+    prim_step (fill_item Ki e) sigma kappa (fill_item Ki e') sigma' efs.
+  Proof.
+    intros Hstep. inversion Hstep as [K x sg x' Hpure Heq | K x sg x' sg' efs' Hhead Heq]; subst.
+    - apply (PrimPureStep (Ki :: K) x _ x' Hpure).
+    - apply (PrimHeadStep (Ki :: K) x _ x' _ efs Hhead).
+  Qed.
+
+  Lemma reducible_fill_item Ki e sigma :
+    reducible e sigma -> reducible (fill_item Ki e) sigma.
+  Proof.
+    intros (kappa & e' & sigma' & efs & Hstep).
+    exists kappa, (fill_item Ki e'), sigma', efs.
+    by apply prim_step_fill_item.
+  Qed.
+
 End wp.
 
 (** Notation for the WP and the two-postcondition form. *)
