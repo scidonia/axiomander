@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Union
 
 from oracle.snakelet_ir import (
-    SAlloc, SApp, SBinOp, SExpr, SIf, SLet, SLit, SLoad, SRaise, SReturn, SSeq,
+    SAlloc, SApp, SBinOp, SDictGet, SDictSet, SExpr, SIf, SLet, SLit, SLoad, SRaise, SReturn, SSeq,
     SStore, SVar, SWhile, SFor,
 )
 
@@ -521,14 +521,30 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
 
         def after_cond():
             then_arm = ([Stage("pure_step", "pure_step",
-                               comment="select then-branch")] +
+                                comment="select then-branch")] +
                         _gen(e.then_branch, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp))
             else_arm = ([Stage("pure_step", "pure_step",
-                               comment="select else-branch")] +
+                                comment="select else-branch")] +
                         _gen(e.else_branch, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp))
             return [Stage("case_bool", "case_bool", comment="path fork"),
                     Branch([then_arm, else_arm])]
         return _gen(e.cond, table, overrides, after_cond, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+
+    if isinstance(e, SDictGet):
+        def after_key():
+            return [Stage("pure_step", "pure_step",
+                          comment=f"dict lookup {e.loc}[key]")] + k()
+        return _gen(e.key, table, overrides, after_key, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+
+    if isinstance(e, SDictSet):
+        def after_dictset_key():
+            def after_dictset_value():
+                return [Stage("pure_step", "pure_step",
+                              comment=f"dict insert {e.loc}[key]=val"),
+                        Stage("pure_step", "pure_step",
+                              comment="dict set: unit return")] + k()
+            return _gen(e.value, table, overrides, after_dictset_value, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+        return _gen(e.key, table, overrides, after_dictset_key, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
 
     raise IrisGenError(
         f"unsupported node for staged generation: {type(e).__name__} "
@@ -703,7 +719,6 @@ class IrisProof:
         parts.append("")
         parts.append("Section generated_proofs.")
         parts.append("  Context `{!snakelet_heapGS_gen hlc Σ}.")
-        parts.append("  Context `{FC : FunCtx}.")
         parts.append("")
         for lemma_text in self.aux_lemmas:
             parts.append(lemma_text)
