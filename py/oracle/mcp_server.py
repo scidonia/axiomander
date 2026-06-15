@@ -5380,6 +5380,8 @@ def handle_call_tool(params: dict) -> dict:
             result = tool_explain_cache(args)
         elif name == "frame-report":
             result = tool_frame_report(args)
+        elif name == "gen-tests":
+            result = tool_gen_tests(args)
         else:
             return {"content": [{"type": "text", "text": f"Unknown tool: {name}"}], "isError": True}
     except Exception as e:
@@ -5387,6 +5389,26 @@ def handle_call_tool(params: dict) -> dict:
         return {"content": [{"type": "text", "text": f"Error: {e}\n{traceback.format_exc()[-500:]}"}], "isError": True}
 
     return {"content": [{"type": "text", "text": result}]}
+
+
+def tool_gen_tests(args: dict) -> str:
+    """Generate Hypothesis property tests from assert contracts.
+
+    Args:
+        source (str): Python source code.
+        function_name (str, optional): Generate tests only for this function.
+        module_path (str, optional): Source file path (used in import line).
+
+    Returns:
+        str: A complete pytest + Hypothesis test module as a string.
+    """
+    from .test_gen import generate_tests
+    source = args.get("source", "")
+    func_name = args.get("function_name") or None
+    module_path = args.get("module_path", "")
+    if not source:
+        return "Error: source is required"
+    return generate_tests(source, func_name=func_name, module_path=module_path)
 
 
 def main():
@@ -5484,6 +5506,23 @@ def _cli(argv: list[str] | None = None):
             "source": _Path(file).read_text(),
             "function_name": function,
         }))
+
+    @app.command(name="gen-tests")
+    def gen_tests(
+        file: str,
+        function: Optional[str] = typer.Option(None, "--function", "-f", help="Generate tests only for this function"),
+        output: Optional[str] = typer.Option(None, "--output", "-o", help="Write output to this file instead of stdout"),
+    ):
+        """Generate Hypothesis property tests from assert contracts."""
+        opts: dict = {"source": _Path(file).read_text(), "module_path": file}
+        if function:
+            opts["function_name"] = function
+        result = tool_gen_tests(opts)
+        if output:
+            _Path(output).write_text(result)
+            typer.echo(f"Tests written to {output}")
+        else:
+            typer.echo(result)
 
     app()
 
