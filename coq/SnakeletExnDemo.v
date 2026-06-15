@@ -161,4 +161,110 @@ Section gate.
     rewrite Hin in Hred. eapply raise_val_irreducible. exact Hred.
   Qed.
 
+  Local Notation "'WPE' e {{ Q } }" := (wp_exn e Q)
+    (at level 20, e, Q at level 200, format "'WPE'  e  {{  Q  } }") : bi_scope.
+
+  (** Pure WP lemmas via wp_lift_pure_det + the determinism lemmas. *)
+  Lemma wp_let x v e2 Phi :
+    ▷ WPE (subst x v e2) {{ Phi }} ⊢ WPE (Let x (Val v) e2) {{ Phi }}.
+  Proof.
+    apply wp_lift_pure_det; [done | | ].
+    - intros sigma. eapply reducible_pure, PureLet.
+    - intros sigma kappa e2' sigma2 efs Hstep.
+      apply prim_let_det in Hstep. tauto.
+  Qed.
+
+  Lemma wp_binop op v1 v2 Phi :
+    ▷ WPE (Val (binop_eval op v1 v2)) {{ Phi }}
+      ⊢ WPE (BinOp op (Val v1) (Val v2)) {{ Phi }}.
+  Proof.
+    apply wp_lift_pure_det; [done | | ].
+    - intros sigma. eapply reducible_pure, PureBinOp.
+    - intros sigma kappa e2' sigma2 efs Hstep.
+      apply prim_binop_det in Hstep. tauto.
+  Qed.
+
+  Lemma wp_if_true e1 e2 Phi :
+    ▷ WPE e1 {{ Phi }} ⊢ WPE (If (Val (LitBool true)) e1 e2) {{ Phi }}.
+  Proof.
+    apply wp_lift_pure_det; [done | | ].
+    - intros sigma. eapply reducible_pure, PureIfTrue.
+    - intros sigma kappa e2' sigma2 efs Hstep.
+      apply prim_if_true_det in Hstep. tauto.
+  Qed.
+
+  Lemma wp_if_false e1 e2 Phi :
+    ▷ WPE e2 {{ Phi }} ⊢ WPE (If (Val (LitBool false)) e1 e2) {{ Phi }}.
+  Proof.
+    apply wp_lift_pure_det; [done | | ].
+    - intros sigma. eapply reducible_pure, PureIfFalse.
+    - intros sigma kappa e2' sigma2 efs Hstep.
+      apply prim_if_false_det in Hstep. tauto.
+  Qed.
+
+  (** * GATE LEMMA 3a: wp_try_normal.
+      A try whose body returns a value [Val v] yields [v]; the handler
+      is skipped. *)
+  Lemma wp_try_normal v x h Phi :
+    ▷ WPE (Val v) {{ Phi }} ⊢ WPE (Try (Val v) x h) {{ Phi }}.
+  Proof.
+    apply wp_lift_pure_det; [done | | ].
+    - intros sigma. eapply reducible_pure, PureTryVal.
+    - intros sigma kappa e2' sigma2 efs Hstep.
+      apply prim_try_val_det in Hstep. tauto.
+  Qed.
+
+  (** * GATE LEMMA 3b: wp_try_catch.
+      A try whose body raises [Raise (Val ev)] runs the handler with the
+      exception object substituted for [x]. *)
+  Lemma wp_try_catch ev x h Phi :
+    ▷ WPE (subst x ev h) {{ Phi }} ⊢ WPE (Try (Raise (Val ev)) x h) {{ Phi }}.
+  Proof.
+    apply wp_lift_pure_det; [done | | ].
+    - intros sigma. eapply reducible_pure, PureTryCatch.
+    - intros sigma kappa e2' sigma2 efs Hstep.
+      apply prim_try_catch_det in Hstep. tauto.
+  Qed.
+
+  (** Determinism for the unwind step [Let x (Raise (Val ev)) e2]. *)
+  Lemma prim_unwind_let_det x ev e2 sigma kappa er sigma2 efs :
+    prim_step (Let x (Raise (Val ev)) e2) sigma kappa er sigma2 efs ->
+    kappa = [] /\ er = Raise (Val ev) /\ sigma2 = sigma /\ efs = [].
+  Proof.
+    intros Hstep.
+    inversion Hstep as [K x0 sg x1 Hpure Heq | K x0 sg x1 sg2 efs2 Hhead Heq]; subst.
+    - destruct K as [|Ki K2]; simpl in Heq.
+      + subst x0. inversion Hpure; subst; simpl in *.
+        destruct Ki; simpl in H; try discriminate H.
+        injection H; intros; subst; repeat split; reflexivity.
+      + destruct Ki; simpl in Heq; try discriminate Heq.
+        injection Heq as ? Hin ?; subst.
+        exfalso. pose proof (fill_reducible_pure K2 x0 x1 empty Hpure) as Hr.
+        rewrite Hin in Hr. eapply raise_val_irreducible. exact Hr.
+    - destruct K as [|Ki K2]; simpl in Heq.
+      + subst x0. inversion Hhead.
+      + destruct Ki; simpl in Heq; try discriminate Heq.
+        injection Heq as ? Hin ?; subst.
+        exfalso. pose proof (fill_reducible_head K2 x0 _ _ _ _ Hhead) as Hr.
+        rewrite Hin in Hr. eapply raise_val_irreducible. exact Hr.
+  Qed.
+
+  (** * GATE LEMMA 4: raise unwinding through a neutral (Let) context.
+      [Let x (Raise (Val (LitExn lbl pay))) e2] unwinds the raise out of
+      the let -- the continuation [e2] is discarded -- yielding the
+      exception result.  This is Python/ML semantics: an exception
+      propagates up through the evaluation context until caught. *)
+  Lemma wp_let_raise_unwind x lbl pay e2 Phi :
+    Phi (RExn lbl pay) ⊢
+      WPE (Let x (Raise (Val (LitExn lbl pay))) e2) {{ Phi }}.
+  Proof.
+    iIntros "H".
+    iApply (wp_lift_pure_det _ (Raise (Val (LitExn lbl pay)))); [done | | | ].
+    - intros sigma. eapply reducible_pure.
+      apply (PureRaiseUnwind (LetCtx x e2) (LitExn lbl pay)). reflexivity.
+    - intros sigma kappa e2' sigma2 efs Hstep.
+      apply prim_unwind_let_det in Hstep. tauto.
+    - iNext. by iApply wp_raise.
+  Qed.
+
 End gate.
