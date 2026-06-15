@@ -115,6 +115,34 @@ Section wp.
           apply to_val_head_step in Hhead; discriminate.
   Qed.
 
+  (** Inversion for an opaque call step: it produces some post-satisfying
+      value, with no state change or forks. *)
+  Lemma prim_call_inv f pre post vs sigma kappa er sigma2 efs :
+    fun_entries f = Some (FunSpec pre post) ->
+    prim_step (Call f (map Val vs)) sigma kappa er sigma2 efs ->
+    kappa = [] /\ sigma2 = sigma /\ efs = [] /\
+    exists v, er = Val v /\ post vs v.
+  Proof.
+    intros Hfe Hstep.
+    inversion Hstep as [K x sg x1 Hpure Heq | K x sg x1 sg2 efs2 Hhead Heq]; subst.
+    - destruct K as [|Ki K2]; simpl in Heq.
+      + subst x. inversion Hpure; subst; simpl in *.
+        destruct Ki; simpl in *; discriminate.
+      + destruct Ki; simpl in Heq; discriminate Heq.
+    - destruct K as [|Ki K2]; simpl in Heq.
+      + subst x. inversion Hhead; subst.
+        * match goal with Hm : map Val ?vs0 = map Val vs |- _ =>
+            apply map_Val_inj in Hm; subst vs0 end.
+          match goal with He : fun_entries f = Some (FunSpec ?p ?q) |- _ =>
+            rewrite Hfe in He; injection He; intros Hpost_eq Hpre_eq; subst end.
+          repeat split. eexists; split; [reflexivity|]. eassumption.
+        * match goal with Hm : map Val ?vs0 = map Val vs |- _ =>
+            apply map_Val_inj in Hm; subst vs0 end.
+          match goal with He : fun_entries f = Some (FunDef _ _) |- _ =>
+            rewrite Hfe in He; discriminate He end.
+      + destruct Ki; simpl in Heq; discriminate Heq.
+  Qed.
+
   (** A fancy update in front of a WP can be absorbed. *)
   Lemma fupd_wp e Phi : (|={top}=> wp_exn e Phi) ⊢ wp_exn e Phi.
   Proof.

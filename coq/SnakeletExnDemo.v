@@ -374,4 +374,29 @@ Section gate.
     iApply wp_raise. simpl. iFrame "Hl". done.
   Qed.
 
+  (** * GATE LEMMA 8: wp_call -- opaque call against the FunCtx table.
+      Reducibility from [fun_specs_total]; the caller proves the
+      precondition and receives the postcondition for the result.
+      Confirms the call/ghost machinery composes with the exception WP. *)
+  Lemma wp_call f pre post vs Phi :
+    fun_entries f = Some (FunSpec pre post) ->
+    pre vs ->
+    ▷ (∀ v, ⌜post vs v⌝ -∗ Phi (RVal v)) -∗
+    WPE (Call f (map Val vs)) {{ Phi }}.
+  Proof.
+    intros Hfe Hpre. iIntros "HPhi".
+    rewrite wp_exn_unfold /wp_pre /=.
+    iIntros (sigma) "Hs".
+    iApply fupd_mask_intro; [set_solver|]. iIntros "Hclose".
+    iSplit.
+    { iPureIntro.
+      destruct (fun_specs_total f pre post vs Hfe Hpre) as [v Hv].
+      eapply reducible_head. eapply HeadCallSpec; eauto. }
+    iIntros (e2 sigma2 efs Hps).
+    destruct (prim_call_inv _ _ _ _ _ _ _ _ _ Hfe Hps) as (_ & -> & -> & v & -> & Hpost).
+    iModIntro. iNext. iMod "Hclose". iModIntro.
+    iFrame "Hs". iSplitL; [|done].
+    iApply wp_value. iApply ("HPhi" with "[%]"). exact Hpost.
+  Qed.
+
 End gate.
