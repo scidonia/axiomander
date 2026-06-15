@@ -1,175 +1,266 @@
 """
 Proof Pipeline Orchestrator
 
-Coordinates the 3-tier proof pipeline:
-  1. Level 1 (Ltac):      wp_reduce, lia
-  2. Level 2 (SMT):       coq-hammer → cvc4 / eprover
-  3. Level 3 (LLM oracle): DeepSeek / OpenAI → Coq proof script
+Coordinates the 3-tier proof pipeline for every contracted function in a
+Python file by delegating to the real verification engine in mcp_server.
+
+  Level 1 (Ltac):       wp_reduce, lia
+  Level 2 (SMT):        coq-hammer -> cvc4 / eprover
+  Level 3 (LLM oracle): DeepSeek / OpenAI -> Coq proof script
 
 Usage:
-    python -m py.oracle.pipeline py/examples/demo.py
+    eval $(opam env)
+    python -m py.oracle.pipeline py/examples/demo.py [--function NAME]
+                                                      [--json] [--quiet]
+
+Exit codes:
+    0  all goals verified
+    1  one or more goals not verified (unproved / counterexample / error)
+    2  usage error, file not found, syntax error, or toolchain missing
 """
 
-import re
-import subprocess
+import argparse
+import ast
+import json as _json
+import shutil
 import sys
-import tempfile
-from dataclasses import dataclass, field
+import time
 from pathlib import Path
 
-from .client import OracleResult, oracle_query
+from .mcp_server import _verify_function
+from .reporting import PipelineReport, GoalStatus, ProofLevel
 
 
-@dataclass
-class PipelineResult:
-    """Result of the full pipeline on one function."""
-    func_name: str
-    level1_success: bool
-    level2_success: bool
-    level3_result: OracleResult | None = None
-    final_status: str = "unknown"  # "proved", "admitted", "failed"
+# ---------------------------------------------------------------------------
+# Toolchain guard
+# ---------------------------------------------------------------------------
+
+def _check_toolchain() -> None:
+    """Raise SystemExit with a clear message if coqc is not on PATH."""
+    if shutil.which("coqc") is None:
+        sys.exit(
+            "ERROR: coqc not found on PATH.\n"
+            "Run `eval $(opam env)` to activate the Coq toolchain, then retry."
+        )
 
 
-def extract_goal_from_coq(coq_source: str, theorem_name: str) -> tuple[str, str]:
-    """Extract the goal statement and surrounding context from Coq source.
+# ---------------------------------------------------------------------------
+# Function discovery
+# ---------------------------------------------------------------------------
 
-    Returns (goal_statement, context_definitions).
+def _enumerate_functions(tree: ast.Module) -> list[str]:
+    """Return names of top-level functions and class methods.
+
+    Uses ast.iter_child_nodes (not ast.walk) to avoid double-counting
+    nested helpers.  Descends one level into ClassDef for methods,
+    mirroring the convention in mcp_server._build_contract_map.
     """
-    # Find the theorem block
-    pattern = rf"(Theorem|Lemma)\s+{theorem_name}\s*:.*?(?=Proof\.)"
-    match = re.search(pattern, coq_source, re.DOTALL)
-    if not match:
-        return "", ""
-
-    goal = match.group(0).strip()
-
-    # Everything before the theorem is context
-    context_end = match.start()
-    context = coq_source[:context_end].strip()
-
-    return goal, context
+    names: list[str] = []
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.FunctionDef):
+            names.append(node.name)
+        elif isinstance(node, ast.ClassDef):
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, ast.FunctionDef):
+                    names.append(child.name)
+    return names
 
 
-def generate_level1_coq(python_file: Path) -> str:
-    """Generate a Coq file with Level 1 tactics (wp_reduce) applied.
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
-    This is a work-in-progress — for now it generates the Coq file
-    from our existing Examples.v patterns. Eventually it will call
-    the full wp_transformer.
+def run_pipeline(python_file: Path) -> PipelineReport:
+    """Run the full 3-tier pipeline on every contracted function in a file.
+
+    Returns a PipelineReport aggregating per-function GoalStatus results.
+    Prints a one-line status for each function as it is verified.
     """
+    _check_toolchain()
+
     source = python_file.read_text()
+    try:
+        tree = ast.parse(source, filename=str(python_file))
+    except SyntaxError as exc:
+        sys.exit(f"ERROR: syntax error in {python_file}: {exc}")
 
-    # For the demo examples, map to known Coq proofs
-    if "add" in source.lower() or "max_of_two" in source.lower():
-        return """(* AUTO-GENERATED — Level 1 tactics applied *)
-From Stdlib Require Import ZArith String List Lia.
-Require Import Imp Wp WpTactics.
-Import ListNotations.
-Open Scope Z_scope.
-
-Definition add_body : com :=
-  CAss "result"%string (APlus (AVar "a"%string) (AVar "b"%string)).
-
-Theorem add_correct : forall (a b : Z),
-  True ->
-  wp add_body (fun s => s "result"%string = (a + b)%Z)
-              (upd (upd empty_state "a"%string a) "b"%string b).
-Proof. intros. wp_reduce. Qed.
-
-Definition max_body : com :=
-  CIf (BLe (AVar "b"%string) (AVar "a"%string))
-      (CAss "result"%string (AVar "a"%string))
-      (CAss "result"%string (AVar "b"%string)).
-
-Theorem max_correct : forall (a b : Z),
-  (0 <= a) -> (0 <= b) ->
-  wp max_body
-     (fun s => a <= s "result"%string /\ b <= s "result"%string)
-     (upd (upd empty_state "a"%string a) "b"%string b).
-Proof.
-  intros a b Ha Hb. wp_reduce.
-  split; [intro Hleb; apply Z.leb_le in Hleb; wp_reduce; split; lia
-         | intro Hleb; apply Z.leb_gt in Hleb; wp_reduce; split; lia].
-Qed.
-"""
-    return "(* No known Coq mapping for this Python file. *)"
-
-
-def generate_level2_coq(level1_coq: str, coq_build_dir: Path) -> str:
-    """Attempt to run hammer on any remaining Admitted goals.
-
-    For now, this is a placeholder. In production, we'd insert
-    `hammer.` before each `Admitted.` and run coqc to see which
-    ones can be closed by the ATPs.
-    """
-    return level1_coq  # pass-through for now
-
-
-def run_pipeline(python_file: Path) -> list[PipelineResult]:
-    """Run the full 3-tier pipeline on a Python file."""
-    results: list[PipelineResult] = []
-
-    # Stage 1: Generate Level 1 Coq
-    coq_source = generate_level1_coq(python_file)
-    if not coq_source or "No known Coq mapping" in coq_source:
-        print(f"No Coq mapping for {python_file.name}")
-        return results
-
-    # Stage 2: Level 1 + Level 2
-    coq_source = generate_level2_coq(coq_source, python_file.parent)
-
-    # Find remaining Admitted theorems
-    admitted = re.findall(r"Theorem (\w+).*?\nProof\.\s*Admitted\.", coq_source, re.DOTALL)
-    if not admitted:
-        print("All theorems proved by Level 1+2.")
-        return results
-
-    # Stage 3: LLM oracle for each Admitted theorem
-    print(f"\nLevel 3 needed for: {admitted}\n")
-
-    for name in admitted:
-        goal, context = extract_goal_from_coq(coq_source, name)
-        if not goal:
-            continue
-
-        print(f"  Querying oracle for: {name}")
-        result = oracle_query(
-            goal=goal,
-            context=context,
-            dependencies=[],  # hammer deps would go here
-            examples=None,
-            max_retries=3,
+    func_names = _enumerate_functions(tree)
+    if not func_names:
+        print(f"No functions found in {python_file.name}.")
+        return PipelineReport(
+            source_file=str(python_file),
+            total_goals=0,
+            proved_goals=0,
+            goals=[],
         )
 
-        pr = PipelineResult(
-            func_name=name,
-            level1_success=False,
-            level2_success=False,
-            level3_result=result,
-            final_status="proved" if result.success else "admitted",
-        )
-        results.append(pr)
+    goals: list[GoalStatus] = []
+    t0 = time.monotonic()
 
-        if result.success:
-            print(f"  ✓ {name} proved by LLM oracle ({result.attempts} attempts)")
+    for name in func_names:
+        result = _verify_function(source, name)
+        if result is None:
+            # _verify_function returns None only on internal error; treat as
+            # unproved so the report is complete.
+            result = GoalStatus(
+                name=name,
+                goal_statement="",
+                level=ProofLevel.UNPROVED,
+                error_detail="internal error in _verify_function",
+            )
+
+        goals.append(result)
+
+        # Per-function status line
+        if result.is_proved():
+            print(f"  PROVED   {name}  [{result.level.value}]")
+        elif result.level == ProofLevel.COUNTEREXAMPLE:
+            ce = result.counterexample or result.theory_counterexample
+            print(f"  COUNTER  {name}  counterexample: {ce}")
         else:
-            print(f"  ✗ {name} could not be proved: {result.error_message[:100]}")
+            detail = result.error_detail or result.suggestion_text or ""
+            print(f"  UNPROVED {name}  {detail[:80]}")
 
-    return results
+    elapsed_ms = (time.monotonic() - t0) * 1000.0
+    proved = sum(1 for g in goals if g.is_proved())
+
+    report = PipelineReport(
+        source_file=str(python_file),
+        total_goals=len(goals),
+        proved_goals=proved,
+        goals=goals,
+        elapsed_total_ms=elapsed_ms,
+    )
+    return report
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+def main(argv: list[str] | None = None) -> int:
+    """Argparse CLI for the pipeline.
+
+    Returns an integer exit code:
+      0  all goals verified
+      1  one or more goals not verified
+      2  usage / file / toolchain error
+    """
+    parser = argparse.ArgumentParser(
+        prog="python -m py.oracle.pipeline",
+        description="Run the Axiomander 3-tier proof pipeline on a Python file.",
+    )
+    parser.add_argument("file", help="Python source file to verify")
+    parser.add_argument(
+        "--function", "-f",
+        metavar="NAME",
+        default=None,
+        help="Verify only this function (default: all functions)",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        default=False,
+        help="Emit the canonical JSON report to stdout instead of human text",
+    )
+    parser.add_argument(
+        "--quiet", "-q",
+        action="store_true",
+        default=False,
+        help="Suppress per-function status lines (summary still printed unless --json)",
+    )
+
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit:
+        return 2
+
+    py_file = Path(args.file)
+    if not py_file.exists():
+        print(f"ERROR: file not found: {py_file}", file=sys.stderr)
+        return 2
+
+    if shutil.which("coqc") is None:
+        print(
+            "ERROR: coqc not found on PATH.\n"
+            "Run `eval $(opam env)` to activate the Coq toolchain, then retry.",
+            file=sys.stderr,
+        )
+        return 2
+
+    source = py_file.read_text()
+    try:
+        tree = ast.parse(source, filename=str(py_file))
+    except SyntaxError as exc:
+        print(f"ERROR: syntax error in {py_file}: {exc}", file=sys.stderr)
+        return 2
+
+    func_names = _enumerate_functions(tree)
+
+    # Filter to a single function when --function is given.
+    if args.function:
+        if args.function not in func_names:
+            print(
+                f"ERROR: function '{args.function}' not found in {py_file.name}.\n"
+                f"Available: {', '.join(func_names) or '(none)'}",
+                file=sys.stderr,
+            )
+            return 2
+        func_names = [args.function]
+
+    if not func_names:
+        if not args.quiet:
+            print(f"No functions found in {py_file.name}.")
+        if args.json:
+            from .reporting import build_report
+            print(build_report(str(py_file), []).to_json())
+        return 0
+
+    goals: list[GoalStatus] = []
+    t0 = time.monotonic()
+
+    for name in func_names:
+        result = _verify_function(source, name)
+        if result is None:
+            result = GoalStatus(
+                name=name,
+                goal_statement="",
+                level=ProofLevel.UNPROVED,
+                error_detail="internal error in _verify_function",
+            )
+        goals.append(result)
+
+        if not args.quiet and not args.json:
+            if result.is_proved():
+                print(f"  PROVED   {name}  [{result.level.value}]")
+            elif result.level == ProofLevel.COUNTEREXAMPLE:
+                ce = result.counterexample or result.theory_counterexample
+                print(f"  COUNTER  {name}  counterexample: {ce}")
+            else:
+                detail = result.error_detail or result.suggestion_text or ""
+                print(f"  UNPROVED {name}  {detail[:80]}")
+
+    elapsed_ms = (time.monotonic() - t0) * 1000.0
+    proved = sum(1 for g in goals if g.is_proved())
+
+    report = PipelineReport(
+        source_file=str(py_file),
+        total_goals=len(goals),
+        proved_goals=proved,
+        goals=goals,
+        elapsed_total_ms=elapsed_ms,
+    )
+
+    if args.json:
+        print(report.to_json())
+    elif not args.quiet:
+        print(f"\n{'=' * 50}")
+        print(report.summary())
+        print(f"Elapsed: {elapsed_ms:.0f} ms")
+
+    # Exit 0 if all verified, 1 if any not verified.
+    return 0 if proved == len(goals) else 1
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python -m py.oracle.pipeline <python_file>")
-        sys.exit(1)
-
-    py_file = Path(sys.argv[1])
-    results = run_pipeline(py_file)
-
-    # Summary
-    proved = sum(1 for r in results if r.final_status == "proved")
-    total = len(results)
-    print(f"\n{'=' * 40}")
-    print(f"Pipeline complete: {proved}/{total} proved by LLM oracle")
-    if total == 0:
-        print("All goals were handled by Level 1 or Level 2.")
+    sys.exit(main())

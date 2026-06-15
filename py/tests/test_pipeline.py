@@ -1359,3 +1359,162 @@ class TestPipelineReportToJson:
         assert d["summary"]["total"] == 0
         assert d["summary"]["verified"] == 0
         assert d["goals"] == []
+
+
+# ---------------------------------------------------------------------------
+# Fast unit tests for pipeline.py CLI (Step B1)
+# Monkeypatches _verify_function so no Coq toolchain is needed.
+# ---------------------------------------------------------------------------
+
+import tempfile
+import shutil as _shutil
+from unittest.mock import patch as _patch
+from oracle.pipeline import main as _pipeline_main
+
+
+def _write_tmp(source: str) -> Path:
+    """Write source to a temp .py file and return its Path."""
+    f = tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False)
+    f.write(source)
+    f.flush()
+    f.close()
+    return Path(f.name)
+
+
+_SIMPLE_SRC = """\
+def add(a: int, b: int) -> int:
+    assert True
+    result = a + b
+    assert result == a + b
+    return result
+
+def sub(a: int, b: int) -> int:
+    assert True
+    result = a - b
+    return result
+"""
+
+
+def _proved_status(name: str) -> GoalStatus:
+    return GoalStatus(name=name, goal_statement="", level=ProofLevel.LEVEL1_LTAC)
+
+
+def _unproved_status(name: str) -> GoalStatus:
+    return GoalStatus(name=name, goal_statement="", level=ProofLevel.UNPROVED)
+
+
+class TestPipelineMainExitCodes:
+    """main() returns correct exit codes without touching the Coq toolchain."""
+
+    def test_exit_0_all_proved(self, tmp_path, capsys):
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("oracle.pipeline._verify_function",
+                    side_effect=[_proved_status("add"), _proved_status("sub")]):
+            code = _pipeline_main([str(src_file), "--quiet"])
+        assert code == 0
+
+    def test_exit_1_some_unproved(self, tmp_path, capsys):
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("oracle.pipeline._verify_function",
+                    side_effect=[_proved_status("add"), _unproved_status("sub")]):
+            code = _pipeline_main([str(src_file), "--quiet"])
+        assert code == 1
+
+    def test_exit_2_file_not_found(self, tmp_path, capsys):
+        code = _pipeline_main([str(tmp_path / "nonexistent.py")])
+        assert code == 2
+
+    def test_exit_2_no_coqc(self, tmp_path, capsys):
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+        with _patch("oracle.pipeline.shutil.which", return_value=None):
+            code = _pipeline_main([str(src_file)])
+        assert code == 2
+
+    def test_exit_2_syntax_error(self, tmp_path, capsys):
+        src_file = tmp_path / "src.py"
+        src_file.write_text("def broken(:\n    pass\n")
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"):
+            code = _pipeline_main([str(src_file)])
+        assert code == 2
+
+    def test_exit_2_unknown_function(self, tmp_path, capsys):
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"):
+            code = _pipeline_main([str(src_file), "--function", "nonexistent"])
+        assert code == 2
+
+
+class TestPipelineMainJsonFlag:
+    """--json flag emits valid JSON matching the canonical schema."""
+
+    def test_json_output_is_valid(self, tmp_path, capsys):
+        import json as _j
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("oracle.pipeline._verify_function",
+                    side_effect=[_proved_status("add"), _proved_status("sub")]):
+            code = _pipeline_main([str(src_file), "--json"])
+        assert code == 0
+        captured = capsys.readouterr()
+        parsed = _j.loads(captured.out)
+        assert "source_file" in parsed
+        assert "summary" in parsed
+        assert "goals" in parsed
+
+    def test_json_summary_counts(self, tmp_path, capsys):
+        import json as _j
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("oracle.pipeline._verify_function",
+                    side_effect=[_proved_status("add"), _unproved_status("sub")]):
+            _pipeline_main([str(src_file), "--json"])
+        captured = capsys.readouterr()
+        parsed = _j.loads(captured.out)
+        assert parsed["summary"]["total"] == 2
+        assert parsed["summary"]["verified"] == 1
+
+    def test_json_goals_have_outcome(self, tmp_path, capsys):
+        import json as _j
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("oracle.pipeline._verify_function",
+                    side_effect=[_proved_status("add"), _proved_status("sub")]):
+            _pipeline_main([str(src_file), "--json"])
+        captured = capsys.readouterr()
+        parsed = _j.loads(captured.out)
+        for g in parsed["goals"]:
+            assert "outcome" in g
+            assert g["outcome"] == "verified"
+
+
+class TestPipelineMainFunctionFilter:
+    """--function flag restricts verification to a single function."""
+
+    def test_function_filter_calls_only_that_function(self, tmp_path, capsys):
+        import json as _j
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+        called = []
+
+        def fake_verify(source, name, *a, **kw):
+            called.append(name)
+            return _proved_status(name)
+
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("oracle.pipeline._verify_function", side_effect=fake_verify):
+            code = _pipeline_main([str(src_file), "--function", "add", "--json"])
+        assert code == 0
+        assert called == ["add"]
+        captured = capsys.readouterr()
+        parsed = _j.loads(captured.out)
+        assert len(parsed["goals"]) == 1
+        assert parsed["goals"][0]["name"] == "add"
