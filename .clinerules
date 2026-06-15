@@ -1,0 +1,52 @@
+# Cline Rules for Axiomander
+#
+# These rules are learned from past sessions and apply to all work in this
+# repository.  They supplement AGENTS.md (which covers project conventions).
+# Cline reads .clinerules automatically at the start of each session.
+
+## Git commit messages -- keep -m short to avoid tool-runner hangs
+
+**Problem observed (2026-06-14):** A `git commit -m "..."` with a ~800-character
+multi-line message caused Cline's execute_command tool to hang.  The commit
+itself landed (the output was buffered by the shell), but Cline never received
+the tool result, causing the session to stall and require manual interruption.
+
+**Root cause:** Cline's tool runner reads command output via a pipe.  When the
+shell argument string is very long (hundreds of chars of inline `-m` text), the
+pipe buffer fills before the process exits, and the tool runner's read loop can
+stall waiting for EOF.  The commit completes in git but Cline never sees it.
+
+**Prevention rules:**
+
+1. **Keep `git commit -m` to a single short subject line (<=72 chars).**
+   Do not embed multi-line bodies or bullet lists in the `-m` argument.
+
+2. **For commits that need a body, write the message to a temp file first:**
+   ```bash
+   cat > /tmp/commit_msg.txt << 'EOF'
+   Short subject line (<=72 chars)
+
+   - Bullet 1
+   - Bullet 2
+   EOF
+   git commit -F /tmp/commit_msg.txt
+   ```
+
+3. **Never use heredoc (`<<`) directly inside a `git commit -m` argument.**
+   Shell quoting + heredoc inside a single execute_command call is fragile.
+
+4. **After any git operation that might have hung, check `git log --oneline -3`
+   in the next tool call to confirm the commit landed before proceeding.**
+
+5. **If a tool call produces no result and the session is interrupted, assume
+   the command completed successfully (especially for git operations) and
+   verify with `git log` rather than re-running the commit.**
+
+## General execute_command hygiene
+
+- Prefer commands that produce **short, bounded output**.  Pipe through
+  `tail -N` or `head -N` when output could be large (e.g. test runs, builds).
+- For `pytest` runs, always add `2>&1 | tail -60` to cap output.
+- For `git log`, always add `--oneline -N` to cap output.
+- Avoid embedding large string literals (>200 chars) as shell arguments.
+  Write them to files first, then reference the file.
