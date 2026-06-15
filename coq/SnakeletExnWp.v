@@ -109,6 +109,36 @@ Section wp.
     simpl. iFrame "Hs H".
   Qed.
 
+  (** Reducibility witness from a pure step at the empty context. *)
+  Lemma reducible_pure e e' sigma :
+    pure_step e e' -> reducible e sigma.
+  Proof.
+    intros Hp. exists [], e', sigma, [].
+    apply (PrimPureStep [] e sigma e' Hp).
+  Qed.
+
+  Lemma reducible_head e sigma e' sigma' efs :
+    head_step e sigma e' sigma' efs -> reducible e sigma.
+  Proof.
+    intros Hh. exists [], e', sigma', efs.
+    apply (PrimHeadStep [] e sigma e' sigma' efs Hh).
+  Qed.
+
+  (** If the hole steps, the filled expression is reducible. *)
+  Lemma fill_reducible_pure K x x' sigma :
+    pure_step x x' -> reducible (fill_K K x) sigma.
+  Proof.
+    intros Hp. exists [], (fill_K K x'), sigma, [].
+    apply (PrimPureStep K x sigma x' Hp).
+  Qed.
+
+  Lemma fill_reducible_head K x sigma x' sigma' efs :
+    head_step x sigma x' sigma' efs -> reducible (fill_K K x) sigma.
+  Proof.
+    intros Hh. exists [], (fill_K K x'), sigma', efs.
+    apply (PrimHeadStep K x sigma x' sigma' efs Hh).
+  Qed.
+
 End wp.
 
 (** Notation for the WP and the two-postcondition form. *)
