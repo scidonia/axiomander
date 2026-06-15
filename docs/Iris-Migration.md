@@ -62,12 +62,15 @@ separation logic. IMP has clobber + per-callee frame lemmas.
 
 ### 4. Exceptions (Phase 4)
 
-- [ ] `STry.to_coq()` — snakelet_ir.py:259
+- [x] `STry.to_coq()` — snakelet_ir.py:259
 - [ ] `SFork.to_coq()` — snakelet_ir.py:226
 - [ ] `SFAA.to_coq()` — snakelet_ir.py:237
-- [ ] `wp_raise` WP lemma
-- [ ] `wp_try` WP lemma
-- [ ] Exception-aware postconditions in proof generator
+- [x] `wp_raise` WP lemma (already existed in SnakeletWp.v)
+- [x] `wp_try` WP lemma (wp_try_val already existed in SnakeletWp.v)
+- [x] Pipeline: _subst_params, _validate_ops, _anf, param detection
+- [x] Proof gen stages: raise_val for SRaise, try_val for STry
+- [x] Unary minus `-x` lowered as `0 - x` for variable operands
+- [x] Tests: test_raise_proved, test_try_except_proved
 
 ### 5. Typed Operations (Phase 6)
 
