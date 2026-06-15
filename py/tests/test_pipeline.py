@@ -1068,7 +1068,7 @@ def test_verification_passes(name, source):
 
 import shutil
 import tempfile
-from oracle.pipeline import (
+from axiomander.oracle.pipeline import (
     run_pipeline,
     _enumerate_functions,
     _has_loop,
@@ -1172,7 +1172,7 @@ def test_run_pipeline_proves_simple_functions():
 # No Coq toolchain required.
 # ---------------------------------------------------------------------------
 
-from oracle.reporting import (
+from axiomander.oracle.reporting import (
     GoalStatus,
     GoalOutcome,
     PipelineReport,
@@ -1380,7 +1380,7 @@ class TestPipelineReportToJson:
 import tempfile
 import shutil as _shutil
 from unittest.mock import patch as _patch
-from oracle.pipeline import main as _pipeline_main
+from axiomander.oracle.pipeline import main as _pipeline_main
 
 
 def _write_tmp(source: str) -> Path:
@@ -1420,8 +1420,8 @@ class TestPipelineMainExitCodes:
     def test_exit_0_all_proved(self, tmp_path, capsys):
         src_file = tmp_path / "src.py"
         src_file.write_text(_SIMPLE_SRC)
-        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
-             _patch("oracle.pipeline._verify_function",
+        with _patch("axiomander.oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("axiomander.oracle.pipeline._verify_function",
                     side_effect=[_proved_status("add"), _proved_status("sub")]):
             code = _pipeline_main([str(src_file), "--quiet"])
         assert code == 0
@@ -1429,8 +1429,8 @@ class TestPipelineMainExitCodes:
     def test_exit_1_some_unproved(self, tmp_path, capsys):
         src_file = tmp_path / "src.py"
         src_file.write_text(_SIMPLE_SRC)
-        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
-             _patch("oracle.pipeline._verify_function",
+        with _patch("axiomander.oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("axiomander.oracle.pipeline._verify_function",
                     side_effect=[_proved_status("add"), _unproved_status("sub")]):
             code = _pipeline_main([str(src_file), "--quiet"])
         assert code == 1
@@ -1442,21 +1442,21 @@ class TestPipelineMainExitCodes:
     def test_exit_2_no_coqc(self, tmp_path, capsys):
         src_file = tmp_path / "src.py"
         src_file.write_text(_SIMPLE_SRC)
-        with _patch("oracle.pipeline.shutil.which", return_value=None):
+        with _patch("axiomander.oracle.pipeline.shutil.which", return_value=None):
             code = _pipeline_main([str(src_file)])
         assert code == 2
 
     def test_exit_2_syntax_error(self, tmp_path, capsys):
         src_file = tmp_path / "src.py"
         src_file.write_text("def broken(:\n    pass\n")
-        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"):
+        with _patch("axiomander.oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"):
             code = _pipeline_main([str(src_file)])
         assert code == 2
 
     def test_exit_2_unknown_function(self, tmp_path, capsys):
         src_file = tmp_path / "src.py"
         src_file.write_text(_SIMPLE_SRC)
-        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"):
+        with _patch("axiomander.oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"):
             code = _pipeline_main([str(src_file), "--function", "nonexistent"])
         assert code == 2
 
@@ -1468,8 +1468,8 @@ class TestPipelineMainJsonFlag:
         import json as _j
         src_file = tmp_path / "src.py"
         src_file.write_text(_SIMPLE_SRC)
-        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
-             _patch("oracle.pipeline._verify_function",
+        with _patch("axiomander.oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("axiomander.oracle.pipeline._verify_function",
                     side_effect=[_proved_status("add"), _proved_status("sub")]):
             code = _pipeline_main([str(src_file), "--json"])
         assert code == 0
@@ -1483,8 +1483,8 @@ class TestPipelineMainJsonFlag:
         import json as _j
         src_file = tmp_path / "src.py"
         src_file.write_text(_SIMPLE_SRC)
-        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
-             _patch("oracle.pipeline._verify_function",
+        with _patch("axiomander.oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("axiomander.oracle.pipeline._verify_function",
                     side_effect=[_proved_status("add"), _unproved_status("sub")]):
             _pipeline_main([str(src_file), "--json"])
         captured = capsys.readouterr()
@@ -1496,8 +1496,8 @@ class TestPipelineMainJsonFlag:
         import json as _j
         src_file = tmp_path / "src.py"
         src_file.write_text(_SIMPLE_SRC)
-        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
-             _patch("oracle.pipeline._verify_function",
+        with _patch("axiomander.oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("axiomander.oracle.pipeline._verify_function",
                     side_effect=[_proved_status("add"), _proved_status("sub")]):
             _pipeline_main([str(src_file), "--json"])
         captured = capsys.readouterr()
@@ -1520,8 +1520,8 @@ class TestPipelineMainFunctionFilter:
             called.append(name)
             return _proved_status(name)
 
-        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
-             _patch("oracle.pipeline._verify_function", side_effect=fake_verify):
+        with _patch("axiomander.oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("axiomander.oracle.pipeline._verify_function", side_effect=fake_verify):
             code = _pipeline_main([str(src_file), "--function", "add", "--json"])
         assert code == 0
         assert called == ["add"]
@@ -1536,8 +1536,8 @@ class TestPipelineMainFunctionFilter:
 # No Coq toolchain required.
 # ---------------------------------------------------------------------------
 
-from oracle.pipeline import _verify_one, _has_loop
-from oracle.reporting import classify_failure, action_guidance
+from axiomander.oracle.pipeline import _verify_one, _has_loop
+from axiomander.oracle.reporting import classify_failure, action_guidance
 
 
 _LOOP_SRC = """\
@@ -1609,7 +1609,7 @@ class TestVerifyOneFaultIsolation:
     def test_exception_returns_unproved_goal(self, tmp_path):
         """A RuntimeError from _verify_function is caught; report is complete."""
         func_node = _get_func_node(_SIMPLE_SRC, "add")
-        with _patch("oracle.pipeline._verify_function",
+        with _patch("axiomander.oracle.pipeline._verify_function",
                     side_effect=RuntimeError("coqc exploded")):
             result = _verify_one(_SIMPLE_SRC, "add", func_node)
         assert result.name == "add"
@@ -1620,7 +1620,7 @@ class TestVerifyOneFaultIsolation:
     def test_exception_goal_has_refactor_action(self, tmp_path):
         """Exception path sets suggested_action=REFACTOR (not None)."""
         func_node = _get_func_node(_SIMPLE_SRC, "add")
-        with _patch("oracle.pipeline._verify_function",
+        with _patch("axiomander.oracle.pipeline._verify_function",
                     side_effect=ValueError("bad input")):
             result = _verify_one(_SIMPLE_SRC, "add", func_node)
         assert result.suggested_action == Action.REFACTOR
@@ -1628,7 +1628,7 @@ class TestVerifyOneFaultIsolation:
     def test_none_return_becomes_unproved(self):
         """_verify_function returning None is handled gracefully."""
         func_node = _get_func_node(_SIMPLE_SRC, "add")
-        with _patch("oracle.pipeline._verify_function", return_value=None):
+        with _patch("axiomander.oracle.pipeline._verify_function", return_value=None):
             result = _verify_one(_SIMPLE_SRC, "add", func_node)
         assert result.name == "add"
         assert not result.is_proved()
@@ -1638,7 +1638,7 @@ class TestVerifyOneFaultIsolation:
         """A proved goal has elapsed_ms > 0 (timing is recorded)."""
         func_node = _get_func_node(_SIMPLE_SRC, "add")
         proved = GoalStatus(name="add", goal_statement="", level=ProofLevel.LEVEL1_LTAC)
-        with _patch("oracle.pipeline._verify_function", return_value=proved):
+        with _patch("axiomander.oracle.pipeline._verify_function", return_value=proved):
             result = _verify_one(_SIMPLE_SRC, "add", func_node)
         assert result.is_proved()
         assert result.elapsed_ms >= 0.0  # monotonic, always non-negative
@@ -1647,7 +1647,7 @@ class TestVerifyOneFaultIsolation:
         """An unproved goal also has elapsed_ms recorded."""
         func_node = _get_func_node(_SIMPLE_SRC, "add")
         unproved = GoalStatus(name="add", goal_statement="", level=ProofLevel.UNPROVED)
-        with _patch("oracle.pipeline._verify_function", return_value=unproved):
+        with _patch("axiomander.oracle.pipeline._verify_function", return_value=unproved):
             result = _verify_one(_SIMPLE_SRC, "add", func_node)
         assert result.elapsed_ms >= 0.0
 
@@ -1664,9 +1664,9 @@ class TestVerifyOneFaultIsolation:
                 raise RuntimeError("add crashed")
             return _proved_status(name)
 
-        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
-             _patch("oracle.pipeline._verify_function", side_effect=flaky_verify):
-            from oracle.pipeline import run_pipeline as _run_pipeline
+        with _patch("axiomander.oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("axiomander.oracle.pipeline._verify_function", side_effect=flaky_verify):
+            from axiomander.oracle.pipeline import run_pipeline as _run_pipeline
             report = _run_pipeline(src_file)
 
         # Both functions were attempted
@@ -1694,7 +1694,7 @@ class TestVerifyOneB3FallbackClassification:
             error_detail="could not prove loop invariant",
             suggested_action=None,
         )
-        with _patch("oracle.pipeline._verify_function", return_value=unproved):
+        with _patch("axiomander.oracle.pipeline._verify_function", return_value=unproved):
             result = _verify_one(_LOOP_SRC, "loopy", func_node)
         assert result.suggested_action == Action.ADD_INVARIANT
         assert result.suggestion_text  # non-empty guidance
@@ -1709,7 +1709,7 @@ class TestVerifyOneB3FallbackClassification:
             error_detail="",
             suggested_action=None,
         )
-        with _patch("oracle.pipeline._verify_function", return_value=unproved):
+        with _patch("axiomander.oracle.pipeline._verify_function", return_value=unproved):
             result = _verify_one(_NO_LOOP_SRC, "simple", func_node)
         # No loop, no keyword -> classify_failure returns RETRY_LLM
         assert result.suggested_action == Action.RETRY_LLM
@@ -1724,7 +1724,7 @@ class TestVerifyOneB3FallbackClassification:
             error_detail="counterexample found",
             suggested_action=Action.PROPERTY_FALSE,  # engine already classified
         )
-        with _patch("oracle.pipeline._verify_function", return_value=unproved):
+        with _patch("axiomander.oracle.pipeline._verify_function", return_value=unproved):
             result = _verify_one(_LOOP_SRC, "loopy", func_node)
         # Must remain PROPERTY_FALSE, not overwritten to ADD_INVARIANT
         assert result.suggested_action == Action.PROPERTY_FALSE
@@ -1738,7 +1738,7 @@ class TestVerifyOneB3FallbackClassification:
             level=ProofLevel.LEVEL1_LTAC,
             suggested_action=None,
         )
-        with _patch("oracle.pipeline._verify_function", return_value=proved):
+        with _patch("axiomander.oracle.pipeline._verify_function", return_value=proved):
             result = _verify_one(_SIMPLE_SRC, "add", func_node)
         # Proved -> B3 branch not entered -> suggested_action stays None
         assert result.suggested_action is None
@@ -1754,7 +1754,7 @@ class TestVerifyOneB3FallbackClassification:
             suggested_action=None,
             suggestion_text="",
         )
-        with _patch("oracle.pipeline._verify_function", return_value=unproved):
+        with _patch("axiomander.oracle.pipeline._verify_function", return_value=unproved):
             result = _verify_one(_LOOP_SRC, "loopy", func_node)
         assert result.suggestion_text  # non-empty
         assert "loopy" in result.suggestion_text  # action_guidance includes func name
