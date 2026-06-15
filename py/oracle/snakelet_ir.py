@@ -256,7 +256,7 @@ class STry:
     kind: Literal["try"] = "try"
 
     def to_coq(self) -> str:
-        raise NotImplementedError("STry lowering to SnakeletLang: phase 3")
+        return f'(Try {self.body.to_coq()} (Let "{self.exc_var}" (Var "{self.exc_var}") {self.handler.to_coq()}))'
 
 
 @dataclass

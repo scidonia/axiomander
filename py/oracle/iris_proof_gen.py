@@ -35,7 +35,7 @@ from typing import Optional, Union
 
 from oracle.snakelet_ir import (
     SAlloc, SApp, SBinOp, SDictGet, SDictSet, SExpr, SIf, SLet, SLit, SLoad, SRaise, SReturn, SSeq,
-    SStore, SVar, SWhile, SFor,
+    SStore, STry, SVar, SWhile, SFor,
 )
 
 # Coq unicode tokens, kept out of literals so the Python source stays ASCII.
@@ -545,6 +545,18 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                               comment="dict set: unit return")] + k()
             return _gen(e.value, table, overrides, after_dictset_value, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
         return _gen(e.key, table, overrides, after_dictset_key, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+
+    if isinstance(e, SRaise):
+        def after_exc():
+            return [Stage("raise_val", "raise_val",
+                          comment="raise exception")] + k()
+        return _gen(e.exc, table, overrides, after_exc, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+
+    if isinstance(e, STry):
+        def after_body():
+            return [Stage("try_val", "try_val",
+                          comment="try/except: body returned normally")] + k()
+        return _gen(e.body, table, overrides, after_body, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
 
     raise IrisGenError(
         f"unsupported node for staged generation: {type(e).__name__} "

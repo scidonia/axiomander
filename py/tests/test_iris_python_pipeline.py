@@ -418,3 +418,29 @@ def needs_smt(n):
             "nldecr": "eexists; split; [done | exact (smt_ax_0 n)]"},
     )
     assert ok, out
+
+
+# -- Exceptions ----------------------------------------------------------
+
+def test_raise_proved():
+    """A raise statement is lowered to SRaise and verified via wp_raise."""
+    ok, out = verify('''
+def maybe_raise(n):
+    if n < 0:
+        return -n
+    raise ValueError
+    return 0
+''')
+
+
+def test_try_except_proved():
+    """A try/except where the body doesn't raise is verified via wp_try_val."""
+    ok, out = verify('''
+def try_simple(x):
+    try:
+        a = x + 1
+    except Exception:
+        a = 0
+    assert a == x + 1
+    return a
+''')

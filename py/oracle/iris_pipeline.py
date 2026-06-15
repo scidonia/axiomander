@@ -44,7 +44,7 @@ from oracle.py_ir import (
 )
 from oracle.py_ir_translator import PyIRTranslator
 from oracle.snakelet_ir import (
-    SAlloc, SApp, SBinOp, SDictGet, SDictSet, SExpr, SIf, SLet, SLit, SLoad, SReturn, SStore,
+    SAlloc, SApp, SBinOp, SDictGet, SDictSet, SExpr, SIf, SLet, SLit, SLoad, SRaise, SReturn, SStore,
     STry, SVar, SWhile, SFor,
 )
 
@@ -327,11 +327,12 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
         return SLet(var="_", value=val, body=_fold(rest, lw, invs_iter=invs_iter))
 
     if isinstance(s, PyRaise):
-        exc_val = SLit(lit_type="string", value=s.exc_type)
+        val = lw.lower_stmt(s)
+        if val is None:
+            raise IrisGenError("cannot lower raise statement")
         if not rest:
-            return SReturn(value=exc_val)
-        return SLet(var="_", value=SReturn(value=exc_val),
-                    body=_fold(rest, lw, invs_iter=invs_iter))
+            return val
+        return SLet(var="_", value=val, body=_fold(rest, lw, invs_iter=invs_iter))
 
     if isinstance(s, PyTry):
         body_e = _fold(list(s.body), lw, invs_iter=invs_iter)
@@ -466,6 +467,12 @@ def _subst_params(e: SExpr, params: set[str], bound: set[str],
         return SDictSet(loc=e.loc,
                         key=_subst_params(e.key, params, bound, lp),
                         value=_subst_params(e.value, params, bound, lp))
+    if isinstance(e, SRaise):
+        return SRaise(exc=_subst_params(e.exc, params, bound, lp))
+    if isinstance(e, STry):
+        return STry(body=_subst_params(e.body, params, bound, lp),
+                    exc_var=e.exc_var,
+                    handler=_subst_params(e.handler, params, bound, lp))
     raise IrisGenError(
         f"unsupported node in parameter substitution: {type(e).__name__}")
 
@@ -576,6 +583,14 @@ def _anf(e: SExpr, ctr: list[int]) -> SExpr:
         return SFor(var=e.var, lst=e.lst, body=_anf(e.body, ctr),
                     invariants=e.invariants,
                     iterable_type=e.iterable_type)
+    if isinstance(e, SRaise):
+        binds: list[tuple[str, SExpr]] = []
+        exc = _atomize(e.exc, ctr, binds)
+        return _wrap(binds, SRaise(exc=exc))
+    if isinstance(e, STry):
+        return STry(body=_anf(e.body, ctr),
+                    exc_var=e.exc_var,
+                    handler=_anf(e.handler, ctr))
     raise IrisGenError(f"unsupported node in ANF: {type(e).__name__}")
 
 
@@ -618,6 +633,11 @@ def _validate_ops(e: SExpr) -> None:
     elif isinstance(e, SDictSet):
         _validate_ops(e.key)
         _validate_ops(e.value)
+    elif isinstance(e, SRaise):
+        _validate_ops(e.exc)
+    elif isinstance(e, STry):
+        _validate_ops(e.body)
+        _validate_ops(e.handler)
 
 
 # -- Entry point --------------------------------------------------------------
@@ -660,6 +680,11 @@ def _detect_list_params(body: SExpr, params: set[str]) -> dict[str, str]:
         elif isinstance(e, SDictSet):
             walk(e.key)
             walk(e.value)
+        elif isinstance(e, SRaise):
+            walk(e.exc)
+        elif isinstance(e, STry):
+            walk(e.body)
+            walk(e.handler)
         elif isinstance(e, (SLit, SVar)):
             pass
         else:
@@ -707,6 +732,11 @@ def _detect_dict_params(body: SExpr, params: set[str]) -> dict[str, str]:
         elif isinstance(e, SDictSet):
             walk(e.key)
             walk(e.value)
+        elif isinstance(e, SRaise):
+            walk(e.exc)
+        elif isinstance(e, STry):
+            walk(e.body)
+            walk(e.handler)
         elif isinstance(e, (SLit, SVar)):
             pass
         else:
