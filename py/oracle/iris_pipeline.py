@@ -40,11 +40,11 @@ from oracle.iris_proof_gen import (
 )
 from oracle.py_ir import (
     PyAssert, PyAssign, PyAugAssign, PyCall, PyConstant, PyExprStmt,
-    PyFor, PyIf, PyName, PyRaise, PyReturn, PyStmt, PyTry, PyWhile,
+    PyFor, PyIf, PyName, PyRaise, PyReturn, PyStmt, PyStoreSubscript, PyTry, PyWhile,
 )
 from oracle.py_ir_translator import PyIRTranslator
 from oracle.snakelet_ir import (
-    SAlloc, SApp, SBinOp, SExpr, SIf, SLet, SLit, SLoad, SReturn, SStore,
+    SAlloc, SApp, SBinOp, SDictGet, SDictSet, SExpr, SIf, SLet, SLit, SLoad, SReturn, SStore,
     STry, SVar, SWhile, SFor,
 )
 
@@ -396,6 +396,14 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
         return SLet(var=ivar, value=lo_val,
                     body=SLet(var="_", value=while_e, body=rest_e))
 
+    if isinstance(s, PyStoreSubscript):
+        val = lw.lower_stmt(s)
+        if val is None:
+            raise IrisGenError("cannot lower dict subscript assignment")
+        if not rest:
+            return val
+        return SLet(var="_", value=val, body=_fold(rest, lw, invs_iter=invs_iter))
+
     raise IrisGenError(
         f"unsupported statement for Iris lowering: {type(s).__name__} "
         f"(break/continue: later phases)")
@@ -451,6 +459,13 @@ def _subst_params(e: SExpr, params: set[str], bound: set[str],
         return e
     if isinstance(e, SReturn):
         return _subst_params(e.value, params, bound, lp)
+    if isinstance(e, SDictGet):
+        return SDictGet(loc=e.loc,
+                        key=_subst_params(e.key, params, bound, lp))
+    if isinstance(e, SDictSet):
+        return SDictSet(loc=e.loc,
+                        key=_subst_params(e.key, params, bound, lp),
+                        value=_subst_params(e.value, params, bound, lp))
     raise IrisGenError(
         f"unsupported node in parameter substitution: {type(e).__name__}")
 
@@ -507,6 +522,15 @@ def _anf(e: SExpr, ctr: list[int]) -> SExpr:
         binds: list[tuple[str, SExpr]] = []
         val = _atomize(e.value, ctr, binds)
         return _wrap(binds, SStore(loc=e.loc, value=val))
+    if isinstance(e, SDictGet):
+        binds: list[tuple[str, SExpr]] = []
+        key = _atomize(e.key, ctr, binds)
+        return _wrap(binds, SDictGet(loc=e.loc, key=key))
+    if isinstance(e, SDictSet):
+        binds: list[tuple[str, SExpr]] = []
+        key = _atomize(e.key, ctr, binds)
+        val = _atomize(e.value, ctr, binds)
+        return _wrap(binds, SDictSet(loc=e.loc, key=key, value=val))
     if isinstance(e, SLet):
         return SLet(var=e.var, value=_anf(e.value, ctr),
                     body=_anf(e.body, ctr))
@@ -589,6 +613,11 @@ def _validate_ops(e: SExpr) -> None:
         pass
     elif isinstance(e, SReturn):
         _validate_ops(e.value)
+    elif isinstance(e, SDictGet):
+        _validate_ops(e.key)
+    elif isinstance(e, SDictSet):
+        _validate_ops(e.key)
+        _validate_ops(e.value)
 
 
 # -- Entry point --------------------------------------------------------------
@@ -626,6 +655,11 @@ def _detect_list_params(body: SExpr, params: set[str]) -> dict[str, str]:
             walk(e.value)
         elif isinstance(e, SLoad):
             pass
+        elif isinstance(e, SDictGet):
+            walk(e.key)
+        elif isinstance(e, SDictSet):
+            walk(e.key)
+            walk(e.value)
         elif isinstance(e, (SLit, SVar)):
             pass
         else:
@@ -668,50 +702,16 @@ def _detect_dict_params(body: SExpr, params: set[str]) -> dict[str, str]:
             walk(e.value)
         elif isinstance(e, SLoad):
             pass
+        elif isinstance(e, SDictGet):
+            walk(e.key)
+        elif isinstance(e, SDictSet):
+            walk(e.key)
+            walk(e.value)
         elif isinstance(e, (SLit, SVar)):
             pass
         else:
             raise IrisGenError(
                 f"unsupported node in dict-param detection: {type(e).__name__}")
-    walk(body)
-    return out
-    """Find params used as list for-loop iterables and assign model variable names."""
-    out: dict[str, str] = {}
-    def walk(e: SExpr) -> None:
-        if isinstance(e, SFor):
-            if isinstance(e.lst, SVar) and e.lst.name in params \
-               and e.iterable_type in ("list", "str", "name"):
-                out[e.lst.name] = f"M_{e.lst.name}"
-            walk(e.lst)
-            walk(e.body)
-        elif isinstance(e, SLet):
-            walk(e.value)
-            walk(e.body)
-        elif isinstance(e, SIf):
-            walk(e.cond)
-            walk(e.then_branch)
-            if e.else_branch:
-                walk(e.else_branch)
-        elif isinstance(e, SWhile):
-            walk(e.cond)
-            walk(e.body)
-        elif isinstance(e, SBinOp):
-            walk(e.left)
-            walk(e.right)
-        elif isinstance(e, SApp):
-            for a in e.args:
-                walk(a)
-        elif isinstance(e, SAlloc):
-            walk(e.value)
-        elif isinstance(e, SStore):
-            walk(e.value)
-        elif isinstance(e, SLoad):
-            pass
-        elif isinstance(e, (SLit, SVar)):
-            pass
-        else:
-            raise IrisGenError(
-                f"unsupported node in list-param detection: {type(e).__name__}")
     walk(body)
     return out
 

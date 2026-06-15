@@ -267,7 +267,7 @@ class SDictGet:
     kind: Literal["dict_get"] = "dict_get"
 
     def to_coq(self) -> str:
-        raise NotImplementedError("SDictGet lowering to SnakeletLang: phase 3")
+        return f'(DictGet (Var "{self.loc}") {self.key.to_coq()})'
 
 
 @dataclass
@@ -279,7 +279,7 @@ class SDictSet:
     kind: Literal["dict_set"] = "dict_set"
 
     def to_coq(self) -> str:
-        raise NotImplementedError("SDictSet lowering to SnakeletLang: phase 3")
+        return f'(DictSet (Var "{self.loc}") {self.key.to_coq()} {self.value.to_coq()})'
 
 
 SExpr = SLit | SVar | SBinOp | SLoad | SStore | SAlloc | SLet | SIf | SWhile | SFor | SReturn | SApp | SSeq | SFork | SFAA | SRaise | STry | SDictGet | SDictSet
