@@ -28,7 +28,14 @@ import time
 from pathlib import Path
 
 from .mcp_server import _verify_function
-from .reporting import PipelineReport, GoalStatus, ProofLevel
+from .reporting import (
+    PipelineReport,
+    GoalStatus,
+    ProofLevel,
+    Action,
+    classify_failure,
+    action_guidance,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -48,22 +55,83 @@ def _check_toolchain() -> None:
 # Function discovery
 # ---------------------------------------------------------------------------
 
-def _enumerate_functions(tree: ast.Module) -> list[str]:
-    """Return names of top-level functions and class methods.
+def _enumerate_functions(tree: ast.Module) -> list[tuple[str, ast.FunctionDef]]:
+    """Return (name, node) pairs for top-level functions and class methods.
 
     Uses ast.iter_child_nodes (not ast.walk) to avoid double-counting
     nested helpers.  Descends one level into ClassDef for methods,
     mirroring the convention in mcp_server._build_contract_map.
+
+    Returns a list of (function_name, ast.FunctionDef) tuples in source order.
     """
-    names: list[str] = []
+    pairs: list[tuple[str, ast.FunctionDef]] = []
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.FunctionDef):
-            names.append(node.name)
+            pairs.append((node.name, node))
         elif isinstance(node, ast.ClassDef):
             for child in ast.iter_child_nodes(node):
                 if isinstance(child, ast.FunctionDef):
-                    names.append(child.name)
-    return names
+                    pairs.append((child.name, child))
+    return pairs
+
+
+# ---------------------------------------------------------------------------
+# Loop detection (for B3 fallback classification)
+# ---------------------------------------------------------------------------
+
+def _has_loop(func_node: ast.FunctionDef) -> bool:
+    """Return True if the function body contains any while or for loop.
+
+    Uses ast.walk so nested loops inside if-branches are detected.
+    """
+    for node in ast.walk(func_node):
+        if isinstance(node, (ast.While, ast.For)):
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Per-function fault-isolated verification (B2 + B3)
+# ---------------------------------------------------------------------------
+
+def _verify_one(source: str, name: str, func_node: ast.FunctionDef) -> GoalStatus:
+    """Verify one function, isolating faults and recording elapsed time.
+
+    B2: wraps _verify_function in try/except so one crashing function
+        does not abort the whole pipeline run.  Records per-goal elapsed_ms.
+
+    B3: if the engine returned an unproved goal with no suggested_action,
+        applies the classify_failure / action_guidance heuristic as a
+        fallback.  Never clobbers an action already set by the engine.
+    """
+    t0 = time.monotonic()
+    try:
+        result = _verify_function(source, name)
+    except Exception as exc:
+        result = None
+        error_msg = f"{type(exc).__name__}: {exc}"
+    else:
+        error_msg = ""
+
+    if result is None:
+        result = GoalStatus(
+            name=name,
+            goal_statement="",
+            level=ProofLevel.UNPROVED,
+            error_detail=error_msg or "internal error in _verify_function",
+            suggested_action=Action.REFACTOR,
+        )
+
+    result.elapsed_ms = (time.monotonic() - t0) * 1000.0
+
+    # B3: fallback classification for unproved goals with no action set
+    if not result.is_proved() and result.suggested_action is None:
+        has_loop = _has_loop(func_node)
+        action = classify_failure(name, result.error_detail or "", has_loop)
+        result.suggested_action = action
+        result.suggestion_text = action_guidance(action, name)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -84,8 +152,8 @@ def run_pipeline(python_file: Path) -> PipelineReport:
     except SyntaxError as exc:
         sys.exit(f"ERROR: syntax error in {python_file}: {exc}")
 
-    func_names = _enumerate_functions(tree)
-    if not func_names:
+    func_pairs = _enumerate_functions(tree)
+    if not func_pairs:
         print(f"No functions found in {python_file.name}.")
         return PipelineReport(
             source_file=str(python_file),
@@ -97,18 +165,8 @@ def run_pipeline(python_file: Path) -> PipelineReport:
     goals: list[GoalStatus] = []
     t0 = time.monotonic()
 
-    for name in func_names:
-        result = _verify_function(source, name)
-        if result is None:
-            # _verify_function returns None only on internal error; treat as
-            # unproved so the report is complete.
-            result = GoalStatus(
-                name=name,
-                goal_statement="",
-                level=ProofLevel.UNPROVED,
-                error_detail="internal error in _verify_function",
-            )
-
+    for name, func_node in func_pairs:
+        result = _verify_one(source, name, func_node)
         goals.append(result)
 
         # Per-function status line
@@ -195,7 +253,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: syntax error in {py_file}: {exc}", file=sys.stderr)
         return 2
 
-    func_names = _enumerate_functions(tree)
+    func_pairs = _enumerate_functions(tree)
+    func_names = [name for name, _ in func_pairs]
 
     # Filter to a single function when --function is given.
     if args.function:
@@ -206,9 +265,9 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-        func_names = [args.function]
+        func_pairs = [(n, node) for n, node in func_pairs if n == args.function]
 
-    if not func_names:
+    if not func_pairs:
         if not args.quiet:
             print(f"No functions found in {py_file.name}.")
         if args.json:
@@ -219,15 +278,8 @@ def main(argv: list[str] | None = None) -> int:
     goals: list[GoalStatus] = []
     t0 = time.monotonic()
 
-    for name in func_names:
-        result = _verify_function(source, name)
-        if result is None:
-            result = GoalStatus(
-                name=name,
-                goal_statement="",
-                level=ProofLevel.UNPROVED,
-                error_detail="internal error in _verify_function",
-            )
+    for name, func_node in func_pairs:
+        result = _verify_one(source, name, func_node)
         goals.append(result)
 
         if not args.quiet and not args.json:

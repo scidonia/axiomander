@@ -1068,7 +1068,12 @@ def test_verification_passes(name, source):
 
 import shutil
 import tempfile
-from oracle.pipeline import run_pipeline, _enumerate_functions
+from oracle.pipeline import (
+    run_pipeline,
+    _enumerate_functions,
+    _has_loop,
+    _verify_one,
+)
 
 
 # Minimal 2-function file with assert-based contracts that prove at Level 1.
@@ -1089,10 +1094,14 @@ def clamp_pos(n: int) -> int:
 
 
 def test_enumerate_functions_top_level():
-    """_enumerate_functions returns top-level function names in order."""
+    """_enumerate_functions returns (name, node) pairs for top-level functions."""
     tree = ast.parse(_PIPELINE_FIXTURE)
-    names = _enumerate_functions(tree)
+    pairs = _enumerate_functions(tree)
+    names = [n for n, _ in pairs]
     assert names == ["add", "clamp_pos"]
+    # Each second element is an ast.FunctionDef
+    for _, node in pairs:
+        assert isinstance(node, ast.FunctionDef)
 
 
 def test_enumerate_functions_class_methods():
@@ -1105,7 +1114,8 @@ class Foo:
 def top(x): pass
 """
     tree = ast.parse(src)
-    names = _enumerate_functions(tree)
+    pairs = _enumerate_functions(tree)
+    names = [n for n, _ in pairs]
     assert "bar" in names
     assert "baz" in names
     assert "top" in names
@@ -1116,7 +1126,8 @@ def outer():
     return 1
 """
     tree2 = ast.parse(src2)
-    names2 = _enumerate_functions(tree2)
+    pairs2 = _enumerate_functions(tree2)
+    names2 = [n for n, _ in pairs2]
     assert names2 == ["outer"]
     assert "inner" not in names2
 
@@ -1518,3 +1529,232 @@ class TestPipelineMainFunctionFilter:
         parsed = _j.loads(captured.out)
         assert len(parsed["goals"]) == 1
         assert parsed["goals"][0]["name"] == "add"
+
+
+# ---------------------------------------------------------------------------
+# Fast unit tests for B2: fault isolation + per-goal elapsed_ms
+# No Coq toolchain required.
+# ---------------------------------------------------------------------------
+
+from oracle.pipeline import _verify_one, _has_loop
+from oracle.reporting import classify_failure, action_guidance
+
+
+_LOOP_SRC = """\
+def loopy(n: int) -> int:
+    assert n >= 0
+    i = 0
+    while i < n:
+        assert i <= n
+        i += 1
+    assert i == n
+    return i
+"""
+
+_NO_LOOP_SRC = """\
+def simple(a: int, b: int) -> int:
+    assert a >= 0
+    result = a + b
+    assert result >= a
+    return result
+"""
+
+
+def _get_func_node(src: str, name: str) -> ast.FunctionDef:
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    raise ValueError(f"Function {name!r} not found")
+
+
+class TestHasLoop:
+    """_has_loop detects while/for loops in function bodies."""
+
+    def test_while_loop_detected(self):
+        node = _get_func_node(_LOOP_SRC, "loopy")
+        assert _has_loop(node) is True
+
+    def test_no_loop_returns_false(self):
+        node = _get_func_node(_NO_LOOP_SRC, "simple")
+        assert _has_loop(node) is False
+
+    def test_for_loop_detected(self):
+        src = """\
+def with_for(n: int) -> int:
+    total = 0
+    for i in range(n):
+        total += i
+    return total
+"""
+        node = _get_func_node(src, "with_for")
+        assert _has_loop(node) is True
+
+    def test_nested_loop_in_if_detected(self):
+        src = """\
+def nested(n: int) -> int:
+    if n > 0:
+        i = 0
+        while i < n:
+            i += 1
+    return n
+"""
+        node = _get_func_node(src, "nested")
+        assert _has_loop(node) is True
+
+
+class TestVerifyOneFaultIsolation:
+    """_verify_one (B2): exception in _verify_function does not propagate."""
+
+    def test_exception_returns_unproved_goal(self, tmp_path):
+        """A RuntimeError from _verify_function is caught; report is complete."""
+        func_node = _get_func_node(_SIMPLE_SRC, "add")
+        with _patch("oracle.pipeline._verify_function",
+                    side_effect=RuntimeError("coqc exploded")):
+            result = _verify_one(_SIMPLE_SRC, "add", func_node)
+        assert result.name == "add"
+        assert not result.is_proved()
+        assert "RuntimeError" in result.error_detail
+        assert "coqc exploded" in result.error_detail
+
+    def test_exception_goal_has_refactor_action(self, tmp_path):
+        """Exception path sets suggested_action=REFACTOR (not None)."""
+        func_node = _get_func_node(_SIMPLE_SRC, "add")
+        with _patch("oracle.pipeline._verify_function",
+                    side_effect=ValueError("bad input")):
+            result = _verify_one(_SIMPLE_SRC, "add", func_node)
+        assert result.suggested_action == Action.REFACTOR
+
+    def test_none_return_becomes_unproved(self):
+        """_verify_function returning None is handled gracefully."""
+        func_node = _get_func_node(_SIMPLE_SRC, "add")
+        with _patch("oracle.pipeline._verify_function", return_value=None):
+            result = _verify_one(_SIMPLE_SRC, "add", func_node)
+        assert result.name == "add"
+        assert not result.is_proved()
+        assert result.error_detail  # some detail set
+
+    def test_proved_goal_elapsed_ms_positive(self):
+        """A proved goal has elapsed_ms > 0 (timing is recorded)."""
+        func_node = _get_func_node(_SIMPLE_SRC, "add")
+        proved = GoalStatus(name="add", goal_statement="", level=ProofLevel.LEVEL1_LTAC)
+        with _patch("oracle.pipeline._verify_function", return_value=proved):
+            result = _verify_one(_SIMPLE_SRC, "add", func_node)
+        assert result.is_proved()
+        assert result.elapsed_ms >= 0.0  # monotonic, always non-negative
+
+    def test_unproved_goal_elapsed_ms_recorded(self):
+        """An unproved goal also has elapsed_ms recorded."""
+        func_node = _get_func_node(_SIMPLE_SRC, "add")
+        unproved = GoalStatus(name="add", goal_statement="", level=ProofLevel.UNPROVED)
+        with _patch("oracle.pipeline._verify_function", return_value=unproved):
+            result = _verify_one(_SIMPLE_SRC, "add", func_node)
+        assert result.elapsed_ms >= 0.0
+
+    def test_multiple_functions_all_complete_after_one_crash(self, tmp_path):
+        """run_pipeline completes all functions even if one raises."""
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+
+        call_count = [0]
+
+        def flaky_verify(source, name, *a, **kw):
+            call_count[0] += 1
+            if name == "add":
+                raise RuntimeError("add crashed")
+            return _proved_status(name)
+
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("oracle.pipeline._verify_function", side_effect=flaky_verify):
+            from oracle.pipeline import run_pipeline as _run_pipeline
+            report = _run_pipeline(src_file)
+
+        # Both functions were attempted
+        assert call_count[0] == 2
+        # Report is complete (2 goals, not 1)
+        assert report.total_goals == 2
+        # The crashing function is unproved, the other is proved
+        names = {g.name: g for g in report.goals}
+        assert not names["add"].is_proved()
+        assert names["sub"].is_proved()
+        # Overall exit code would be 1 (not all proved)
+        assert report.proved_goals == 1
+
+
+class TestVerifyOneB3FallbackClassification:
+    """_verify_one (B3): fallback classify_failure when suggested_action is None."""
+
+    def test_loop_invariant_error_gets_add_invariant(self):
+        """Unproved goal with loop + 'invariant' in error -> ADD_INVARIANT."""
+        func_node = _get_func_node(_LOOP_SRC, "loopy")
+        unproved = GoalStatus(
+            name="loopy",
+            goal_statement="",
+            level=ProofLevel.UNPROVED,
+            error_detail="could not prove loop invariant",
+            suggested_action=None,
+        )
+        with _patch("oracle.pipeline._verify_function", return_value=unproved):
+            result = _verify_one(_LOOP_SRC, "loopy", func_node)
+        assert result.suggested_action == Action.ADD_INVARIANT
+        assert result.suggestion_text  # non-empty guidance
+
+    def test_no_loop_unproved_gets_retry_llm(self):
+        """Unproved goal without loop and no keyword -> RETRY_LLM fallback."""
+        func_node = _get_func_node(_NO_LOOP_SRC, "simple")
+        unproved = GoalStatus(
+            name="simple",
+            goal_statement="",
+            level=ProofLevel.UNPROVED,
+            error_detail="",
+            suggested_action=None,
+        )
+        with _patch("oracle.pipeline._verify_function", return_value=unproved):
+            result = _verify_one(_NO_LOOP_SRC, "simple", func_node)
+        # No loop, no keyword -> classify_failure returns RETRY_LLM
+        assert result.suggested_action == Action.RETRY_LLM
+
+    def test_engine_set_action_not_clobbered(self):
+        """If engine already set suggested_action, B3 must not overwrite it."""
+        func_node = _get_func_node(_LOOP_SRC, "loopy")
+        unproved = GoalStatus(
+            name="loopy",
+            goal_statement="",
+            level=ProofLevel.UNPROVED,
+            error_detail="counterexample found",
+            suggested_action=Action.PROPERTY_FALSE,  # engine already classified
+        )
+        with _patch("oracle.pipeline._verify_function", return_value=unproved):
+            result = _verify_one(_LOOP_SRC, "loopy", func_node)
+        # Must remain PROPERTY_FALSE, not overwritten to ADD_INVARIANT
+        assert result.suggested_action == Action.PROPERTY_FALSE
+
+    def test_proved_goal_has_no_fallback_action(self):
+        """Proved goals are not touched by B3 fallback."""
+        func_node = _get_func_node(_SIMPLE_SRC, "add")
+        proved = GoalStatus(
+            name="add",
+            goal_statement="",
+            level=ProofLevel.LEVEL1_LTAC,
+            suggested_action=None,
+        )
+        with _patch("oracle.pipeline._verify_function", return_value=proved):
+            result = _verify_one(_SIMPLE_SRC, "add", func_node)
+        # Proved -> B3 branch not entered -> suggested_action stays None
+        assert result.suggested_action is None
+
+    def test_suggestion_text_populated_for_fallback(self):
+        """B3 fallback also populates suggestion_text (not just action)."""
+        func_node = _get_func_node(_LOOP_SRC, "loopy")
+        unproved = GoalStatus(
+            name="loopy",
+            goal_statement="",
+            level=ProofLevel.UNPROVED,
+            error_detail="invariant too weak",
+            suggested_action=None,
+            suggestion_text="",
+        )
+        with _patch("oracle.pipeline._verify_function", return_value=unproved):
+            result = _verify_one(_LOOP_SRC, "loopy", func_node)
+        assert result.suggestion_text  # non-empty
+        assert "loopy" in result.suggestion_text  # action_guidance includes func name
