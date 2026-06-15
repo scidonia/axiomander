@@ -39,14 +39,17 @@ adding new features.
 
 ### 2. Data Structures (Phase 5)
 
-`SDictGet.to_coq()`, `SDictSet.to_coq()` raise `NotImplementedError`.
+`SDictGet.to_coq()`, `SDictSet.to_coq()` implemented.
 List/dict/set contract props compile to `True` (no real Iris Prop).
 
-- [ ] `SDictGet.to_coq()` — snakelet_ir.py:270
-- [ ] `SDictSet.to_coq()` — snakelet_ir.py:282
-- [ ] List append/dict insert/set add WP lemmas in SnakeletWp.v
-- [ ] Lowering: Python list/dict/set ops → SnakeletLang
-- [ ] Contract compilation: `len`, `index`, `dict_len`, `tuple`, `dict`, `set`, `list_eq` → real Iris Props
+- [x] `SDictGet.to_coq()` — snakelet_ir.py:270
+- [x] `SDictSet.to_coq()` — snakelet_ir.py:282
+- [x] List append/dict insert WP lemmas in SnakeletWp.v (dict get/set)
+- [x] Lowering: Python dict ops -> SnakeletLang (SDictGet/SDictSet via iris_lowerer)
+- [x] Coq: dict_lookup/insert, PureDictGet/Set pure_step, wp_dict_get/set lemmas
+- [x] Pipeline: ANF + param subst + validation + proof gen for dict nodes
+- [ ] Contract compilation: `len`, `index`, `dict_len`, `tuple`, `dict`, `set`, `list_eq` -> real Iris Props
+- [ ] List append/set add WP lemmas
 
 ### 3. Frame Conditions (Phase 3)
 
