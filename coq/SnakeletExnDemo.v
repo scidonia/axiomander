@@ -313,4 +313,65 @@ Section gate.
     - iNext. by iApply wp_raise.
   Qed.
 
+  (** * GATE LEMMA 6: wp_load and wp_store -- heap steps under the
+      exception WP.  Confirms heap reasoning is orthogonal to the
+      exception machinery (the paper's claim). *)
+  Lemma wp_load l v Phi :
+    l ↦ v -∗ ▷ (l ↦ v -∗ Phi (RVal v)) -∗ WPE (Load (Val (LitLoc l))) {{ Phi }}.
+  Proof.
+    iIntros "Hl HPhi". rewrite wp_exn_unfold /wp_pre /=.
+    iIntros (sigma) "Hs".
+    iDestruct (gen_heap_valid with "Hs Hl") as %Hlk.
+    iApply fupd_mask_intro; [set_solver|]. iIntros "Hclose".
+    iSplit. { iPureIntro. eapply reducible_head, HeadLoad. exact Hlk. }
+    iIntros (e2 sigma2 efs Hps).
+    destruct (prim_load_det _ _ _ _ _ _ _ Hlk Hps) as (_ & -> & -> & ->).
+    iModIntro. iNext. iMod "Hclose". iModIntro.
+    iFrame "Hs". iSplitL; [|done].
+    iApply wp_value. iApply ("HPhi" with "Hl").
+  Qed.
+
+  Lemma wp_store l v w Phi :
+    l ↦ w -∗ ▷ (l ↦ v -∗ Phi (RVal LitUnit)) -∗
+      WPE (Store (Val (LitLoc l)) (Val v)) {{ Phi }}.
+  Proof.
+    iIntros "Hl HPhi". rewrite wp_exn_unfold /wp_pre /=.
+    iIntros (sigma) "Hs".
+    iDestruct (gen_heap_valid with "Hs Hl") as %Hlk.
+    iApply fupd_mask_intro; [set_solver|]. iIntros "Hclose".
+    iSplit. { iPureIntro. eapply reducible_head, HeadStore. by eexists. }
+    iIntros (e2 sigma2 efs Hps).
+    destruct (prim_store_det _ _ _ _ _ _ _ _ Hlk Hps) as (_ & -> & -> & ->).
+    iMod (gen_heap_update _ _ _ v with "Hs Hl") as "[Hs Hl]".
+    iModIntro. iNext. iMod "Hclose". iModIntro.
+    iFrame "Hs". iSplitL; [|done]. iApply wp_value. iApply ("HPhi" with "Hl").
+  Qed.
+
+  (** * GATE LEMMA 7: exception arm carrying a points-to (state-at-raise).
+
+      A program that mutates a heap cell then raises.  The exceptional
+      postcondition arm describes the heap AS IT STOOD AT THE RAISE --
+      [l ↦ v] (the mutated value) -- exactly the van Collem/Krebbers idiom
+      for state-at-exception via separation-logic resources in [Phi_E].
+      Here [bump_then_raise l = (Store l v ;; Raise exn)] desugared as a Let. *)
+  Lemma wp_store_then_raise l (w v : sn_val) (lbl : string) (pay : sn_val) :
+    l ↦ w ⊢
+      WPE (Let "_" (Store (Val (LitLoc l)) (Val v))
+                   (Raise (Val (LitExn lbl pay))))
+        {{ (fun r => match r with
+              | RExn lbl' pay' => (⌜lbl' = lbl⌝ ∗ l ↦ v)%I   (* state at raise *)
+              | RVal _ => False%I
+              end) }}.
+  Proof.
+    iIntros "Hl".
+    (* bind on the Let context, evaluating the Store first *)
+    iApply (wp_bind_item (LetCtx "_" (Raise (Val (LitExn lbl pay)))) ); [reflexivity|].
+    iApply (wp_store with "Hl"). iNext. iIntros "Hl". simpl.
+    (* now: WPE (Let "_" (Val LitUnit) (Raise ...)) {{ bind_post ... }} *)
+    rewrite /bind_post. simpl.
+    iApply wp_let. iNext.
+    (* WPE (Raise (Val (LitExn lbl pay))) {{ bind_post ... }} *)
+    iApply wp_raise. simpl. iFrame "Hl". done.
+  Qed.
+
 End gate.

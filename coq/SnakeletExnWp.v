@@ -73,6 +73,48 @@ Section wp.
     destruct e; simpl in Hev; try discriminate Hev; reflexivity.
   Qed.
 
+  (** Determinism for heap head steps. *)
+  Lemma prim_load_det l v sigma kappa er sigma2 efs :
+    sigma !! l = Some v ->
+    prim_step (Load (Val (LitLoc l))) sigma kappa er sigma2 efs ->
+    kappa = [] /\ er = Val v /\ sigma2 = sigma /\ efs = [].
+  Proof.
+    intros Hl Hstep.
+    inversion Hstep as [K x sg x1 Hpure Heq | K x sg x1 sg2 efs2 Hhead Heq]; subst.
+    - destruct K as [|Ki K2]; simpl in Heq.
+      + subst x. inversion Hpure; subst; simpl in *. destruct Ki; simpl in H; discriminate H.
+      + destruct Ki; simpl in Heq; try discriminate Heq.
+        injection Heq as Hin. apply fill_K_val in Hin as [-> ->].
+        apply to_val_pure_step in Hpure. discriminate.
+    - destruct K as [|Ki K2]; simpl in Heq.
+      + subst x. inversion Hhead; subst. rewrite Hl in H0. injection H0 as ->. repeat split; reflexivity.
+      + destruct Ki; simpl in Heq; try discriminate Heq.
+        injection Heq as Hin. apply fill_K_val in Hin as [-> ->].
+        apply to_val_head_step in Hhead. discriminate.
+  Qed.
+
+  Lemma prim_store_det l w v sigma kappa er sigma2 efs :
+    sigma !! l = Some w ->
+    prim_step (Store (Val (LitLoc l)) (Val v)) sigma kappa er sigma2 efs ->
+    kappa = [] /\ er = Val LitUnit /\ sigma2 = <[l:=v]> sigma /\ efs = [].
+  Proof.
+    intros Hl Hstep.
+    inversion Hstep as [K x sg x1 Hpure Heq | K x sg x1 sg2 efs2 Hhead Heq]; subst.
+    - destruct K as [|Ki K2]; simpl in Heq.
+      + subst x. inversion Hpure; subst; simpl in *.
+        destruct Ki; simpl in H; try discriminate H; injection H; intros; subst; simpl in *; try discriminate.
+      + destruct Ki; simpl in Heq; try discriminate Heq;
+          injection Heq; intros; subst;
+          match goal with Hin : fill_K _ _ = Val _ |- _ => apply fill_K_val in Hin as [-> ->] end;
+          apply to_val_pure_step in Hpure; discriminate.
+    - destruct K as [|Ki K2]; simpl in Heq.
+      + subst x. inversion Hhead; subst. repeat split; reflexivity.
+      + destruct Ki; simpl in Heq; try discriminate Heq;
+          injection Heq; intros; subst;
+          match goal with Hin : fill_K _ _ = Val _ |- _ => apply fill_K_val in Hin as [-> ->] end;
+          apply to_val_head_step in Hhead; discriminate.
+  Qed.
+
   (** A fancy update in front of a WP can be absorbed. *)
   Lemma fupd_wp e Phi : (|={top}=> wp_exn e Phi) ⊢ wp_exn e Phi.
   Proof.
