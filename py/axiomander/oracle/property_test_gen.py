@@ -560,7 +560,7 @@ def generate_tests(
         "from hypothesis import given, assume, settings",
         "from hypothesis import strategies as st",
         "",
-        "from oracle.contract_runtime import implies, is_shape, is_valid, re_match_pred, _OldSnapshot",
+        "from axiomander.oracle.contract_runtime import implies, is_shape, is_valid, re_match_pred, _OldSnapshot",
         import_line,
         "",
         "",
