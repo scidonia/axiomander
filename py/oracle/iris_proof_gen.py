@@ -614,11 +614,73 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         f"(phase 3: heap/exceptions/loops)")
 
 
-def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
-    """Emit a wp_while_inv call for the heap-counter while-loop pattern.
+def _emit_while_inv_lemma_exn(wi: WhileInv) -> str:
+    """Generate a per-loop Coq lemma for a specific while-loop shape.
 
-    The While sits under a Let "_" (sequencing binder) and a Let for the
-    return variable.  Focus it with wp_bind_item, then apply the lemma."""
+    The lemma proves the Loeb induction for the given condition and body,
+    using the body stages (wi.body_stages) as the per-iteration proof.
+    The call site applies it with wp_bind_item focus + iApply."""
+    bound = wi.bound_expr
+    if bound.startswith("LitInt "):
+        bound_val = bound[len("LitInt "):].strip()
+    else:
+        bound_val = bound
+
+    # Substitute the original cell variable with [Val (LitLoc l)] and
+    # the bound with [bound] so the per-loop lemma is self-contained.
+    cell = wi.cell_name
+    cond = wi.cond_coq.replace(f'(Var "{cell}")', '(Val (LitLoc l))')
+    cond = cond.replace(f'(Val (LitInt {bound_val}))', '(Val (LitInt bound))')
+    body = wi.body_coq.replace(f'(Var "{cell}")', '(Val (LitLoc l))')
+    body = body.replace(f'(Val (LitInt {bound_val}))', '(Val (LitInt bound))')
+
+    body_lines = _emit_stage_lines(wi.body_stages, 0, "      ")
+    body_proof = "\n".join(body_lines)
+
+    return f"""  Lemma {wi.lemma_name} (l : loc) (bound : Z) (z : Z) (Phi : Result -> iProp Sigma) :
+    l ↦ LitInt z -∗
+    ⌜Z.le z bound⌝ -∗
+    (l ↦ LitInt bound -∗ Phi (RVal LitUnit)) -∗
+    WPE (While ({cond}) ({body})) {{{{ Phi }}}}.
+  Proof.
+    iLöb as "IH" forall (z Phi).
+    iIntros "Hc %Hz Hwand".
+    iApply wp_while; iNext; simpl.
+    heap_load. pure_step. case_bool.
+    - snakelet_pure_hyps.
+      pure_step.
+      iRename select (_ ↦ _)%I into "Hpt".
+{body_proof}
+      pure_step.  (* sequencing _ *)
+      iApply ("IH" $! (z + 1)%Z Phi with "[$] [] Hwand").
+      {{ iPureIntro. apply (proj2 (Z.le_succ_l z bound)). exact Hcond. }}
+    - snakelet_pure_hyps.
+      assert (z = bound) by lia. subst z.
+      pure_step.
+      iApply wp_value. iApply "Hwand". iFrame.
+  Qed."""
+
+
+def _collect_while_invs_exn(stages: list[StageNode]) -> list[WhileInv]:
+    """Walk the stage tree and collect all WhileInv nodes."""
+    out: list[WhileInv] = []
+    def walk(nodes: list[StageNode]) -> None:
+        for n in nodes:
+            if isinstance(n, WhileInv):
+                out.append(n)
+            elif isinstance(n, Branch):
+                for arm in n.arms:
+                    walk(arm)
+    walk(stages)
+    return out
+
+
+def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
+    """Emit the call-site proof for a per-loop lemma.
+
+    Focuses the While with wp_bind_item, then applies the pre-proved
+    per-loop lemma.  The lemma is generated separately by
+    _emit_while_inv_lemma_exn."""
     bound = wi.bound_expr
     if bound.startswith("LitInt "):
         bound = bound[len("LitInt "):].strip()
@@ -630,9 +692,8 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
     lines.append(f'{indent}iApply (wp_bind_item (LetCtx "_" _)); '
                  f'[reflexivity|].')
     lines.append(
-        f'{indent}iApply (wp_while_inv l {bound} 0 _ with "[$] []").')
+        f'{indent}iApply ({wi.lemma_name} l {bound} 0 _ with "[$] []").')
     lines.append(f'{indent}{{ iPureIntro. lia. }}')
-    # Continuation: the cell is at bound; load it to get the result.
     lines.append(f'{indent}{{ iIntros "Hl". unfold bind_post; simpl. '
                  f'pure_step. heap_load. pure_step. finish_pure. }}')
     return lines
@@ -813,7 +874,13 @@ class IrisProof:
         parts.append("  Context `{!snakeletExn_heapGS_gen hlc Sigma}.")
         parts.append("  Local Notation \"'WPE' e {{ Q } }\" := (wp_exn e Q)")
         parts.append("    (at level 20, e, Q at level 200) : bi_scope.")
+        parts.append("  Local Notation \"l ↦ v\" := (pointsto l (DfracOwn 1) v)")
+        parts.append("    (at level 20) : bi_scope.")
         parts.append("")
+        # Emit per-loop lemmas for WhileInv nodes
+        for wi in _collect_while_invs_exn(self.stages):
+            parts.append(_emit_while_inv_lemma_exn(wi))
+            parts.append("")
         binders = "".join(f" ({p} : Z)" for p in self.params
                            if p not in self.list_params and p not in self.dict_params)
         # List-typed params are split into a value binder [xs : sn_val] and
