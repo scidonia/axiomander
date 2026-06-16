@@ -144,8 +144,8 @@ substructural.**
 ## 3. Second backend: SnakeletLang and SnakeletWp over Iris
 
 We have built a second backend in which framing is not reconstructed but
-inherited. **Snakelet** is a small Iris *intermediate language* for the verified
-Python subset, and **SnakeletWp** is its weakest-precondition calculus, defined
+inherited. **Snakelet** is the Iris *intermediate language* into which Axiomander
+lowers Python, and **SnakeletWp** is its weakest-precondition calculus, defined
 inside the Iris program logic. The state is an Iris heap; a mutable Python object
 field is a points-to assertion `l \mapsto v`, and ownership is a separating
 resource rather than an entry in a flat map; assertions are `iProp`. The next
@@ -155,14 +155,18 @@ across the entire rule set -- values, binary operators, let, if,
 load/store/alloc, the two call forms, and the exception and loop rules whose
 postcondition ranges over a `Result`.
 
-### 3.1 Snakelet: an intermediate language for the verified subset
+### 3.1 Snakelet: an intermediate language for Python in the large
 
-Axiomander does not reason about arbitrary Python. The front end lowers a
-*verified subset* -- straight-line assignment, conditionals, `while`/`for` loops,
-`try`/`except`, and calls -- to Snakelet, and every proof obligation is discharged
-at the Snakelet level. The Python-to-Snakelet lowering is the trusted boundary of
-the pipeline (intended to be extracted from Coq later); Snakelet itself is small
-enough to carry a complete operational semantics and WP calculus.
+Axiomander targets Python *in the large*, not a hand-picked subset. Ordinary code
+-- assignments and expressions, conditionals, `while`/`for` loops, `try`/`except`,
+function and method calls, and the built-in container types -- lowers directly to
+Snakelet, where every proof obligation is discharged. Rather than admit a small
+whitelist, the front end accepts Python broadly and *gates* only the genuinely
+pathological constructs -- runtime metaprogramming (`eval`/`exec`, dynamic
+attribute mutation), reflection, and the like -- rejecting them with a diagnostic
+instead of silently mistranslating. The Python-to-Snakelet lowering is the trusted
+boundary of the pipeline (intended to be extracted from Coq later); Snakelet itself
+is small enough to carry a complete operational semantics and WP calculus.
 
 Snakelet is an expression language in administrative-normal form: every operator
 and call takes values or variables, and evaluation order is made explicit by
@@ -445,8 +449,8 @@ gate is `Qed`. The staged generator, the end-to-end Python-to-Iris pipeline
 SMT-axiom escalation slot are in place, with tens of Iris-specific tests passing
 alongside the mature flat-store backend. Remaining work wires the exception
 calculus into the Python lowering and extends the fragment to loop invariants over
-shared disjoint memory, in-place data-structure mutation, and a typed subset
-(strings/floats/`isinstance`/`None`).
+shared disjoint memory, in-place data-structure mutation, and type-aware reasoning
+over strings/floats/`isinstance`/`None`.
 
 We would value the community's view on:
 
