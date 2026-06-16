@@ -49,7 +49,7 @@ from oracle.snakelet_ir import (
 )
 
 # Binops supported by SnakeletLang's binop_eval on integers.
-_SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge", "ne", "mod", "and", "or", "in"}
+_SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge", "ne", "mod", "and", "or", "in", "append", "length"}
 
 
 # -- Contract extraction ----------------------------------------------------
@@ -303,6 +303,10 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
         if rhs is None:
             raise IrisGenError(
                 f"cannot lower assignment to '{s.target}'")
+        # Mutable empty collections need heap allocation
+        if isinstance(rhs, SLit) and rhs.lit_type in ("list", "dict", "set"):
+            if not rhs.elements:
+                rhs = SAlloc(value=rhs)
         if not rest:
             return SLet(var=s.target, value=rhs, body=SVar(name=s.target))
         return SLet(var=s.target, value=rhs, body=_fold(rest, lw, invs_iter=invs_iter))

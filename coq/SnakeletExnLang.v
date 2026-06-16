@@ -57,7 +57,8 @@ Inductive sn_val :=
 
 (** * Expressions *)
 Inductive binop := AddOp | SubOp | MulOp | EqOp | LeOp | LtOp | GtOp | GeOp
-  | AndOp | OrOp | NeOp | ModOp | InOp | LenOp | UnionOp | InterOp.
+  | AndOp | OrOp | NeOp | ModOp | InOp | LenOp | UnionOp | InterOp
+  | AppendOp | LengthOp.
 
 Inductive sn_expr :=
   | Val (v : sn_val)
@@ -207,7 +208,13 @@ Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
       match op with
       | AndOp => LitBool (b1 && b2)
       | OrOp  => LitBool (b1 || b2)
-      | EqOp  => LitBool (Bool.eqb b1 b2)
+       | EqOp  => LitBool (Bool.eqb b1 b2)
+       | _ => LitUnit
+       end
+  | LitList vs, v =>
+      match op with
+      | AppendOp => LitList (vs ++ [v])
+      | LengthOp => LitInt (Z.of_nat (List.length vs))
       | _ => LitUnit
       end
   | _, _ => LitUnit

@@ -164,17 +164,9 @@ class IrisLowerer:
         return None
 
     def _lower_call(self, expr: PyCall) -> Optional[SExpr]:
-        """Function call.
+        """Function call: heap builtins, method calls, or opaque SApp."""
 
-        Heap builtins lower directly to SnakeletLang heap operations:
-          ref(v)      -> SAlloc(v)     (fresh cell)
-          load(c)     -> SLoad(c)      (read cell named by variable c)
-          store(c, v) -> SStore(c, v)  (write cell named by variable c)
-        isinstance(x, T) -> LitBool (true for int/bool, false otherwise
-                           — a temporary approximation; proper type tags
-                           are Phase 6).
-        Anything else is opaque -- SApp with the callee name for spec
-        lookup in the FunCtx table."""
+        # -- Heap builtins: ref / load / store --
         if expr.func == "ref" and len(expr.args) == 1:
             v = self.lower_expr(expr.args[0])
             if v is not None:
@@ -188,6 +180,8 @@ class IrisLowerer:
             v = self.lower_expr(expr.args[1])
             if isinstance(arg, PyName) and v is not None:
                 return SStore(loc=arg.name, value=v)
+
+        # -- isinstance(...) --
         if expr.func == "isinstance" and len(expr.args) == 2:
             type_arg = expr.args[1]
             type_name = None
@@ -196,6 +190,32 @@ class IrisLowerer:
             if type_name in ("int", "bool"):
                 return SLit(lit_type="bool", value="true")
             return SLit(lit_type="bool", value="false")
+
+        # -- len(xs): LengthOp on the heap-loaded value --
+        if expr.func == "len" and len(expr.args) == 1:
+            arg = expr.args[0]
+            if isinstance(arg, PyName):
+                return SBinOp(op="length",
+                              left=SLoad(loc=arg.name),
+                              right=SLit(lit_type="int", value="0"))
+
+        # -- Method calls: xs.append(v) --
+        if expr.is_method and "." in expr.func:
+            parts = expr.func.rsplit(".", 1)
+            obj_name = parts[0]
+            method = parts[1]
+            if method == "append":
+                v = self.lower_expr(expr.args[0]) if expr.args else None
+                if v is not None:
+                    tmp_var = self._fresh_var("_ap")
+                    return SLet(var=tmp_var,
+                                value=SLoad(loc=obj_name),
+                                body=SStore(loc=obj_name,
+                                    value=SBinOp(op="append",
+                                        left=SVar(tmp_var),
+                                        right=v)))
+
+        # -- Opaque: call to unknown / user function --
         args = [a for a in (self.lower_expr(a) for a in expr.args) if a is not None]
         return SApp(func=expr.func, args=args)
 
@@ -262,6 +282,13 @@ class IrisLowerer:
         val = self.lower_expr(stmt.value)
         if val is None:
             return None
+        # Mutable collections (empty lists/dicts/sets) need heap allocation
+        # so that append / len / subscript work via load/store.
+        if isinstance(val, SLit) and val.lit_type in ("list", "dict", "set"):
+            if not val.elements:  # empty → need allocation
+                val = SAlloc(value=val)
+            else:
+                pass  # non-empty literals passed as values (for for-loops)
         return SLet(var=stmt.target, value=val, body=SVar(stmt.target))
 
     def _lower_store_attr(self, stmt: PyStoreAttr) -> Optional[SExpr]:
