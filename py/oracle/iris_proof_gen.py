@@ -620,12 +620,18 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
         bound = bound[len("LitInt "):].strip()
 
     lines: list[str] = []
-    # Focus the While: it's under Let "_" (While) (Let "r" (Load ...) ...).
+    # wp_while_inv only handles heap-counter patterns (condition has Load).
+    # For pure-counter loops (local variable comparison), fall through.
+    if "Load" not in wi.cond_coq:
+        raise IrisGenError(
+            "pure-counter while loop: needs a Loeb lemma (later phase)")
+    # Focus the While: it's under Let "_" (While) ...
     lines.append(f'{indent}iApply (wp_bind_item (LetCtx "_" _)); '
                  f'[reflexivity|].')
     lines.append(
         f'{indent}iApply (wp_while_inv l {bound} 0 _ with "[$] []").')
     lines.append(f'{indent}{{ iPureIntro. lia. }}')
+    # Continuation: load the cell to get the result value.
     lines.append(f'{indent}{{ iIntros "Hl". unfold bind_post; simpl. '
                  f'pure_step. heap_load. pure_step. finish_pure. }}')
     return lines
