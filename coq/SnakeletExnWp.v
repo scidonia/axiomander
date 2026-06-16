@@ -161,6 +161,23 @@ Section wp.
     iIntros "H". rewrite wp_exn_unfold /wp_pre /=. by iModIntro.
   Qed.
 
+  (** Monotonicity of the exception WP: weaken the postcondition. *)
+  Lemma wp_wand e Phi Psi :
+    WPE e {{ Phi }} -∗ (∀ r, Phi r -∗ Psi r) -∗ WPE e {{ Psi }}.
+  Proof.
+    iIntros "H HΦ". iLöb as "IH" forall (e Phi Psi).
+    rewrite !wp_exn_unfold /wp_pre.
+    destruct (result_of e) as [r|] eqn:Hr.
+    - iMod "H". iModIntro. by iApply "HΦ".
+    - iIntros (sigma) "Hs".
+      iMod ("H" $! sigma with "Hs") as "[%Hred Hstep]".
+      iModIntro. iSplit; [done|].
+      iIntros (e2 sigma2 efs Hps).
+      iMod ("Hstep" $! e2 sigma2 efs with "[%]") as "Hstep"; [exact Hps|].
+      iModIntro. iNext. iMod "Hstep" as "(Hs2 & Hwp & Hefs)". iModIntro.
+      iFrame "Hs2 Hefs". iApply ("IH" with "Hwp HΦ").
+  Qed.
+
   (** * GATE LEMMA 2: wp_raise.
       An uncaught [Raise (Val (LitExn lbl pay))] terminates with the
       exception result [RExn lbl pay].  The exceptional postcondition
@@ -505,6 +522,68 @@ Section wp.
     rewrite Hin in Hred. eapply raise_val_irreducible. exact Hred.
   Qed.
 
+  (** Determinism for [While e1 e2] (no value sub-context: like Let). *)
+  Lemma prim_while_det e1 e2 sigma kappa er sigma2 efs :
+    prim_step (While e1 e2) sigma kappa er sigma2 efs ->
+    kappa = [] /\ er = If e1 (Let "_" e2 (While e1 e2)) (Val LitUnit)
+    /\ sigma2 = sigma /\ efs = [].
+  Proof.
+    intros Hstep.
+    inversion Hstep as [K x0 sg x' Hpure Heq | K x0 sg x' sg' efs' Hhead Heq]; subst.
+    - destruct K as [|Ki K']; simpl in Heq.
+      + subst x0. inversion Hpure; subst; auto.
+        match goal with Ki' : sn_ectx_item |- _ => destruct Ki'; simpl in *; try discriminate end.
+      + destruct Ki; simpl in Heq; discriminate Heq.
+    - destruct K as [|Ki K']; simpl in Heq.
+      + subst x0. inversion Hhead.
+      + destruct Ki; simpl in Heq; discriminate Heq.
+  Qed.
+
+  (** Determinism for [For x (Val (LitList [])) body] (empty: terminate). *)
+  Lemma prim_for_nil_det x body sigma kappa er sigma2 efs :
+    prim_step (For x (Val (LitList [])) body) sigma kappa er sigma2 efs ->
+    kappa = [] /\ er = Val LitUnit /\ sigma2 = sigma /\ efs = [].
+  Proof.
+    intros Hstep.
+    inversion Hstep as [K x0 sg x' Hpure Heq | K x0 sg x' sg' efs' Hhead Heq]; subst.
+    - destruct K as [|Ki K']; simpl in Heq.
+      + subst x0. inversion Hpure; subst; auto.
+        match goal with Ki' : sn_ectx_item |- _ => destruct Ki'; simpl in *; try discriminate end.
+      + destruct Ki; simpl in Heq; try discriminate Heq.
+        injection Heq as ? Hin ?; subst.
+        apply fill_K_val in Hin as [-> ->].
+        apply to_val_pure_step in Hpure. discriminate.
+    - destruct K as [|Ki K']; simpl in Heq.
+      + subst x0. inversion Hhead.
+      + destruct Ki; simpl in Heq; try discriminate Heq.
+        injection Heq as ? Hin ?; subst.
+        apply fill_K_val in Hin as [-> ->].
+        apply to_val_head_step in Hhead. discriminate.
+  Qed.
+
+  (** Determinism for [For x (Val (LitList (v::vs))) body] (cons: peel). *)
+  Lemma prim_for_cons_det x v vs body sigma kappa er sigma2 efs :
+    prim_step (For x (Val (LitList (v :: vs))) body) sigma kappa er sigma2 efs ->
+    kappa = [] /\ er = Let "_" (subst x v body) (For x (Val (LitList vs)) body)
+    /\ sigma2 = sigma /\ efs = [].
+  Proof.
+    intros Hstep.
+    inversion Hstep as [K x0 sg x' Hpure Heq | K x0 sg x' sg' efs' Hhead Heq]; subst.
+    - destruct K as [|Ki K']; simpl in Heq.
+      + subst x0. inversion Hpure; subst; auto.
+        match goal with Ki' : sn_ectx_item |- _ => destruct Ki'; simpl in *; try discriminate end.
+      + destruct Ki; simpl in Heq; try discriminate Heq.
+        injection Heq as ? Hin ?; subst.
+        apply fill_K_val in Hin as [-> ->].
+        apply to_val_pure_step in Hpure. discriminate.
+    - destruct K as [|Ki K']; simpl in Heq.
+      + subst x0. inversion Hhead.
+      + destruct Ki; simpl in Heq; try discriminate Heq.
+        injection Heq as ? Hin ?; subst.
+        apply fill_K_val in Hin as [-> ->].
+        apply to_val_head_step in Hhead. discriminate.
+  Qed.
+
   (** Pure WP lemmas via wp_lift_pure_det + the determinism lemmas. *)
   Lemma wp_let x v e2 Phi :
     ▷ WPE (subst x v e2) {{ Phi }} ⊢ WPE (Let x (Val v) e2) {{ Phi }}.
@@ -565,6 +644,40 @@ Section wp.
     - intros sigma. eapply reducible_pure, PureTryCatch.
     - intros sigma kappa e2' sigma2 efs Hstep.
       apply prim_try_catch_det in Hstep. tauto.
+  Qed.
+
+  (** * Loop WP rules.  [While] unfolds to a guarded body-then-loop; [For]
+      peels its (value) list operand one element at a time. *)
+  Lemma wp_while e1 e2 Phi :
+    ▷ WPE (If e1 (Let "_" e2 (While e1 e2)) (Val LitUnit)) {{ Phi }}
+      ⊢ WPE (While e1 e2) {{ Phi }}.
+  Proof.
+    apply wp_lift_pure_det; [done | | ].
+    - intros sigma. eapply reducible_pure, PureWhile.
+    - intros sigma kappa e2' sigma2 efs Hstep.
+      apply prim_while_det in Hstep. tauto.
+  Qed.
+
+  Lemma wp_for_nil x body Phi :
+    ▷ Phi (RVal LitUnit) ⊢ WPE (For x (Val (LitList [])) body) {{ Phi }}.
+  Proof.
+    iIntros "H".
+    iApply (wp_lift_pure_det (For x (Val (LitList [])) body) (Val LitUnit));
+      [done | | | ].
+    - intros sigma. eapply reducible_pure, PureForNil.
+    - intros sigma kappa e2' sigma2 efs Hstep.
+      apply prim_for_nil_det in Hstep. tauto.
+    - iNext. iApply wp_value. iExact "H".
+  Qed.
+
+  Lemma wp_for_cons x v vs body Phi :
+    ▷ WPE (Let "_" (subst x v body) (For x (Val (LitList vs)) body)) {{ Phi }}
+      ⊢ WPE (For x (Val (LitList (v :: vs))) body) {{ Phi }}.
+  Proof.
+    apply wp_lift_pure_det; [done | | ].
+    - intros sigma. eapply reducible_pure, PureForCons.
+    - intros sigma kappa e2' sigma2 efs Hstep.
+      apply prim_for_cons_det in Hstep. tauto.
   Qed.
 
   (** Determinism for the unwind step [Let x (Raise (Val ev)) e2]. *)
@@ -789,6 +902,45 @@ Section wp.
     iMod (gen_heap_alloc _ l v with "Hs") as "(Hs & Hl & _)"; [exact Hfree|].
     iModIntro. iNext. iMod "Hclose". iModIntro. iFrame "Hs". iSplitL; [|done].
     iApply wp_value. iApply ("HPhi" with "Hl").
+  Qed.
+
+  (** * Loop fold rule.  Iterate [body] over the list model [M].  The
+      invariant [P : list sn_val -> iProp] holds over the *remaining*
+      suffix.  The per-element step either returns a value (and [P] shrinks
+      to the tail) or raises (and the exception escapes via [Phi]).  Proven
+      by structural induction on [M] -- no extra later beyond the per-step
+      pure delay.  [Hclosed] states the body does not capture the "_"
+      sequencing binder (always true for generated bodies). *)
+  Lemma wp_for_list' x body (M : list sn_val)
+      (P : list sn_val -> iProp Sigma) (Phi : Result -> iProp Sigma) :
+    (forall w, subst "_" w body = body) ->
+    P M -∗
+    (□ ∀ v vs, P (v :: vs) -∗
+        WPE (subst x v body)
+          {{ (fun r => match r with
+                       | RVal _ => P vs
+                       | RExn l p => Phi (RExn l p) end) }}) -∗
+    (P [] -∗ Phi (RVal LitUnit)) -∗
+    WPE (For x (Val (LitList M)) body) {{ Phi }}.
+  Proof.
+    iIntros (Hclosed) "HP #Hstep Hpost".
+    iInduction M as [|v vs] "IH"; simpl.
+    - iApply wp_for_nil. iNext. by iApply "Hpost".
+    - iApply wp_for_cons. iNext.
+      iApply (wp_bind_item (LetCtx "_" _)); [reflexivity|].
+      iApply (wp_wand with "[HP]").
+      { iApply ("Hstep" with "HP"). }
+      iIntros (r) "Hr". destruct r as [w | l p]; simpl.
+      + (* body returned a value: [bind_post] left the sequencing Let *)
+        iApply wp_let. iNext.
+        assert (subst "_" w (For x (Val (LitList vs)) body)
+                = For x (Val (LitList vs)) body) as Heq.
+        { cbn [subst]. destruct (String.eqb "_" x) eqn:E;
+            by rewrite ?Hclosed. }
+        rewrite Heq.
+        iApply ("IH" with "Hr Hpost").
+      + (* body raised: [bind_post] already propagated the exception *)
+        iExact "Hr".
   Qed.
 
 End wp.
