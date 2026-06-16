@@ -223,32 +223,31 @@ Ltac call_opaque_redex solver :=
     expression of a Let), then apply [wp_call].  [solver] discharges the
     precondition (default: [snakelet_solve_pre]). *)
 Ltac call_opaque_pre solver :=
-  popvals;
+  popvals; focus_redex;
   lazymatch goal with
-  | |- envs_entails _ (wp_exn ?e _) =>
-      reshape_item e ltac:(fun Ki e' =>
-        lazymatch e' with
-        | Call _ _ =>
-            lazymatch Ki with
-            | @None sn_ectx_item => call_opaque_redex solver
-            | Some ?K => wp_bind_ctx K; call_opaque_redex solver
-            end
-        | _ => fail "call_opaque: redex is not a Call"
-        end)
-  | _ => fail "call_opaque: not a WPE goal"
+  | |- envs_entails _ (wp_exn (Call _ _) _) => call_opaque_redex solver
+  | _ => fail "call_opaque: redex is not a Call"
   end.
 
 Ltac call_opaque_core := call_opaque_pre snakelet_solve_pre.
 
-(** Drift check: assert the expected callee, then run the core. *)
-Ltac check_callee fname :=
-  lazymatch goal with
-  | |- envs_entails _ (wp_exn ?e _) =>
-      reshape_item e ltac:(fun Ki e' =>
+(** Walk nested evaluation contexts to the innermost redex and check it
+    is a [Call fname _].  Non-destructive (inspection only). *)
+Ltac check_redex_call fname e :=
+  reshape_item e ltac:(fun Ki e' =>
+    lazymatch Ki with
+    | @None sn_ectx_item =>
         lazymatch e' with
         | Call fname _ => idtac
         | _ => fail "call_opaque: goal redex is not a call to the given function"
-        end)
+        end
+    | Some _ => check_redex_call fname e'
+    end).
+
+(** Drift check: assert the expected callee, then run the core. *)
+Ltac check_callee fname :=
+  lazymatch goal with
+  | |- envs_entails _ (wp_exn ?e _) => check_redex_call fname e
   | _ => fail "call_opaque: not a WPE goal"
   end.
 
@@ -302,19 +301,10 @@ Ltac call_transparent_redex :=
   end.
 
 Ltac call_transparent_core :=
-  popvals;
+  popvals; focus_redex;
   lazymatch goal with
-  | |- envs_entails _ (wp_exn ?e _) =>
-      reshape_item e ltac:(fun Ki e' =>
-        lazymatch e' with
-        | Call _ _ =>
-            lazymatch Ki with
-            | @None sn_ectx_item => call_transparent_redex
-            | Some ?K => wp_bind_ctx K; call_transparent_redex
-            end
-        | _ => fail "call_transparent: redex is not a Call"
-        end)
-  | _ => fail "call_transparent: not a WPE goal"
+  | |- envs_entails _ (wp_exn (Call _ _) _) => call_transparent_redex
+  | _ => fail "call_transparent: redex is not a Call"
   end.
 
 Tactic Notation "call_transparent" := call_transparent_core.

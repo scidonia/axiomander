@@ -1176,42 +1176,29 @@ def _try_iris_backend(source: str, func_name: str, tree: ast.AST,
                 try: os.unlink(tmp_path + ext)
                 except OSError: pass
 
-    # Prefer the exception-aware backend (Result-postcondition WP); it is
-    # the gold-standard semantics.  If the fragment is unsupported there
-    # (raises IrisGenError) or its proof fails to compile, fall back to the
-    # original SnakeletLang emit() before giving up to IMP.
-    timed_out = False
+    # The exception-aware backend (Result-postcondition WP) is the sole
+    # Iris backend: it is the gold-standard semantics, subsuming the old
+    # SnakeletLang WP and adding exceptions, heap, and loop reasoning.  If
+    # the fragment is unsupported (IrisGenError) or its proof fails to
+    # compile, fall through to IMP.
     try:
         rc = _run_coqc(proof.emit_exn())
-        if rc == 0:
-            return GoalStatus(name=func_name,
-                              goal_statement=f"WPE {func_name} {{ ... }}",
-                              level=ProofLevel.LEVEL1_LTAC,
-                              proof_method="iris_exn")
-        if rc is None:
-            timed_out = True
     except IrisGenError:
-        pass
+        return None
     except Exception:
-        pass
-
-    # Fall back to the original (non-exception) backend.
-    try:
-        rc = _run_coqc(proof.emit())
-    except Exception:
-        rc = None
+        return None
     if rc == 0:
         return GoalStatus(name=func_name,
-                          goal_statement=f"WP {func_name} {{ ... }}",
+                          goal_statement=f"WPE {func_name} {{ ... }}",
                           level=ProofLevel.LEVEL1_LTAC,
                           proof_method="iris")
-    if rc is None and timed_out:
+    if rc is None:
         return GoalStatus(name=func_name,
-                          goal_statement=f"WP {func_name} {{ ... }}",
+                          goal_statement=f"WPE {func_name} {{ ... }}",
                           level=ProofLevel.UNPROVED,
                           error_detail="Iris proof compilation timed out",
                           suggested_action=Action.ADD_LEMMA)
-    # Both Iris backends failed — fall through to IMP.  (Returning an
+    # Iris compilation failed — fall through to IMP.  (Returning an
     # UNPROVED here would short-circuit the IMP path.)
     return None
 

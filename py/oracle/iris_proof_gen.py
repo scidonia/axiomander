@@ -12,9 +12,12 @@ Walks a SnakeletIR expression and a function table, emitting a complete
 The generator never executes the program.  Stage *selection* is
 determined by IR syntax plus the table entry kind (FunSpec -> opaque,
 FunDef -> transparent); stage *semantics* live in the Coq stage tactics
-(SnakeletTactics.v), which extract everything from the goal at proof
+(SnakeletExnTactics.v), which extract everything from the goal at proof
 time.  Consequently the generator needs no symbolic execution and no
 knowledge of intermediate values -- only the shape of the tree.
+
+The sole backend is the exception-aware WP (Result postcondition,
+SnakeletExn* Coq stack), emitted by IrisProof.emit_exn.
 
 Symbolic-execution analogy: the walk is a forward strongest-postcondition
 pass.  Conditionals on symbolic booleans fork the path (case_bool) and
@@ -570,8 +573,9 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
 
 
 def _emit_stage_lines(nodes: list[StageNode], depth: int,
-                      indent: str, post: str = "",
-                      exn: bool = False) -> list[str]:
+                      indent: str, post: str = "") -> list[str]:
+    """Render a stage tree into proof-script lines for the exception
+    backend (the sole Iris backend)."""
     lines: list[str] = []
     for n in nodes:
         if isinstance(n, Stage):
@@ -585,90 +589,22 @@ def _emit_stage_lines(nodes: list[StageNode], depth: int,
             bullet = _BULLETS[depth]
             for arm in n.arms:
                 arm_lines = _emit_stage_lines(arm, depth + 1, indent + "  ",
-                                              post, exn)
+                                              post)
                 first = arm_lines[0].lstrip()
                 lines.append(f"{indent}{bullet} {first}")
                 lines.extend(arm_lines[1:])
         elif isinstance(n, WhileInv):
-            lines.extend(_emit_while_inv_stage(n, indent, post))
+            # Symbolic while-loops with an invariant (heap-counter Loeb
+            # lemma) are not yet ported to the exception backend; defer
+            # such functions to the IMP pipeline.
+            raise IrisGenError(
+                "exn backend: symbolic while-invariant loops not supported")
         elif isinstance(n, ForList):
-            if exn:
-                lines.extend(_emit_for_list_stage_exn(n, indent))
-            else:
-                lines.extend(_emit_for_list_stage(n, indent))
+            lines.extend(_emit_for_list_stage_exn(n, indent))
     return lines
 
 
 # -- Top-level ------------------------------------------------------------
-
-def _emit_for_list_stage(fl: ForList, indent: str) -> list[str]:
-    """Emit a wp_for_list' or wp_for_list_forall application for a for-loop.
-
-    Focuses the For under any trailing continuation, applies the appropriate
-    WP lemma with trivial invariant (emp) and inferred Phi.  The no-accumulator
-    body runs per element; the final continuation runs after the loop.
-    When invariants are present, uses wp_for_list_forall with a Forall predicate."""
-
-    if fl.forall_predicate:
-        # Forall-accumulating variant: uses wp_for_list_forall
-        q_pred = fl.forall_predicate
-        lemma = "wp_for_list_forall"
-        inv_arg = f"{q_pred}"
-        lines = [
-            f"{indent}focus_for.",
-            f"{indent}iApply ({lemma} {q_pred} s E \"{fl.var}\" ({fl.body_coq})",
-            f"{indent}  ({fl.lst_coq}) _).",
-            f"{indent}{{ intros w; reflexivity. }}",
-            f"{indent}{{ (* Forall premise *) iPureIntro. simpl. repeat (try constructor; try lia). }}",
-            f"{indent}{{ (* per-element body step *)",
-            f"{indent}  iModIntro. iIntros (vfor vrest) \"Hinv\".",
-            f"{indent}  iDestruct \"Hinv\" as %Hfor.",
-            f"{indent}  inversion Hfor as [|? ? Hq Hvs]; subst.",
-            f"{indent}  simpl.",
-        ]
-        body_lines = _emit_stage_lines(fl.body_stages, 0, indent + "  ")
-        lines.extend(body_lines)
-        lines.append(f"{indent}  (* forall step: close body, pass Hvs to postcondition *)")
-        lines.append(f"{indent}  iApply wp_value'. iPureIntro. exact Hvs.")
-        lines.append(f"{indent}}}")
-        lines.append(f"{indent}{{ (* post-loop continuation *) iIntros \"_\". ")
-        lines.append(f"{indent}  rewrite /fill_K /=.")
-        lines.append(f"{indent}  unfold of_val.")
-        cont_lines = _emit_stage_lines(fl.continuation_stages, 0, indent + "  ")
-        lines.extend(cont_lines)
-        lines.append(f"{indent}}}")
-        return lines
-
-    if fl.iterable_type == "dict":
-        lemma = "wp_for_dict_keys'"
-        inv_type = "⌜True⌝%I"
-        vars_intro = 'iModIntro. iIntros (vfor vval vrest) "_".'
-    else:
-        lemma = "wp_for_list'"
-        inv_type = "⌜True⌝%I"
-        vars_intro = 'iModIntro. iIntros (vfor vrest) "_".'
-    lines = [
-        f"{indent}focus_for.",
-        f"{indent}iApply ({lemma} s E \"{fl.var}\" ({fl.body_coq})",
-        f"{indent}  ({fl.lst_coq}) (fun _ => {inv_type}) _).",
-        f"{indent}{{ intros w; reflexivity. }}",
-        f"{indent}{{ (* invariant at full list *) done. }}",
-        f"{indent}{{ (* per-element body step *)",
-        f"{indent}  {vars_intro}",
-        f"{indent}  simpl.",
-    ]
-    body_lines = _emit_stage_lines(fl.body_stages, 0, indent + "  ")
-    lines.extend(body_lines)
-    lines.append(f"{indent}  finish_pure.")
-    lines.append(f"{indent}}}")
-    lines.append(f"{indent}(* post-loop continuation *)")
-    lines.append(f"{indent}{{ iIntros \"_\".")
-    lines.append(f"{indent}  rewrite /fill_K /=.")
-    lines.append(f"{indent}  unfold of_val.")
-    cont_lines = _emit_stage_lines(fl.continuation_stages, 0, indent + "  ")
-    lines.extend(cont_lines)
-    lines.append(f"{indent}}}")
-    return lines
 
 
 def _emit_for_list_stage_exn(fl: ForList, indent: str) -> list[str]:
@@ -711,8 +647,7 @@ def _emit_for_list_stage_exn(fl: ForList, indent: str) -> list[str]:
         lines.append(f'{indent}  iModIntro. iIntros (vfor vrest) "%Hfor".')
         lines.append(f'{indent}  inversion Hfor as [|? ? Hq Hvs]; subst.')
         lines.append(f'{indent}  simpl.')
-        body_lines = _emit_stage_lines(fl.body_stages, 0, indent + "  ",
-                                       exn=True)
+        body_lines = _emit_stage_lines(fl.body_stages, 0, indent + "  ")
         lines.extend(body_lines)
         # Close the body: it reduces to a value; the postcondition is the
         # tail Forall fact carried in Hvs.
@@ -727,8 +662,7 @@ def _emit_for_list_stage_exn(fl: ForList, indent: str) -> list[str]:
         lines.append(f'{indent}{{ (* invariant at full list *) done. }}')
         lines.append(f'{indent}{{ (* per-element body step *)')
         lines.append(f'{indent}  iModIntro. iIntros (vfor vrest) "_". simpl.')
-        body_lines = _emit_stage_lines(fl.body_stages, 0, indent + "  ",
-                                       exn=True)
+        body_lines = _emit_stage_lines(fl.body_stages, 0, indent + "  ")
         lines.extend(body_lines)
         lines.append(f'{indent}  finish_pure.')
         lines.append(f'{indent}}}')
@@ -738,7 +672,7 @@ def _emit_for_list_stage_exn(fl: ForList, indent: str) -> list[str]:
     if has_cont:
         lines.append(f'{indent}  unfold bind_post; simpl.')
         cont_lines = _emit_stage_lines(fl.continuation_stages, 0,
-                                       indent + "  ", exn=True)
+                                       indent + "  ")
         lines.extend(cont_lines)
     else:
         # No continuation: the loop result LitUnit must meet the post.
@@ -747,32 +681,7 @@ def _emit_for_list_stage_exn(fl: ForList, indent: str) -> list[str]:
     return lines
 
 
-def _emit_while_inv_stage(wi: WhileInv, indent: str, post: str = "") -> list[str]:
-    bound = wi.bound_expr
-    if bound.startswith("LitInt "):
-        bound = bound.removeprefix("LitInt ")
-    return [f"{indent}focus_while.",
-            f"{indent}iApply ({wi.lemma_name} s E l {bound} 0%Z _",
-            f"{indent}  with \"[$] [] []\").",
-            f"{indent}{{ iPureIntro; lia. }}",
-            f"{indent}{{ iIntros \"Hc_n\".",
-            f"{indent}  rewrite /fill_K /=.",
-            f"{indent}  iApply (@wp_let _ _ _ _ _ _ \"_\" LitUnit _ _).",
-            f"{indent}  iNext. snakelet_simpl.",
-            f"{indent}  heap_load. pure_step. finish_pure. }}"]
 
-
-
-
-
-_HEADER = (
-    "(* Generated by iris_proof_gen -- staged Iris proof. *)\n"
-    "From iris.proofmode Require Import proofmode coq_tactics reduction.\n"
-    "From iris.program_logic Require Import weakestpre.\n"
-    "Require Import SnakeletLang SnakeletWp SnakeletTactics.\n"
-    "Import snakelet_notation.\n"
-    "Open Scope Z_scope.\n"
-)
 
 _HEADER_EXN = (
     "(* Generated by iris_proof_gen -- staged Iris proof (exception backend). *)\n"
@@ -794,7 +703,6 @@ class IrisProof:
     axioms: list[str]
     table_coq: str
     stages: list[StageNode]
-    aux_lemmas: list[str] = field(default_factory=list)
     list_params: dict[str, str] = field(default_factory=dict)
     dict_params: dict[str, str] = field(default_factory=dict)
     raises: dict[str, str] = field(default_factory=dict)
@@ -817,56 +725,6 @@ class IrisProof:
                 # WhileInv carries auxiliary-lemma info, not a stage.
         walk(self.stages)
         return out
-
-    def emit(self) -> str:
-        parts = [_HEADER]
-        for i, ax in enumerate(self.axioms):
-            parts.append(f"Axiom smt_ax_{i} : {ax}.")
-        if self.axioms:
-            parts.append("")
-        parts.append(self.table_coq)
-        parts.append("")
-        parts.append("Section generated_proofs.")
-        parts.append("  Context `{!snakelet_heapGS_gen hlc Σ}.")
-        parts.append("")
-        for lemma_text in self.aux_lemmas:
-            parts.append(lemma_text)
-            parts.append("")
-        binders = "".join(f" ({p} : Z)" for p in self.params
-                           if p not in self.list_params and p not in self.dict_params)
-        for lp, mv in self.list_params.items():
-            binders += f" ({lp} : sn_val) ({mv} : list sn_val)"
-        for dp, kv in self.dict_params.items():
-            binders += f" ({dp} : sn_val) ({kv} : list (sn_val * sn_val))"
-        parts.append(f"  Lemma {self.name}_correct s E{binders} :")
-        premises: list[str] = []
-        if self.list_params:
-            premises.extend(
-                f"{lp} = LitList {mv}" for lp, mv in self.list_params.items())
-        if self.dict_params:
-            premises.extend(
-                f"{dp} = LitDict {kv}" for dp, kv in self.dict_params.items())
-        if premises:
-            pre_terms = " -> ".join(premises)
-            parts.append(f"    ({pre_terms}) ->")
-        if self.pre:
-            parts.append(f"    ({self.pre}) ->")
-        parts.append(f"    {TSTILE} WP {self.body_coq}%S @ s; E "
-                     f"{{{{ v, {LCEIL}({self.post})%Z{RCEIL} }}}}.")
-        parts.append("  Proof.")
-        for lp, _ in self.list_params.items():
-            parts.append(f"    intros H_{lp}.")
-            parts.append(f"    subst {lp}.")
-        for dp, _ in self.dict_params.items():
-            parts.append(f"    intros H_{dp}.")
-            parts.append(f"    subst {dp}.")
-        if self.pre:
-            parts.append("    intros Hpre.")
-        parts.append("    iStartProof.")
-        parts.extend(_emit_stage_lines(self.stages, 0, "    ", self.post))
-        parts.append("  Qed.")
-        parts.append("End generated_proofs.")
-        return "\n".join(parts) + "\n"
 
     def emit_exn(self) -> str:
         """Emit a staged proof against the exception-aware backend
@@ -940,107 +798,10 @@ class IrisProof:
         if self.pre:
             parts.append("    intros Hpre.")
         parts.append("    iStartProof.")
-        parts.extend(_emit_stage_lines(self.stages, 0, "    ", self.post,
-                                       exn=True))
+        parts.extend(_emit_stage_lines(self.stages, 0, "    ", self.post))
         parts.append("  Qed.")
         parts.append("End generated_proofs.")
         return "\n".join(parts) + "\n"
-
-def _emit_while_inv_lemma(wi: WhileInv) -> str:
-    """Generate a per-loop Coq lemma following the proven loop_inv_lemma pattern.
-
-    Lemma <lemma_name> s E l bound (z : Z) (Φ : sn_val → iProp Σ) :
-      ⊢ pointsto l (DfracOwn 1) (LitInt z) -∗ ⌜P_inv(z)⌝ -∗
-         (pointsto l (DfracOwn 1) (LitInt bound) -∗ Φ LitUnit) -∗
-         WP (While cond body) @ s; E {{ Φ }}.
-    """
-    import re
-    # Post-process invariants: replace cell-value references with z.
-    # The ContractLinter may produce either plain Var references like "c"
-    # or string-encoded references like 'asZ (s "c" % string)'.
-    cell_pat = re.escape(wi.cell_name)
-    # Also replace the bound parameter reference (e.g. "n") with "bound".
-    bound_pat = wi.bound_expr
-    bound_name = None
-    if bound_pat.startswith("LitInt "):
-        # Extract the inner name: LitInt n -> n
-        bound_name = bound_pat.removeprefix("LitInt ").strip()
-    elif bound_pat.startswith("LitLoc "):
-        pass  # location literal, no substitution needed
-    else:
-        bound_name = bound_pat  # bare variable
-    invs = []
-    for inv in wi.invariants:
-        # Replace asZ (s "c" % string) -> z
-        inv_subst = re.sub(
-            r'asZ\s*\(\s*s\s+"' + cell_pat + r'"\s*%\s*string\s*\)',
-            'z', inv)
-        # Replace plain variable references to the cell name -> z
-        inv_subst = re.sub(
-            r'\b' + cell_pat + r'\b',
-            'z', inv_subst)
-        # Replace bound parameter references (e.g., "n") -> bound
-        if bound_name:
-            inv_subst = re.sub(
-                r'\b' + re.escape(bound_name) + r'\b',
-                'bound', inv_subst)
-        invs.append(inv_subst)
-    inv_parts = " /\\ ".join(invs) if invs else "True"
-    inv_prop = f"{LCEIL}{inv_parts}{RCEIL}"
-    # Replace cell variable references with the location l in cond/body,
-    # and replace bound variable references with the lemma parameter "bound".
-    cond_coq = re.sub(rf'\(Var "{re.escape(wi.cell_name)}"\)',
-                      '(Val (LitLoc l))', wi.cond_coq)
-    body_coq = re.sub(rf'\(Var "{re.escape(wi.cell_name)}"\)',
-                      '(Val (LitLoc l))', wi.body_coq)
-    if bound_name:
-        cond_coq = cond_coq.replace(f'(LitInt {bound_name})',
-                                    '(LitInt bound)')
-        body_coq = body_coq.replace(f'(LitInt {bound_name})',
-                                    '(LitInt bound)')
-    return f"""  Lemma {wi.lemma_name} s E l (bound : Z) (z : Z)
-      (Φ : sn_val → iProp Σ) :
-    {TSTILE} pointsto l (DfracOwn 1) (LitInt z) -∗
-       {inv_prop} -∗
-       (pointsto l (DfracOwn 1) (LitInt bound) -∗ Φ LitUnit) -∗
-       WP (While ({cond_coq}) ({body_coq})) @ s; E {{{{ Φ }}}}.
-  Proof.
-    iLöb as "IH" forall (z Φ).
-    iIntros "Hc %Hz Hwand".
-    loop_unfold.
-    heap_load. pure_step.
-    case_bool.
-    - apply bool_decide_eq_true_1 in Hcond.
-      pure_step.
-      heap_load. pure_step. pure_step. cbn. pure_step. heap_store. pure_step.
-      iApply ("IH" $! (z + 1)%Z Φ with "Hc [] Hwand").
-      {{ iPureIntro. lia. }}
-    - apply bool_decide_eq_false_1 in Hcond.
-      assert (z = bound) by lia.
-      subst z.
-      iApply wp_if_false.
-      iNext. iApply wp_value'.
-      iApply "Hwand".
-      iExact "Hc".
-  Qed."""
-
-
-def _collect_while_invs(stages: list[StageNode]) -> list[WhileInv]:
-    """Walk the stage tree and collect all WhileInv nodes."""
-    out: list[WhileInv] = []
-
-    def walk(nodes: list[StageNode]) -> None:
-        for n in nodes:
-            if isinstance(n, WhileInv):
-                out.append(n)
-            elif isinstance(n, Branch):
-                for arm in n.arms:
-                    walk(arm)
-            elif isinstance(n, ForList):
-                walk(n.body_stages)
-                walk(n.continuation_stages)
-    walk(stages)
-    return out
 
 
 def generate(name: str,
@@ -1075,8 +836,6 @@ def generate(name: str,
                   func_name=name, _inv_counter=inv_counter,
                   list_params=list_params or {},
                   dict_params=dict_params or {})
-    aux_lemmas = [_emit_while_inv_lemma(wi)
-                  for wi in _collect_while_invs(stages)]
     return IrisProof(
         name=name,
         body_coq=body.to_coq(),
@@ -1086,7 +845,6 @@ def generate(name: str,
         axioms=axioms or [],
         table_coq=_emit_table_section(table),
         stages=stages,
-        aux_lemmas=aux_lemmas,
         list_params=list_params or {},
         dict_params=dict_params or {},
         raises=raises or {},

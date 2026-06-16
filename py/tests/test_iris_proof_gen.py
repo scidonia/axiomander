@@ -1,7 +1,7 @@
 """Tests for the syntax-directed Iris proof generator.
 
 Each test generates a complete .v file (table + theorem + staged proof
-script) and compiles it with coqc against the SnakeletLang Iris stack.
+script) and compiles it with coqc against the SnakeletExn Iris stack.
 Positive tests must PROVE; negative tests must FAIL at the predicted
 stage.  These are end-to-end: Python IR in, checked Coq proof out.
 """
@@ -62,7 +62,7 @@ def test_chain_opaque_transparent_opaque():
                 SLet("b", SApp("twice", [SVar("a")]),
                      SApp("decr", [SVar("b")])))
     proof = generate("chain", body, "v = LitInt 49", TABLE)
-    ok, out = run_coqc(proof.emit())
+    ok, out = run_coqc(proof.emit_exn())
     assert ok, out
     cats = [s.category for s in proof.stage_list()]
     assert cats == ["call_opaque", "pure_step", "call_transparent",
@@ -75,7 +75,7 @@ def test_chain_with_arithmetic():
                 SLet("b", SBinOp("add", SVar("a"), ilit("1")),
                      SApp("decr", [SVar("b")])))
     proof = generate("mixed", body, "v = LitInt 9", TABLE)
-    ok, out = run_coqc(proof.emit())
+    ok, out = run_coqc(proof.emit_exn())
     assert ok, out
 
 
@@ -85,7 +85,7 @@ def test_parametric_chain_with_theorem_pre():
     body = SApp("decr", [ilit("x")])
     proof = generate("pdecr", body, "v = LitInt (x - 1)", TABLE,
                      params=["x"], pre="1 <= x")
-    ok, out = run_coqc(proof.emit())
+    ok, out = run_coqc(proof.emit_exn())
     assert ok, out
 
 
@@ -95,7 +95,7 @@ def test_nested_binop_tree():
                 SBinOp("mul", SVar("s"), ilit("2")))
     proof = generate("ntree", body, "v = LitInt ((x + y) * 2)", TABLE,
                      params=["x", "y"])
-    ok, out = run_coqc(proof.emit())
+    ok, out = run_coqc(proof.emit_exn())
     assert ok, out
 
 
@@ -110,7 +110,7 @@ def test_case_split_abs():
     proof = generate("genabs", body,
                      "exists z : Z, v = LitInt z /\\ z >= 0",
                      TABLE, params=["x"])
-    ok, out = run_coqc(proof.emit())
+    ok, out = run_coqc(proof.emit_exn())
     assert ok, out
     cats = [s.category for s in proof.stage_list()]
     assert "case_bool" in cats
@@ -127,7 +127,7 @@ def test_case_split_with_calls_in_branches():
     proof = generate("brcall", body,
                      "exists z : Z, v = LitInt z /\\ z >= 0",
                      TABLE, params=["x"])
-    ok, out = run_coqc(proof.emit())
+    ok, out = run_coqc(proof.emit_exn())
     assert ok, out
 
 
@@ -139,7 +139,7 @@ def test_case_split_branch_calls_linear_post():
     proof = generate("brcall2", body,
                      "exists z : Z, v = LitInt z /\\ z >= 0",
                      TABLE, params=["x"])
-    ok, out = run_coqc(proof.emit())
+    ok, out = run_coqc(proof.emit_exn())
     assert ok, out
 
 
@@ -160,7 +160,7 @@ def test_smt_axiom_slot():
         pre_overrides={
             "nldecr": "eexists; split; [done | exact (smt_ax_0 n)]"},
     )
-    ok, out = run_coqc(proof.emit())
+    ok, out = run_coqc(proof.emit_exn())
     assert ok, out
     smt_stages = [s for s in proof.stage_list() if s.smt_relevant]
     assert len(smt_stages) == 1
@@ -174,7 +174,7 @@ def test_smt_slot_required():
         args=["x"], side="1 <= x * x + 1", result="x")
     body = SApp("nldecr", [ilit("n")])
     proof = generate("smtneed", body, "v = LitInt n", table, params=["n"])
-    ok, out = run_coqc(proof.emit())
+    ok, out = run_coqc(proof.emit_exn())
     assert not ok
 
 
@@ -184,7 +184,7 @@ def test_wrong_postcondition_fails():
     body = SLet("a", SApp("square", [ilit("5")]),
                 SApp("decr", [SVar("a")]))
     proof = generate("wrongpost", body, "v = LitInt 999", TABLE)
-    ok, out = run_coqc(proof.emit())
+    ok, out = run_coqc(proof.emit_exn())
     assert not ok
 
 
@@ -193,7 +193,7 @@ def test_pre_violation_fails():
     the precondition, so the proof fails there (the call is stuck)."""
     body = SApp("decr", [ilit("0")])
     proof = generate("previol", body, "v = LitInt (-1)", TABLE)
-    ok, out = run_coqc(proof.emit())
+    ok, out = run_coqc(proof.emit_exn())
     assert not ok
 
 
@@ -214,7 +214,7 @@ def test_non_anf_args_rejected_at_generation():
 def test_empty_table_compiles():
     body = SBinOp("add", ilit("1"), ilit("2"))
     proof = generate("notable", body, "v = LitInt 3", {})
-    ok, out = run_coqc(proof.emit())
+    ok, out = run_coqc(proof.emit_exn())
     assert ok, out
 
 
@@ -223,7 +223,7 @@ def test_multi_arg_opaque_spec():
                                          result="x + y")}
     body = SApp("addspec", [ilit("3"), ilit("4")])
     proof = generate("multiarg", body, "v = LitInt 7", table)
-    ok, out = run_coqc(proof.emit())
+    ok, out = run_coqc(proof.emit_exn())
     assert ok, out
 
 
@@ -237,7 +237,7 @@ def test_heap_alloc_store_load():
                     SLoad(loc="x"),
                 ]))
     proof = generate("hs_alloc", body, "v = LitInt 7", {})
-    ok, out = run_coqc(proof.emit())
+    ok, out = run_coqc(proof.emit_exn())
     assert ok, out
     stages = proof.stage_list()
     cats = [s.category for s in stages]
@@ -256,7 +256,7 @@ def test_heap_store_nonval_rejected():
                        left=SLit(lit_type="int", value="1"),
                        right=SLit(lit_type="int", value="2"))))
     proof = generate("hs_nv", body, "v = LitUnit", {})
-    ok, out = run_coqc(proof.emit())
+    ok, out = run_coqc(proof.emit_exn())
     assert not ok  # stuck: store RHS is a binop, not a value
 
 
@@ -271,5 +271,5 @@ def test_heap_anf_hoisted_store_roundtrip():
                     SLoad(loc="x"),
                 ])))
     proof = generate("hs_anf", body, "v = LitInt 3", {})
-    ok, out = run_coqc(proof.emit())
+    ok, out = run_coqc(proof.emit_exn())
     assert ok, out
