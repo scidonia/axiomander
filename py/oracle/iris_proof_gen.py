@@ -570,7 +570,8 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
 
 
 def _emit_stage_lines(nodes: list[StageNode], depth: int,
-                      indent: str, post: str = "") -> list[str]:
+                      indent: str, post: str = "",
+                      exn: bool = False) -> list[str]:
     lines: list[str] = []
     for n in nodes:
         if isinstance(n, Stage):
@@ -583,14 +584,18 @@ def _emit_stage_lines(nodes: list[StageNode], depth: int,
                 raise IrisGenError("case split nesting exceeds bullet depth")
             bullet = _BULLETS[depth]
             for arm in n.arms:
-                arm_lines = _emit_stage_lines(arm, depth + 1, indent + "  ", post)
+                arm_lines = _emit_stage_lines(arm, depth + 1, indent + "  ",
+                                              post, exn)
                 first = arm_lines[0].lstrip()
                 lines.append(f"{indent}{bullet} {first}")
                 lines.extend(arm_lines[1:])
         elif isinstance(n, WhileInv):
             lines.extend(_emit_while_inv_stage(n, indent, post))
         elif isinstance(n, ForList):
-            lines.extend(_emit_for_list_stage(n, indent))
+            if exn:
+                lines.extend(_emit_for_list_stage_exn(n, indent))
+            else:
+                lines.extend(_emit_for_list_stage(n, indent))
     return lines
 
 
@@ -663,6 +668,59 @@ def _emit_for_list_stage(fl: ForList, indent: str) -> list[str]:
     cont_lines = _emit_stage_lines(fl.continuation_stages, 0, indent + "  ")
     lines.extend(cont_lines)
     lines.append(f"{indent}}}")
+    return lines
+
+
+def _emit_for_list_stage_exn(fl: ForList, indent: str) -> list[str]:
+    """Emit a wp_for_list' application for the exception backend.
+
+    The new wp_for_list' has signature
+        wp_for_list' x body M P Phi :
+          (closed) -> P M -* (box step) -* (P [] -* Phi (RVal LitUnit))
+          -* WPE (For x (Val (LitList M)) body) {{ Phi }}
+    with the per-element step postcondition being the Result-match
+        fun r => match r with RVal _ => P vs | RExn l p => Phi (RExn l p) end.
+
+    For the no-accumulator case the suffix invariant is trivial (emp).  When
+    there is a trailing continuation, the For sits under a [Let "_" _ cont]
+    bind; we focus it with wp_bind_item and let Phi be the bind_post."""
+    if fl.iterable_type == "dict":
+        raise IrisGenError(
+            "exn backend: dict for-loops not yet supported (phase 4)")
+    if fl.forall_predicate:
+        raise IrisGenError(
+            "exn backend: accumulating for-loops not yet supported (phase 4)")
+
+    has_cont = bool(fl.continuation_stages)
+    lines: list[str] = []
+    if has_cont:
+        # The For is the bound expression of a Let "_" _ continuation.
+        lines.append(f'{indent}iApply (wp_bind_item (LetCtx "_" _)); '
+                     f'[reflexivity|].')
+    # Apply the fold with trivial invariant emp.  Phi is inferred (the
+    # current postcondition, possibly a bind_post after wp_bind_item).
+    lines.append(f'{indent}iApply (wp_for_list' + "'"
+                 + f' "{fl.var}" ({fl.body_coq}) ({fl.lst_coq}) '
+                 f'(fun _ => emp%I) _).')
+    lines.append(f'{indent}{{ intros w; reflexivity. }}')
+    lines.append(f'{indent}{{ (* invariant at full list *) done. }}')
+    lines.append(f'{indent}{{ (* per-element body step *)')
+    lines.append(f'{indent}  iModIntro. iIntros (vfor vrest) "_". simpl.')
+    body_lines = _emit_stage_lines(fl.body_stages, 0, indent + "  ", exn=True)
+    lines.extend(body_lines)
+    lines.append(f'{indent}  finish_pure.')
+    lines.append(f'{indent}}}')
+    # The terminal premise: P [] -* Phi (RVal LitUnit).
+    lines.append(f'{indent}{{ (* post-loop continuation *) iIntros "_".')
+    if has_cont:
+        lines.append(f'{indent}  unfold bind_post; simpl.')
+        cont_lines = _emit_stage_lines(fl.continuation_stages, 0,
+                                       indent + "  ", exn=True)
+        lines.extend(cont_lines)
+    else:
+        # No continuation: the loop result LitUnit must meet the post.
+        lines.append(f'{indent}  finish_pure.')
+    lines.append(f'{indent}}}')
     return lines
 
 
@@ -815,7 +873,15 @@ class IrisProof:
         parts.append("")
         binders = "".join(f" ({p} : Z)" for p in self.params
                            if p not in self.list_params and p not in self.dict_params)
+        # List-typed params are split into a value binder [xs : sn_val] and
+        # its model [M_xs : list sn_val], tied by the premise xs = LitList M_xs.
+        for lp, mv in self.list_params.items():
+            binders += f" ({lp} : sn_val) ({mv} : list sn_val)"
         parts.append(f"  Lemma {self.name}_correct{binders} :")
+        model_premises: list[str] = [
+            f"{lp} = LitList {mv}" for lp, mv in self.list_params.items()]
+        if model_premises:
+            parts.append(f"    ({' -> '.join(model_premises)}) ->")
         if self.pre:
             parts.append(f"    ({self.pre}) ->")
         # Result-match postcondition.  The RVal arm is the normal post;
@@ -845,10 +911,14 @@ class IrisProof:
         parts.append(f"    {TSTILE} WPE {self.body_coq} "
                      f"{{{{ {post_match} }}}}.")
         parts.append("  Proof.")
+        for lp, _ in self.list_params.items():
+            parts.append(f"    intros H_{lp}.")
+            parts.append(f"    subst {lp}.")
         if self.pre:
             parts.append("    intros Hpre.")
         parts.append("    iStartProof.")
-        parts.extend(_emit_stage_lines(self.stages, 0, "    ", self.post))
+        parts.extend(_emit_stage_lines(self.stages, 0, "    ", self.post,
+                                       exn=True))
         parts.append("  Qed.")
         parts.append("End generated_proofs.")
         return "\n".join(parts) + "\n"

@@ -487,3 +487,18 @@ def try_wrong(x):
     return a
 ''')
     assert not ok
+
+
+# -- Loops: exception backend --------------------------------------------
+
+def test_for_loop_proved_exn():
+    """A for-loop over a list parameter is verified via wp_for_list' on the
+    Result WP.  Trivial (no-accumulator) invariant; the loop result unit
+    feeds the trailing continuation, then the postcondition closes."""
+    ok, out = verify_exn('''
+def sum_pass(xs):
+    for x in xs:
+        y = x
+    return 0
+''')
+    assert ok, out
