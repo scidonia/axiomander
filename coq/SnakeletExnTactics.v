@@ -332,38 +332,31 @@ Section while_lemma.
     (at level 20, e, Q at level 200) : bi_scope.
   Local Notation "l ↦ v" := (pointsto l (DfracOwn 1) v) (at level 20) : bi_scope.
 
-  Lemma wp_while_inv (l : loc) (bound : Z) (z : Z) (Phi : Result -> iProp Sigma)
-      (cond body : sn_expr) :
+  Lemma wp_while_inv (l : loc) (bound : Z) (z : Z) (Phi : Result -> iProp Sigma) :
     l ↦ LitInt z -∗
     ⌜Z.le z bound⌝ -∗
     (l ↦ LitInt bound -∗ Phi (RVal LitUnit)) -∗
-    WPE (While cond body) {{ Phi }}.
+    WPE (While (BinOp LtOp (Load (Val (LitLoc l))) (Val (LitInt bound)))
+              (Let "_t2" (Let "_t1" (Load (Val (LitLoc l)))
+                 (BinOp AddOp (Var "_t1") (Val (LitInt 1))))
+                 (Store (Val (LitLoc l)) (Var "_t2")))) {{ Phi }}.
   Proof.
     iLöb as "IH" forall (z Phi).
     iIntros "Hc %Hz Hwand".
     iApply wp_while; iNext; simpl.
-    (* Condition: focus into BinOp LtOp (Load l) (Val bound) *)
-    popvals; focus_redex. popvals; focus_redex.
-    iApply (wp_load l with "[$]"); iNext; iIntros "Htmp"; simpl.
-    pure_step. case_bool.
-    - (* then: z < bound *)
-      snakelet_pure_hyps.
-      pure_step. pure_step. pure_step. pure_step.
-      (* Body: Load l, Add 1, Store l *)
-      popvals; focus_redex.
-      iApply (wp_load l with "[$]"); iNext; iIntros "Hbody"; simpl.
-      pure_step. pure_step.
-      (* Store: replace [Hbody] with [+] for the store *)
-      iApply (wp_store l (LitInt (z + 1)) with "[Hbody]"); [iExact "Hbody"|].
-      iNext; iIntros "Hc3"; simpl.
-      (* Continuation: bind "_", then recurse *)
-      pure_step.
-      iApply ("IH" $! (z + 1)%Z Phi with "Hc3 [] Hwand").
-      iPureIntro. lia.
-    - (* else: z >= bound *)
-      snakelet_pure_hyps.
-      pure_step.
+    heap_load. pure_step. case_bool.
+    - snakelet_pure_hyps.
+      pure_step.  (* if true branch *)
+      heap_load.  (* Load cell for body *)
+      pure_step.  (* _t1 Let *)
+      pure_step.  (* binop add *)
+      pure_step.  (* _t2 Let *)
+      heap_store. (* store result *)
+      pure_step.  (* sequencing _ *)
+      iApply ("IH" $! (z + 1)%Z Phi with "[$] [] Hwand").
+      { admit. }
+    - snakelet_pure_hyps.
+      pure_step.  (* if false branch *)
       iApply wp_value. iApply "Hwand". iFrame.
-  Qed.
-End while_lemma.
+   Abort.
 End while_lemma.
