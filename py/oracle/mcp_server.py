@@ -1151,40 +1151,69 @@ def _try_iris_backend(source: str, func_name: str, tree: ast.AST,
     from pathlib import Path
     COQ_ROOT = Path(os.environ.get("AXIOMANDER_ROOT",
                    Path(__file__).resolve().parent.parent.parent)) / "coq"
-    with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".v", delete=False,
-            prefix=f"iris_{func_name}_") as f:
-        f.write(proof.emit())
-        tmp_path = f.name
 
+    def _run_coqc(proof_text: str) -> int | None:
+        """Compile a generated proof; return coqc returncode, or None on
+        timeout."""
+        with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".v", delete=False,
+                prefix=f"iris_{func_name}_") as f:
+            f.write(proof_text)
+            tmp_path = f.name
+        try:
+            res = subprocess.run(
+                ["coqc", "-R", str(COQ_ROOT), "", tmp_path],
+                capture_output=True, text=True, timeout=120,
+                env={**os.environ},
+            )
+            return res.returncode
+        except subprocess.TimeoutExpired:
+            return None
+        finally:
+            try: os.unlink(tmp_path)
+            except OSError: pass
+            for ext in (".vo", ".vok", ".vos", ".glob"):
+                try: os.unlink(tmp_path + ext)
+                except OSError: pass
+
+    # Prefer the exception-aware backend (Result-postcondition WP); it is
+    # the gold-standard semantics.  If the fragment is unsupported there
+    # (raises IrisGenError) or its proof fails to compile, fall back to the
+    # original SnakeletLang emit() before giving up to IMP.
+    timed_out = False
     try:
-        result = subprocess.run(
-            ["coqc", "-R", str(COQ_ROOT), "", tmp_path],
-            capture_output=True, text=True, timeout=120,
-            env={**os.environ},
-        )
-    except subprocess.TimeoutExpired:
+        rc = _run_coqc(proof.emit_exn())
+        if rc == 0:
+            return GoalStatus(name=func_name,
+                              goal_statement=f"WPE {func_name} {{ ... }}",
+                              level=ProofLevel.LEVEL1_LTAC,
+                              proof_method="iris_exn")
+        if rc is None:
+            timed_out = True
+    except IrisGenError:
+        pass
+    except Exception:
+        pass
+
+    # Fall back to the original (non-exception) backend.
+    try:
+        rc = _run_coqc(proof.emit())
+    except Exception:
+        rc = None
+    if rc == 0:
+        return GoalStatus(name=func_name,
+                          goal_statement=f"WP {func_name} {{ ... }}",
+                          level=ProofLevel.LEVEL1_LTAC,
+                          proof_method="iris")
+    if rc is None and timed_out:
         return GoalStatus(name=func_name,
                           goal_statement=f"WP {func_name} {{ ... }}",
                           level=ProofLevel.UNPROVED,
                           error_detail="Iris proof compilation timed out",
                           suggested_action=Action.ADD_LEMMA)
-    finally:
-        try: os.unlink(tmp_path)
-        except OSError: pass
-        for ext in (".vo", ".vok", ".vos", ".glob"):
-            try: os.unlink(tmp_path + ext)
-            except OSError: pass
-
-    if result.returncode == 0:
-        return GoalStatus(name=func_name,
-                          goal_statement=f"WP {func_name} {{ ... }}",
-                          level=ProofLevel.LEVEL1_LTAC,
-                          proof_method="iris")
-    else:
-        # Iris compilation failed — fall through to IMP.  (Returning
-        # an UNPROVED here would short-circuit the IMP path.)
-        return None
+    # Both Iris backends failed — fall through to IMP.  (Returning an
+    # UNPROVED here would short-circuit the IMP path.)
+    return None
 
 
 def _verify_function(source: str, func_name: str, hint: str | None = None) -> GoalStatus | None:
