@@ -1129,6 +1129,84 @@ def _run_dimension_check(func_node: ast.FunctionDef) -> str:
         return ""
 
 
+def _build_iris_callee_table(tree: ast.AST, target_func: str) -> dict:
+    """Discover callee functions in [tree] and build OpaqueSpec entries.
+
+    Walks top-level FunctionDef nodes (excluding [target_func] itself),
+    extracts each one's params, precondition, and return-value expression,
+    and returns a table suitable for python_to_iris_proof.
+
+    The return value is traced from `return X` backwards through a single
+    `X = expr` assignment (the common contract-body pattern)."""
+    import ast as _ast
+    from .iris_proof_gen import OpaqueSpec
+    from .contract_linter import ContractLinter
+
+    table: dict[str, object] = {}
+
+    for node in _ast.iter_child_nodes(tree):
+        if not isinstance(node, _ast.FunctionDef):
+            continue
+        name = node.name
+        if name == target_func:
+            continue
+
+        params = [a.arg for a in node.args.args]
+        if not params:
+            continue
+
+        body = list(node.body)
+
+        # Extract precondition: leading asserts
+        linter = ContractLinter(params=params, context="precondition")
+        side: str | None = None
+        while body and isinstance(body[0], _ast.Assert):
+            linted = linter.lint_expression(body[0].test)
+            if linted.ir is not None:
+                from .contract_ir_iris import iris_prop
+                p = iris_prop(linted.ir)
+                side = f"({p})" if side else p
+            body = body[1:]
+
+        # Find return value expression: look for `return X` and trace
+        # back to `X = expr`.
+        result_expr = _trace_return_value(node, params)
+        if result_expr is None:
+            continue
+
+        table[name] = OpaqueSpec(args=list(params), side=side,
+                                 result=result_expr)
+
+    return table
+
+
+def _trace_return_value(func_node: ast.FunctionDef,
+                        params: list[str]) -> str | None:
+    """Trace `return X` to the expression assigned to X.
+
+    Handles the simple contract-body pattern: `X = expr; ...; return X`.
+    Returns the Python expression text with parameter names intact."""
+    import ast as _ast
+    # Find return statement
+    ret_var: str | None = None
+    for stmt in _ast.walk(func_node):
+        if isinstance(stmt, _ast.Return) and isinstance(stmt.value, _ast.Name):
+            ret_var = stmt.value.id
+            break
+    if ret_var is None:
+        return None
+
+    # Find assignment to return variable
+    for stmt in _ast.walk(func_node):
+        if (isinstance(stmt, _ast.Assign)
+                and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], _ast.Name)
+                and stmt.targets[0].id == ret_var):
+            return _ast.unparse(stmt.value).strip()
+
+    return None
+
+
 def _try_iris_backend(source: str, func_name: str, tree: ast.AST,
                        func_node: ast.FunctionDef,
                        lint_results: list,
@@ -1139,9 +1217,11 @@ def _try_iris_backend(source: str, func_name: str, tree: ast.AST,
     to the IMP pipeline (function uses unsupported constructs)."""
     from .iris_pipeline import python_to_iris_proof, IrisGenError
 
+    table = _build_iris_callee_table(tree, func_name)
+
     try:
         proof = python_to_iris_proof(
-            source, {}, func_name=func_name)
+            source, table, func_name=func_name)
     except IrisGenError:
         return None        # Fragment unsupported: fall through to IMP
     except Exception:

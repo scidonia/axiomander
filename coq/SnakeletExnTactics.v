@@ -180,14 +180,22 @@ Ltac finish_pure :=
   end;
   simpl; iPureIntro; snakelet_pure_hyps;
   try (first
-        [ reflexivity
-        | lia
-        | (f_equal; lia)
-        | done
-        (* existential value-shape postcondition: pick the witness from the
-           [v = LitInt z] equality, then discharge the side condition. *)
-        | (eexists; split; [ reflexivity | first [ reflexivity | lia ] ])
-        | (repeat split; first [ reflexivity | lia ]) ]).
+         [ reflexivity
+         | nia
+         | lia
+         | (f_equal; nia)
+         | done
+         (* Z.leb / Z.ltb goal: rewrite to Prop inequality, then nia *)
+         | (rewrite Z.leb_le; nia)
+         | (rewrite Z.ltb_lt; nia)
+         (* existential value-shape postcondition.  The side-condition may
+            contain Z.leb/Z.ltb goals; convert them before using nia. *)
+         | (eexists; split;
+            [ reflexivity
+            | try rewrite Z.leb_le; try rewrite Z.ltb_lt;
+              try rewrite Z.eqb_eq;
+              first [ reflexivity | nia ] ])
+         | (repeat split; first [ reflexivity | nia ]) ]).
 
 (** Convert a syntactic list of value expressions [[Val v1; ...; Val vn]]
     to the value list [[v1; ...; vn]] so [Call f args] matches the
