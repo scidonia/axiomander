@@ -1,0 +1,19 @@
+{
+  "name": "axiomander-slides",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Slidev deck: Vericoding and the Axiomander architecture",
+  "scripts": {
+    "dev": "slidev --open",
+    "build": "slidev build",
+    "export": "slidev export"
+  },
+  "dependencies": {
+    "@slidev/cli": "^52.0.0",
+    "@slidev/theme-default": "latest",
+    "@slidev/theme-seriph": "latest"
+  },
+  "devDependencies": {
+    "playwright-chromium": "^1.60.0"
+  }
+}
