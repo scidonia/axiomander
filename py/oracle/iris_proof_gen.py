@@ -416,16 +416,38 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         body_heap = has_heap(body_stages)
 
         if cond_heap or body_heap:
-            iter_block = "; ".join(
-                ["loop_unfold"] + flat(cond_stages, "condition")
-                + ["pure_step"] + flat(body_stages, "body") + ["pure_step"])
-            return ([Stage(f"repeat ({iter_block})", "loop_iterations",
-                           comment="concrete heap loop: all full iterations")]
-                    + [Stage("loop_unfold", "loop_unfold",
-                             comment="exit iteration")]
-                    + cond_stages
-                    + [Stage("pure_step", "pure_step", comment="exit branch")]
-                    ) + k()
+            # Concrete heap loop: only unroll if the bound is a literal
+            unroll = _unroll_count(e.cond)
+            if unroll is not None and unroll > 0:
+                iter_block = "; ".join(
+                    ["loop_unfold"] + flat(cond_stages, "condition")
+                    + ["pure_step"] + flat(body_stages, "body") + ["pure_step"])
+                return ([Stage(f"repeat ({iter_block})", "loop_iterations",
+                               comment="concrete heap loop: all full iterations")]
+                        + [Stage("loop_unfold", "loop_unfold",
+                                 comment="exit iteration")]
+                        + cond_stages
+                        + [Stage("pure_step", "pure_step", comment="exit branch")]
+                        ) + k()
+            # Symbolic heap loop: generate WhileInv with trivial invariant
+            cell_name = _extract_while_cell(e.cond)
+            bound_expr = _extract_while_bound(e.cond)
+            cond_coq = e.cond.to_coq()
+            body_coq = e.body.to_coq()
+            if _inv_counter is not None:
+                cid = _inv_counter[0]
+                _inv_counter[0] += 1
+            else:
+                cid = 0
+            lemma_name = f"loop_inv_{func_name}_{cid}"
+            return [WhileInv(
+                lemma_name=lemma_name,
+                cell_name=cell_name,
+                bound_expr=bound_expr,
+                cond_coq=cond_coq,
+                body_coq=body_coq,
+                invariants=[],
+            )]
         else:
             # Pure loop with a literal bound: unroll N times.
             unroll = _unroll_count(e.cond)
@@ -451,11 +473,27 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                     Stage("pure_step", "pure_step",
                           comment="exit branch"),
                     ] + k()
-            # Symbolic pure loop or mutable symbolic loop: needs
-            # ghost-state invariant (iLöb over a Coq-variable measure).
-            # Falls through to IMP for now.
-            raise IrisGenError(
-                "symbolic while loop: needs Löb+invariant (phase 5)")
+            # Symbolic loop without invariants: still generate a WhileInv
+            # with the trivial invariant (z <= bound) for the heap-counter
+            # pattern.  wp_while_inv handles this case.
+            cell_name = _extract_while_cell(e.cond)
+            bound_expr = _extract_while_bound(e.cond)
+            cond_coq = e.cond.to_coq()
+            body_coq = e.body.to_coq()
+            if _inv_counter is not None:
+                cid = _inv_counter[0]
+                _inv_counter[0] += 1
+            else:
+                cid = 0
+            lemma_name = f"loop_inv_{func_name}_{cid}"
+            return [WhileInv(
+                lemma_name=lemma_name,
+                cell_name=cell_name,
+                bound_expr=bound_expr,
+                cond_coq=cond_coq,
+                body_coq=body_coq,
+                invariants=[],  # trivial: z <= bound handled by the lemma
+            )]
 
     if isinstance(e, SFor):
         # for x in xs: body  ->  wp_for_list fold.  Generate the body's stage
