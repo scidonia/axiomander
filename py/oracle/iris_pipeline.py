@@ -811,13 +811,31 @@ def python_to_iris_proof(source: str,
     # Body: PyIR -> SnakeletIR -> ANF
     fn = PyIRTranslator().translate_function(target)
     user_dict = dict_params or set()
-    lw = IrisLowerer(loc_map={}, func_name=fn.name, dict_params=user_dict)
+    # Detect list/dict params from type annotations for the lowerer
+    ann_list_params: set[str] = set()
+    for a in target.args.args:
+        if a.annotation and isinstance(a.annotation, ast.Subscript):
+            base = None
+            if isinstance(a.annotation.value, ast.Name):
+                base = a.annotation.value.id
+            if base in ("list", "List"):
+                ann_list_params.add(a.arg)
+            elif base in ("dict", "Dict"):
+                user_dict.add(a.arg)
+
+    lw = IrisLowerer(loc_map={}, func_name=fn.name, dict_params=user_dict,
+                     list_params=ann_list_params)
     invs_iter = iter(contracts.loop_invariants) if contracts.loop_invariants else None
     body = _fold(fn.body, lw, invs_iter=iter(contracts.loop_invariants))
     list_params = _detect_list_params(body, set(fn.params))
     detected_dict = _detect_dict_params(body, set(fn.params))
+    # Merge annotation-based list params with IR-detected ones
+    merged_lp: dict[str, str] = dict(list_params)
+    for lp in ann_list_params:
+        if lp not in merged_lp:
+            merged_lp[lp] = f"M_{lp}"
     body = _subst_params(body, set(fn.params), set(),
-                         set(list_params.keys()) | set(detected_dict.keys()))
+                          set(merged_lp.keys()) | set(detected_dict.keys()))
     body = _anf(body, [0])
     _validate_ops(body)
 
@@ -830,7 +848,7 @@ def python_to_iris_proof(source: str,
         pre=contracts.pre,
         axioms=axioms,
         pre_overrides=pre_overrides,
-        list_params=list_params,
+        list_params=merged_lp,
         dict_params=detected_dict,
         raises=contracts.raises,
     )

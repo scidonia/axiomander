@@ -674,3 +674,19 @@ def test_clamp2_exn():
     return result
 ''')
     assert ok, out
+
+
+# -- List operations (AppendOp / LengthOp) --------------------------------
+
+def test_list_append_len_exn():
+    """xs=[]; xs.append(v); len(xs) verifies via AppendOp/LengthOp."""
+    ok, out = verify_exn('''
+def simple_append(x: int):
+    assert x >= 0
+    items = []
+    items.append(x)
+    result = len(items)
+    assert result == 1
+    return result
+''')
+    assert ok, out

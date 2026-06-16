@@ -30,12 +30,14 @@ class IrisLowerer:
 
     def __init__(self, loc_map: dict[str, str], func_name: str = "",
                  contract_map: dict | None = None, param_types: dict[str, str] | None = None,
-                 dict_params: set[str] | None = None):
+                 dict_params: set[str] | None = None,
+                 list_params: set[str] | None = None):
         self.loc_map = loc_map      # "box.value" → "l__box_value"
         self._func_name = func_name
         self._contract_map = contract_map or {}
         self._param_types = param_types or {}
         self._dict_params = dict_params or set()
+        self._list_params = list_params or set()
         self._vc = 0
         self._pure_conditions: list[SPure] = []
 
@@ -191,13 +193,20 @@ class IrisLowerer:
                 return SLit(lit_type="bool", value="true")
             return SLit(lit_type="bool", value="false")
 
-        # -- len(xs): LengthOp on the heap-loaded value --
+        # -- len(xs): LengthOp.  For heap-allocated lists, load first;
+        #    for list parameters, use the variable directly (it holds a
+        #    LitList value after substitution).
         if expr.func == "len" and len(expr.args) == 1:
             arg = expr.args[0]
             if isinstance(arg, PyName):
-                return SBinOp(op="length",
-                              left=SLoad(loc=arg.name),
-                              right=SLit(lit_type="int", value="0"))
+                if arg.name in self._list_params:
+                    return SBinOp(op="length",
+                                  left=SVar(name=arg.name),
+                                  right=SLit(lit_type="int", value="0"))
+                else:
+                    return SBinOp(op="length",
+                                  left=SLoad(loc=arg.name),
+                                  right=SLit(lit_type="int", value="0"))
 
         # -- Method calls: xs.append(v) --
         if expr.is_method and "." in expr.func:
