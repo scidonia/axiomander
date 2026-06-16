@@ -79,8 +79,17 @@ Ltac pure_step_redex :=
       iApply wp_if_true; iNext; simpl
   | |- envs_entails _ (wp_exn (If (Val (LitBool false)) _ _) _) =>
       iApply wp_if_false; iNext; simpl
-  | |- envs_entails _ (wp_exn (If (Val (LitBool _)) _ _) _) =>
-      fail "pure_step: symbolic condition; use case_bool"
+  | |- envs_entails _ (wp_exn (If (Val (LitBool ?b)) _ _) _) =>
+      (* the boolean may be an unreduced [Z.ltb]/[Z.leb]/[Z.eqb] term
+         (e.g. after a concrete heap-loop binop): compute it, then retry. *)
+      let bv := eval cbv in b in
+      lazymatch bv with
+      | true  => replace b with true by (cbv; reflexivity);
+                 iApply wp_if_true; iNext; simpl
+      | false => replace b with false by (cbv; reflexivity);
+                 iApply wp_if_false; iNext; simpl
+      | _ => fail "pure_step: symbolic condition; use case_bool"
+      end
   | |- envs_entails _ (wp_exn (Try (Val _) _ _) _) =>
       iApply wp_try_normal; iNext; simpl
   | |- envs_entails _ (wp_exn (Try (Raise (Val _)) _ _) _) =>
@@ -107,6 +116,18 @@ Ltac focus_redex :=
 
 Ltac pure_step :=
   popvals; focus_redex; pure_step_redex.
+
+(** Unfold a concrete [While] one iteration.  Focuses the loop (it may
+    sit under a [Let "_" _ cont] bind), applies [wp_while] to expose
+    [If cond (Let "_" body (While ..)) (Val LitUnit)], then simplifies.
+    The subsequent case_bool / pure_step / heap stages drive the body. *)
+Ltac loop_unfold :=
+  popvals; focus_redex;
+  lazymatch goal with
+  | |- envs_entails _ (wp_exn (While _ _) _) =>
+      iApply wp_while; iNext; simpl
+  | _ => fail "loop_unfold: goal is not a While"
+  end.
 
 (** Convert boolean path constraints into Props for [lia]. *)
 Ltac snakelet_pure_hyps :=

@@ -527,3 +527,33 @@ def all_pos(xs):
     return 0
 ''')
     assert not ok
+
+
+def test_while_concrete_proved_exn():
+    """A concrete counting while-loop verifies on the exception backend via
+    loop_unfold (one wp_while unroll per iteration); the loop-condition
+    boolean is computed (cbv) so the If reduces."""
+    ok, out = verify_exn('''
+def count_to_two():
+    c = ref(0)
+    while load(c) < 2:
+        store(c, load(c) + 1)
+    r = load(c)
+    assert r == 2
+    return r
+''')
+    assert ok, out
+
+
+def test_while_concrete_wrong_post_rejected_exn():
+    """The loop runs to 2; claiming the result is 3 must NOT prove."""
+    ok, out = verify_exn('''
+def count_wrong():
+    c = ref(0)
+    while load(c) < 2:
+        store(c, load(c) + 1)
+    r = load(c)
+    assert r == 3
+    return r
+''')
+    assert not ok
