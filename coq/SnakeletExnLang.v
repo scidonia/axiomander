@@ -50,10 +50,14 @@ Inductive sn_val :=
   | LitLoc (l : loc)
   | LitUnit
   | LitExn (label : string) (payload : sn_val)    (* exception object: label + value *)
-  | LitList (vs : list sn_val).                    (* immutable list value *)
+  | LitList (vs : list sn_val)                    (* immutable list value *)
+  | LitTuple (vs : list sn_val)                   (* immutable tuple value *)
+  | LitDict (kvs : list (sn_val * sn_val))        (* immutable dict value *)
+  | LitSet (vs : list sn_val).                    (* immutable set value *)
 
 (** * Expressions *)
-Inductive binop := AddOp | SubOp | MulOp | EqOp | LeOp | LtOp | GtOp | GeOp.
+Inductive binop := AddOp | SubOp | MulOp | EqOp | LeOp | LtOp | GtOp | GeOp
+  | AndOp | OrOp | NeOp | ModOp | InOp | LenOp | UnionOp | InterOp.
 
 Inductive sn_expr :=
   | Val (v : sn_val)
@@ -195,6 +199,16 @@ Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
       | LtOp  => LitBool (Z.ltb n1 n2)
       | GtOp  => LitBool (Z.ltb n2 n1)
       | GeOp  => LitBool (Z.leb n2 n1)
+      | NeOp  => LitBool (negb (Z.eqb n1 n2))
+      | ModOp => LitInt (Z.rem n1 n2)
+      | _ => LitUnit
+      end
+  | LitBool b1, LitBool b2 =>
+      match op with
+      | AndOp => LitBool (b1 && b2)
+      | OrOp  => LitBool (b1 || b2)
+      | EqOp  => LitBool (Bool.eqb b1 b2)
+      | _ => LitUnit
       end
   | _, _ => LitUnit
   end.

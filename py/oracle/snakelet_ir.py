@@ -34,8 +34,9 @@ class SBinOp:
     kind: Literal["binop"] = "binop"
 
     def to_coq(self) -> str:
-        op_map = {"add": "AddOp", "sub": "SubOp", "mul": "MulOp", "div": "DivOp",
+        op_map = {"add": "AddOp", "sub": "SubOp", "mul": "MulOp",
                   "eq": "EqOp", "le": "LeOp", "lt": "LtOp", "gt": "GtOp", "ge": "GeOp",
+                  "ne": "NeOp", "mod": "ModOp", "and": "AndOp", "or": "OrOp",
                   "len": "LenOp", "in": "InOp", "union": "UnionOp", "inter": "InterOp"}
         coq_op = op_map.get(self.op, "AddOp")
         return f"(BinOp {coq_op} {self.left.to_coq()} {self.right.to_coq()})"

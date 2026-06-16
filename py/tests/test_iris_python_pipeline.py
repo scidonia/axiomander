@@ -568,3 +568,89 @@ def count_wrong():
     return r
 ''')
     assert not ok
+
+
+# -- Migrated from test_pipeline.py ---------------------------------------
+
+def test_add_exn():
+    ok, out = verify_exn('''
+def add(a: int, b: int):
+    assert True
+    result = a + b
+    assert result == a + b
+    return result
+''')
+    assert ok, out
+
+
+def test_max_of_two_exn():
+    ok, out = verify_exn('''
+def max_of_two(a: int, b: int):
+    assert a >= 0; assert b >= 0
+    if a >= b: result = a
+    else: result = b
+    assert result >= a; assert result >= b
+    return result
+''')
+    assert ok, out
+
+
+def test_clamp_exn():
+    ok, out = verify_exn('''
+def clamp(val: int, lo: int, hi: int):
+    assert lo <= hi
+    if val < lo: result = lo
+    elif val > hi: result = hi
+    else: result = val
+    assert lo <= result <= hi
+    return result
+''')
+    assert ok, out
+
+
+def test_clamp_val_exn():
+    ok, out = verify_exn('''
+def clamp_val(val: int, lo: int, hi: int):
+    assert lo <= hi
+    if val < lo: result = lo
+    elif val > hi: result = hi
+    else: result = val
+    assert min(hi, max(lo, result)) == result
+    return result
+''')
+    assert ok, out
+
+
+def test_float_param_exn():
+    ok, out = verify_exn('''
+def float_param(x: float):
+    assert x >= 0.0
+    result = x
+    assert result == x
+    return result
+''')
+    assert ok, out
+
+
+def test_implies_basic_exn():
+    ok, out = verify_exn('''
+def implies_basic(a: int):
+    assert a >= 0
+    if a > 10: result = 1
+    else: result = 0
+    assert implies(a > 10, result == 1)
+    return result
+''')
+    assert ok, out
+
+
+def test_isinstance_threeway_exn():
+    ok, out = verify_exn('''
+def isinstance_threeway(x) -> bool:
+    assert True
+    if isinstance(x, ast.Name): return True
+    if isinstance(x, ast.Subscript): return True
+    if isinstance(x, ast.Attribute): return True
+    return False
+''')
+    assert ok, out

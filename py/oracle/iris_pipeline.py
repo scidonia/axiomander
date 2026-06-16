@@ -49,7 +49,7 @@ from oracle.snakelet_ir import (
 )
 
 # Binops supported by SnakeletLang's binop_eval on integers.
-_SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge"}
+_SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge", "ne", "mod", "and", "or"}
 
 
 # -- Contract extraction ----------------------------------------------------

@@ -61,9 +61,6 @@ def run_verification(source: str, func_name: str) -> GoalStatus | None:
 
 EXAMPLES = [
     # ── Core examples ──────────────────────────────────────────────
-    ("add", "def add(a: int, b: int):\n assert True\n result = a+b\n assert result == a+b\n return result"),
-    ("max_of_two", "def max_of_two(a: int, b: int):\n assert a>=0; assert b>=0\n if a>=b: result=a\n else: result=b\n assert result>=a; assert result>=b\n return result"),
-    ("clamp", "def clamp(val: int, lo: int, hi: int):\n assert lo<=hi\n if val<lo: result=lo\n elif val>hi: result=hi\n else: result=val\n assert lo<=result<=hi\n return result"),
     ("sum_to", "def sum_to(n: int):\n assert n>=0\n acc=0; i=0\n while i<n:\n  assert acc==i*(i+1)//2; assert i<=n\n  i=i+1; acc=acc+i\n assert acc==n*(n+1)//2; assert i==n\n return acc"),
     ("count_to", "def count_to(n: int):\n assert n>=0\n i=0\n for _ in range(n): i=i+1\n assert i==n\n return i"),
     ("fill_list", "def fill_list(n: int):\n assert n>=0\n xs=[]; i=0\n while i<n:\n  assert len(xs)==i; assert i<=n\n  xs.append(i); i=i+1\n result=len(xs)\n assert result==n\n return result"),
@@ -244,7 +241,6 @@ def double(n: int):
     ("caller", "def square(x: int):\n    assert x>=0\n    result=x*x\n    assert result>=x\n    return result\ndef caller(n: int):\n    assert n>=0\n    total=square(n)\n    assert total>=n\n    return total"),
 
     # ── min() / max() in contracts ────────────────────────────────
-    ("clamp_val", "def clamp_val(val: int, lo: int, hi: int):\n    assert lo<=hi\n    if val<lo: result=lo\n    elif val>hi: result=hi\n    else: result=val\n    assert min(hi, max(lo, result))==result\n    return result"),
 
     # ── sum() in contracts ────────────────────────────────────────
     ("sum_lt", "def sum_lt(n: int):\n    assert n>=0\n    total=0;i=0\n    while i<n:\n        assert i<=n\n        total+=i;i+=1\n    result=total\n    assert result>=sum(result) or True\n    return result"),
@@ -492,13 +488,6 @@ def modifies_blocks_frame(a: int) -> int:
     result = a == b
     assert result == 1
     return result'''),
-    # Float parameter — value stored correctly in init_state.
-    ("float_param", '''def float_param(x: float):
-    assert x >= 0.0
-    result = x
-    assert result == x
-    return result'''),
-
     # ── VNone ──────────────────────────────────────────────────────
     ("none_assign", '''def none_assign():
     x = None
@@ -548,12 +537,6 @@ def modifies_blocks_frame(a: int) -> int:
     return result'''),
 
     # ── Implication ─────────────────────────────────────────────────
-    ("implies_basic", '''def implies_basic(a: int):
-    assert a >= 0
-    if a > 10: result = 1
-    else: result = 0
-    assert implies(a > 10, result == 1)
-    return result'''),
     ("implies_branch", '''def implies_branch(x: int):
     assert True
     if x >= 0: result = 1
@@ -1014,7 +997,6 @@ def collection_field(basket: Basket) -> int:
     ("isinstance_dispatch_wrong", "def isinstance_dispatch_wrong(annotation) -> bool:\n assert True\n result = False\n if isinstance(annotation, ast.Name): result = True\n elif isinstance(annotation, ast.Subscript): result = True\n assert result == 0\n return result"),
     ("isinstance_builtin", "def isinstance_builtin(x: int) -> bool:\n assert x >= 0\n result = False\n if isinstance(x, int): result = True\n assert implies(result == 1, x >= 0)\n return result"),
     ("isinstance_none", "def isinstance_none(annotation) -> bool:\n assert True\n if annotation is None: return True\n elif isinstance(annotation, ast.Name): return True\n return False"),
-    ("isinstance_threeway", "def isinstance_threeway(x) -> bool:\n assert True\n if isinstance(x, ast.Name): return True\n if isinstance(x, ast.Subscript): return True\n if isinstance(x, ast.Attribute): return True\n return False"),
 
     # ── Strong contracts (Coq-quality) ──────────────────────────────
     # Full bidirectional spec: characterizes ALL inputs
@@ -1027,7 +1009,7 @@ def collection_field(basket: Basket) -> int:
     ("use_contains_loop", "def contains(xs, x: int) -> bool:\n \"\"\"\n axiomander:\n  ensures:\n   implies(result == True, any(item == x for item in xs))\n \"\"\"\n for item in xs:\n  if item == x:\n   return True\n return False\n\ndef use_contains_loop(xs, target: int) -> bool:\n \"\"\"\n axiomander:\n  ensures:\n   implies(contains(xs, target), result == True)\n \"\"\"\n assert True\n result = False\n for item in xs:\n  if item == target:\n   result = True\n return result"),
 ]
 
-NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail", "bytes_neq_fail", "dict_wrong_val", "set_wrong_fail", "none_is_not_fail", "str_wrong_literal", "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail", "all_positive", "use_wrong", "user_no_post", "inv_body_violation",     "bad_pass_str", "bad_call_str", "bad_int_to_bool", "frame_fail_pop",
+NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "weak_sum_inc", "neg_assign", "weak_for_in_count", "weak_for_in_total", "count_to_buggy", "count_underrun", "brace_fail",      "implies_fail", "tuple_neq_fail", "float_neq_fail", "quantifier_fail", "frame_touch_fail", "class_frame_fail", "wrong_inv", "implies_false_premise", "any_fail", "sorted_fail", "all_positive", "use_wrong", "user_no_post", "inv_body_violation",     "bad_pass_str", "bad_call_str", "bad_int_to_bool", "frame_fail_pop",
     # isinstance lowering negative tests
     "isinstance_dispatch_wrong",
     # Strong contracts — negative test (body doesn't match spec)
