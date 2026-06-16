@@ -155,7 +155,15 @@ Ltac finish_pure :=
   | _ => idtac
   end;
   simpl; iPureIntro; snakelet_pure_hyps;
-  try (first [ reflexivity | lia | (f_equal; lia) | done ]).
+  try (first
+        [ reflexivity
+        | lia
+        | (f_equal; lia)
+        | done
+        (* existential value-shape postcondition: pick the witness from the
+           [v = LitInt z] equality, then discharge the side condition. *)
+        | (eexists; split; [ reflexivity | first [ reflexivity | lia ] ])
+        | (repeat split; first [ reflexivity | lia ]) ]).
 
 (** Convert a syntactic list of value expressions [[Val v1; ...; Val vn]]
     to the value list [[v1; ...; vn]] so [Call f args] matches the
@@ -166,11 +174,13 @@ Ltac strip_vals args :=
   | Val ?v :: ?rest => let r := strip_vals rest in constr:(v :: r)
   end.
 
-(** Opaque call: apply [wp_call] with the table-derived pre/post.  The
-    precondition [pre vs] is discharged by [solver] (default: existential
-    shape + lia); the postcondition is introduced and substituted. *)
-Ltac call_opaque_pre solver :=
-  popvals;
+Ltac snakelet_solve_pre :=
+  solve [ done
+        | hnf; repeat lazymatch goal with |- @ex _ _ => eexists end;
+          first [ done | split; [done | lia] | lia ] ].
+
+(** Apply [wp_call] once the Call redex is at the top of the WP. *)
+Ltac call_opaque_redex solver :=
   lazymatch goal with
   | |- envs_entails _ (wp_exn (Call ?f ?args) _) =>
       let vs := strip_vals args in
@@ -182,15 +192,45 @@ Ltac call_opaque_pre solver :=
           iIntros (v Hv); simpl in Hv; subst v; simpl
       | _ => fail "call_opaque: not an opaque (FunSpec) call"
       end
-  | _ => fail "call_opaque: goal is not a Call"
+  | _ => fail "call_opaque: redex is not a Call"
   end.
 
-Ltac snakelet_solve_pre :=
-  solve [ done
-        | hnf; repeat lazymatch goal with |- @ex _ _ => eexists end;
-          first [ done | split; [done | lia] | lia ] ].
+(** Opaque call: focus the Call redex (it is typically the bound
+    expression of a Let), then apply [wp_call].  [solver] discharges the
+    precondition (default: [snakelet_solve_pre]). *)
+Ltac call_opaque_pre solver :=
+  popvals;
+  lazymatch goal with
+  | |- envs_entails _ (wp_exn ?e _) =>
+      reshape_item e ltac:(fun Ki e' =>
+        lazymatch e' with
+        | Call _ _ =>
+            lazymatch Ki with
+            | @None sn_ectx_item => call_opaque_redex solver
+            | Some ?K => wp_bind_ctx K; call_opaque_redex solver
+            end
+        | _ => fail "call_opaque: redex is not a Call"
+        end)
+  | _ => fail "call_opaque: not a WPE goal"
+  end.
 
-Ltac call_opaque := call_opaque_pre snakelet_solve_pre.
+Ltac call_opaque_core := call_opaque_pre snakelet_solve_pre.
+
+(** Drift check: assert the expected callee, then run the core. *)
+Ltac check_callee fname :=
+  lazymatch goal with
+  | |- envs_entails _ (wp_exn ?e _) =>
+      reshape_item e ltac:(fun Ki e' =>
+        lazymatch e' with
+        | Call fname _ => idtac
+        | _ => fail "call_opaque: goal redex is not a call to the given function"
+        end)
+  | _ => fail "call_opaque: not a WPE goal"
+  end.
+
+Tactic Notation "call_opaque" := call_opaque_core.
+Tactic Notation "call_opaque" constr(f) := check_callee f; call_opaque_core.
+Tactic Notation "call_opaque_pre" tactic3(t) := call_opaque_pre t.
 
 (** Heap stages. *)
 Ltac heap_load :=
