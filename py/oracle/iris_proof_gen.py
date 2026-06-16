@@ -110,6 +110,7 @@ class WhileInv:
     cond_coq: str              # Coq While condition expression
     body_coq: str              # Coq While body expression
     invariants: list[str]      # Coq Props (from contract asserts)
+    body_stages: list["StageNode"] = field(default_factory=list)  # per-iteration proof
     order_hint: str = ""       # "ascending" or "descending"
     pure_counter: bool = False  # True if counter is a local var (no heap)
 
@@ -391,6 +392,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 cond_coq=cond_coq,
                 body_coq=body_coq,
                 invariants=e.invariants,
+                body_stages=body_stages,
             )]  # continuation handled by inferred Phi -- no k()
 
         def flat(nodes: list[StageNode], what: str) -> list[str]:
@@ -447,6 +449,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 cond_coq=cond_coq,
                 body_coq=body_coq,
                 invariants=[],
+                body_stages=body_stages,
             )]
         else:
             # Pure loop with a literal bound: unroll N times.
@@ -492,7 +495,8 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 bound_expr=bound_expr,
                 cond_coq=cond_coq,
                 body_coq=body_coq,
-                invariants=[],  # trivial: z <= bound handled by the lemma
+                invariants=[],
+                body_stages=body_stages,
             )]
 
     if isinstance(e, SFor):
@@ -620,18 +624,15 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
         bound = bound[len("LitInt "):].strip()
 
     lines: list[str] = []
-    # wp_while_inv only handles heap-counter patterns (condition has Load).
-    # For pure-counter loops (local variable comparison), fall through.
     if "Load" not in wi.cond_coq:
         raise IrisGenError(
             "pure-counter while loop: needs a Loeb lemma (later phase)")
-    # Focus the While: it's under Let "_" (While) ...
     lines.append(f'{indent}iApply (wp_bind_item (LetCtx "_" _)); '
                  f'[reflexivity|].')
     lines.append(
         f'{indent}iApply (wp_while_inv l {bound} 0 _ with "[$] []").')
     lines.append(f'{indent}{{ iPureIntro. lia. }}')
-    # Continuation: load the cell to get the result value.
+    # Continuation: the cell is at bound; load it to get the result.
     lines.append(f'{indent}{{ iIntros "Hl". unfold bind_post; simpl. '
                  f'pure_step. heap_load. pure_step. finish_pure. }}')
     return lines
