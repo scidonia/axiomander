@@ -228,13 +228,15 @@ def calls_unknown(x):
 ''', TABLE)
 
 
-def test_unsupported_op_rejected():
-    with pytest.raises(IrisGenError, match="not in the supported"):
-        python_to_iris_proof('''
+def test_mod_op_now_supported():
+    """`mod` (%) was previously unsupported; now it is lowered to ModOp."""
+    ok, out = verify_exn('''
 def uses_mod(x):
     a = x % 2
+    assert True
     return a
-''', TABLE)
+''')
+    assert ok, out
 
 
 # -- Strong-contract vocabulary (ContractLinter + contract_ir_iris) -----------
@@ -652,5 +654,31 @@ def isinstance_threeway(x) -> bool:
     if isinstance(x, ast.Subscript): return True
     if isinstance(x, ast.Attribute): return True
     return False
+''')
+    assert ok, out
+
+
+def test_double_exn():
+    ok, out = verify_exn('''def double(n: int):
+    assert n >= 0
+    result = n + n
+    assert result == 2 * n
+    return result
+''')
+    assert ok, out
+
+
+def test_clamp2_exn():
+    ok, out = verify_exn('''def clamp2(val: int, lo: int, hi: int):
+    assert lo <= hi
+    if val < lo:
+        result = lo
+    else:
+        if val > hi:
+            result = hi
+        else:
+            result = val
+    assert result >= lo and result <= hi
+    return result
 ''')
     assert ok, out

@@ -76,7 +76,34 @@ def _bool_lit(n, ps, pv):
 
 
 def _binop(n, ps, pv):
-    op_map = {"/": "/", "mod": "mod", "<>": "<>", "=": "="}
+    # In Z_scope (the postcondition), arithmetic comparisons must use
+    # the bool-valued Z operators (Z.ltb etc.) coerced to Z via Z.b2z.
+    # In Prop scope (precondition), use the standard Prop operators.
+    z_scope = bool(pv)  # post_var is non-empty only for postconditions
+    if z_scope:
+        if n.op == ">":
+            left = iris_prop(n.left, param_set=ps, post_var=pv)
+            right = iris_prop(n.right, param_set=ps, post_var=pv)
+            return f"({right} <? {left}) = true"
+        if n.op == ">=":
+            left = iris_prop(n.left, param_set=ps, post_var=pv)
+            right = iris_prop(n.right, param_set=ps, post_var=pv)
+            return f"({right} <=? {left}) = true"
+        if n.op == "<":
+            left = iris_prop(n.left, param_set=ps, post_var=pv)
+            right = iris_prop(n.right, param_set=ps, post_var=pv)
+            return f"({left} <? {right}) = true"
+        if n.op == "<=":
+            left = iris_prop(n.left, param_set=ps, post_var=pv)
+            right = iris_prop(n.right, param_set=ps, post_var=pv)
+            return f"({left} <=? {right}) = true"
+    else:
+        if n.op in (">", "<", ">=", "<="):
+            left = iris_prop(n.left, param_set=ps, post_var=pv)
+            right = iris_prop(n.right, param_set=ps, post_var=pv)
+            coq_op = {">": ">", "<": "<", ">=": ">=", "<=": "<="}[n.op]
+            return f"({left} {coq_op} {right})"
+    op_map = {"/": "/", "mod": "mod"}
     coq_op = op_map.get(n.op, n.op)
     left = iris_prop(n.left, param_set=ps, post_var=pv)
     right = iris_prop(n.right, param_set=ps, post_var=pv)
@@ -86,13 +113,15 @@ def _binop(n, ps, pv):
         return f"(String.eqb {left} {rlit} = true)"
     if is_str and n.op == "<>":
         rlit = _str_lit(n.right, ps, pv)
-        return f"(String.eqb {left} {rlit} <> true)" 
+        return f"(String.eqb {left} {rlit} <> true)"
     return f"({left} {coq_op} {right})"
 
 
 def _logical(n, ps, pv):
+    z_scope = bool(pv)
     if n.op == "not":
-        return f"~ ({iris_prop(n.operands[0], param_set=ps, post_var=pv)})"
+        inner = iris_prop(n.operands[0], param_set=ps, post_var=pv)
+        return f"~ ({inner})"
     sep = " /\\ " if n.op == "and" else " \\/ "
     return "(" + sep.join(iris_prop(o, param_set=ps, post_var=pv)
                           for o in n.operands) + ")"
