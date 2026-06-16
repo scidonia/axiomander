@@ -362,4 +362,44 @@ Section while_lemma.
       pure_step.  (* if false branch *)
       iApply wp_value. iApply "Hwand". iFrame.
   Qed.
+
+  (** Generic while-loop invariant: the body's WP is a boxed hypothesis.
+      Works for ANY body (including multi-cell) as long as the body
+      increments the counter cell [l] by 1 each iteration. *)
+  Lemma wp_while_inv_gen (l : loc) (bound : Z) (z : Z) (body : sn_expr)
+      (Phi : Result -> iProp Sigma) :
+    l ↦ LitInt z -∗
+    ⌜Z.le z bound⌝ -∗
+    □ (∀ (z' : Z), l ↦ LitInt z' -∗ ⌜(z' < bound)%Z⌝ -∗
+        wp_exn body (fun r => match r with
+            | RVal _ => l ↦ LitInt (z' + 1)
+            | RExn lbl p => Phi (RExn lbl p)
+            end)) -∗
+    (l ↦ LitInt bound -∗ Phi (RVal LitUnit)) -∗
+    WPE (While (BinOp LtOp (Load (Val (LitLoc l))) (Val (LitInt bound))) body) {{ Phi }}.
+  Proof.
+    iLöb as "IH" forall (z Phi).
+    iIntros "Hc %Hz #Hbody Hwand".
+    iApply wp_while; iNext; simpl.
+    (* Condition: focus into Load via heap_load *)
+    heap_load. pure_step. case_bool.
+    - snakelet_pure_hyps.
+      pure_step.  (* if true branch *)
+      iRename select (_ ↦ _)%I into "Hpt2".
+      (* Focus into the body via wp_bind_item *)
+      iApply (wp_bind_item (LetCtx "_" (While (BinOp LtOp (Load (Val (LitLoc l))) (Val (LitInt bound))) body))); [reflexivity|].
+      iPoseProof ("Hbody" $! z with "Hpt2 []") as "Hwp".
+      { iPureIntro. exact Hcond. }
+      iApply (wp_wand with "Hwp").
+      iIntros (r) "Hr". destruct r as [vv | lbl p].
+      + (* RVal: cell is at z+1. Sequence into the While and recurse. *)
+        iApply wp_let. iNext. simpl.
+        admit.
+      + (* RExn: the exception escapes through wp_wand/implicit propagation *)
+        iExact "Hr".
+    - snakelet_pure_hyps.
+      assert (z = bound) by lia. subst z.
+      pure_step.  (* if false branch *)
+      iApply wp_value. iApply "Hwand". iFrame.
+  Admitted.
 End while_lemma.
