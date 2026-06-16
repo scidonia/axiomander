@@ -232,27 +232,34 @@ Tactic Notation "call_opaque" := call_opaque_core.
 Tactic Notation "call_opaque" constr(f) := check_callee f; call_opaque_core.
 Tactic Notation "call_opaque_pre" tactic3(t) := call_opaque_pre t.
 
-(** Heap stages. *)
+(** Heap stages.  Each focuses its redex (typically the bound expression
+    of a Let) via [focus_redex], applies the heap WP lemma framing the
+    relevant points-to from the spatial context, and reintroduces the
+    (possibly updated) points-to under a fresh hypothesis.  [simpl] then
+    pops the value through [bind_post]. *)
 Ltac heap_load :=
+  popvals; focus_redex;
   lazymatch goal with
-  | |- envs_entails _ (wp_exn (Load (Val (LitLoc _))) _) =>
-      iApply (wp_load with "[$]"); iNext
-  | _ => fail "heap_load: goal is not a Load"
+  | |- envs_entails _ (wp_exn (Load (Val (LitLoc ?l))) _) =>
+      iApply (wp_load l with "[$]"); iNext; iIntros "?"; simpl
+  | _ => fail "heap_load: redex is not a Load"
   end.
 
 Ltac heap_store :=
+  popvals; focus_redex;
   lazymatch goal with
-  | |- envs_entails _ (wp_exn (Store (Val (LitLoc _)) (Val _)) _) =>
-      iApply (wp_store with "[$]"); iNext
-  | _ => fail "heap_store: goal is not a Store"
+  | |- envs_entails _ (wp_exn (Store (Val (LitLoc ?l)) (Val ?v)) _) =>
+      iApply (wp_store l v with "[$]"); iNext; iIntros "?"; simpl
+  | _ => fail "heap_store: redex is not a Store"
   end.
 
 Ltac heap_alloc :=
+  popvals; focus_redex;
   lazymatch goal with
   | |- envs_entails _ (wp_exn (Alloc (Val _)) _) =>
       iApply wp_alloc; iNext;
-      let l := fresh "l" in iIntros (l)
-  | _ => fail "heap_alloc: goal is not an Alloc"
+      let l := fresh "l" in iIntros (l) "?"; simpl
+  | _ => fail "heap_alloc: redex is not an Alloc"
   end.
 
 (** Transparent call: unfold the FunDef body. *)
