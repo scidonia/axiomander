@@ -1,5 +1,6 @@
 From iris.proofmode Require Import proofmode coq_tactics reduction.
 From iris.base_logic.lib Require Import gen_heap.
+From Stdlib Require Import ZArith.
 Require Import SnakeletExnLang SnakeletExnWp.
 
 (** Stage-tactic layer for the exception-aware WP (Result postcondition).
@@ -353,10 +354,12 @@ Section while_lemma.
       pure_step.  (* _t2 Let *)
       heap_store. (* store result *)
       pure_step.  (* sequencing _ *)
-      iApply ("IH" $! (z + 1)%Z Phi with "[$] [] Hwand").
-      { admit. }
+      iRename select (_ ↦ _)%I into "Hpt".
+      iApply ("IH" $! (z + 1)%Z Phi with "Hpt [] Hwand").
+      { iPureIntro. apply (proj2 (Z.le_succ_l z bound)). exact Hcond. }
     - snakelet_pure_hyps.
+      assert (z = bound) by lia. subst z.
       pure_step.  (* if false branch *)
       iApply wp_value. iApply "Hwand". iFrame.
-   Abort.
+  Qed.
 End while_lemma.
