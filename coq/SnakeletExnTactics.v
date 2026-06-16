@@ -108,17 +108,31 @@ Ltac focus_redex :=
 Ltac pure_step :=
   popvals; focus_redex; pure_step_redex.
 
+(** Convert boolean path constraints into Props for [lia]. *)
+Ltac snakelet_pure_hyps :=
+  repeat match goal with
+  | H : Z.ltb _ _ = true |- _ => apply Z.ltb_lt in H
+  | H : Z.ltb _ _ = false |- _ => apply Z.ltb_ge in H
+  | H : Z.leb _ _ = true |- _ => apply Z.leb_le in H
+  | H : Z.leb _ _ = false |- _ => apply Z.leb_gt in H
+  | H : Z.eqb _ _ = true |- _ => apply Z.eqb_eq in H; subst
+  | H : Z.eqb _ _ = false |- _ => apply Z.eqb_neq in H
+  end.
+
 (** Raise step: reduce an in-focus [Raise (Val (LitExn ...))] to its
     exception result.  Also handles a raise nested in a neutral context
     (it unwinds). *)
 Ltac raise_step :=
+  popvals; focus_redex;
   lazymatch goal with
   | |- envs_entails _ (wp_exn (Raise (Val (LitExn _ _))) _) =>
       iApply wp_raise
-  | |- envs_entails _ (wp_exn (Let _ (Raise (Val (LitExn _ _))) _) _) =>
-      iApply wp_let_raise_unwind
   | _ => fail "raise_step: goal is not a raise"
-  end.
+  end;
+  (* discharge the resulting RExn arm: String.eqb on the concrete label
+     reduces, leaving the raises-condition Prop (or False). *)
+  simpl; try (iPureIntro; snakelet_pure_hyps;
+              first [ reflexivity | lia | done ]).
 
 (** Path fork on a symbolic boolean condition. *)
 Ltac case_bool :=
@@ -131,17 +145,6 @@ Ltac case_bool :=
       | _ => let Hcond := fresh "Hcond" in destruct b eqn:Hcond
       end
   | _ => fail "case_bool: goal is not an If on a boolean value"
-  end.
-
-(** Convert boolean path constraints into Props for [lia]. *)
-Ltac snakelet_pure_hyps :=
-  repeat match goal with
-  | H : Z.ltb _ _ = true |- _ => apply Z.ltb_lt in H
-  | H : Z.ltb _ _ = false |- _ => apply Z.ltb_ge in H
-  | H : Z.leb _ _ = true |- _ => apply Z.leb_le in H
-  | H : Z.leb _ _ = false |- _ => apply Z.leb_gt in H
-  | H : Z.eqb _ _ = true |- _ => apply Z.eqb_eq in H; subst
-  | H : Z.eqb _ _ = false |- _ => apply Z.eqb_neq in H
   end.
 
 (** Terminal stage: a value meets the postcondition.  Pops any pending

@@ -312,9 +312,9 @@ class IrisLowerer:
         return SReturn(value=val)
 
     def _lower_raise(self, stmt: "PyRaise") -> Optional[SExpr]:
-        """Raise exception — becomes SRaise in SnakeletIR."""
+        """Raise exception — becomes SRaise of a LitExn (label + unit payload)."""
         exc_type = getattr(stmt, 'exc_type', 'Exception')
-        return SRaise(exc=SLit(lit_type="string", value=exc_type))
+        return SRaise(exc=SLit(lit_type="exn", value=exc_type))
 
     def _lower_body(self, stmts: list[PyStmt]) -> SExpr:
         exprs = [s for s in (self.lower_stmt(s) for s in stmts) if s is not None]

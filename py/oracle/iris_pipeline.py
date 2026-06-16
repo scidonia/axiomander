@@ -60,6 +60,10 @@ class Contracts:
     post: str
     loop_invariants: list[list[str]] = field(default_factory=list)
     """Invariants per while loop in the function body, in order."""
+    raises: dict[str, str] = field(default_factory=dict)
+    """Exception contracts: exc_type -> compiled Coq condition Prop.
+    Each becomes a [RExn "exc_type" _ => cond] arm of the exception
+    postcondition in the exception backend (emit_exn)."""
 
 
 def extract_contracts(
@@ -83,6 +87,29 @@ def extract_contracts(
 
     body = list(fn_node.body)
     pres: list[str] = []
+
+    # Extract raises() contracts FIRST (position-independent): any assert
+    # whose test is a raises(ExcType, cond) call.  Removing them before the
+    # pre/post scan prevents a trailing raises() assert from being mistaken
+    # for the postcondition.  Multiple conditions per exc_type are ANDed.
+    from oracle.contract_ir import RaisesExpr
+    from oracle.contract_ir_iris import iris_prop
+    raises: dict[str, str] = {}
+    _kept: list[ast.stmt] = []
+    for stmt in body:
+        if isinstance(stmt, ast.Assert):
+            linted = post_linter.lint_expression(stmt.test)
+            if linted.ir is not None and isinstance(linted.ir, RaisesExpr):
+                cond_coq = iris_prop(linted.ir.cond)
+                stmt_exc = linted.ir.exc_type
+                if stmt_exc:
+                    if stmt_exc in raises:
+                        raises[stmt_exc] = f"({raises[stmt_exc]}) /\\ ({cond_coq})"
+                    else:
+                        raises[stmt_exc] = cond_coq
+                continue
+        _kept.append(stmt)
+    body = _kept
 
     # Leading asserts = precondition
     while body and isinstance(body[0], ast.Assert):
@@ -115,7 +142,8 @@ def extract_contracts(
     loop_invs: list[list[str]] = []
     _extract_while_invariants(body, loop_invs, pre_linter)
 
-    return Contracts(pre=pre, post=post, loop_invariants=loop_invs), body, post_linter
+    return Contracts(pre=pre, post=post, loop_invariants=loop_invs,
+                     raises=raises), body, post_linter
 
 
 # -- Statement folding (PyIR statements -> SnakeletIR) ---------------------
@@ -802,4 +830,5 @@ def python_to_iris_proof(source: str,
         pre_overrides=pre_overrides,
         list_params=list_params,
         dict_params=detected_dict,
+        raises=contracts.raises,
     )

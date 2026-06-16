@@ -52,6 +52,12 @@ def verify(source: str, table=TABLE, **kw) -> tuple[bool, str]:
     return run_coqc(proof.emit())
 
 
+def verify_exn(source: str, table=TABLE, **kw) -> tuple[bool, str]:
+    """Verify via the exception-aware backend (Result-postcondition WP)."""
+    proof = python_to_iris_proof(source, table, **kw)
+    return run_coqc(proof.emit_exn())
+
+
 # -- Positive: pure arithmetic ----------------------------------------------
 
 def test_linear_arithmetic():
@@ -423,20 +429,24 @@ def needs_smt(n):
 # -- Exceptions ----------------------------------------------------------
 
 def test_raise_proved():
-    """A raise statement is lowered to SRaise and verified via wp_raise."""
-    ok, out = verify('''
-def maybe_raise(n):
+    """A guarded raise is verified via the exception backend: the RExn arm
+    is discharged by the matching raises() contract, the normal path by the
+    postcondition."""
+    ok, out = verify_exn('''
+def check_pos(n):
     if n < 0:
-        return -n
-    raise ValueError
-    return 0
+        raise ValueError
+    r = n
+    assert r >= 0
+    assert raises(ValueError, n < 0)
+    return r
 ''')
     assert ok, out
 
 
 def test_try_except_proved():
     """A try/except where the body doesn't raise is verified via wp_try_val."""
-    ok, out = verify('''
+    ok, out = verify_exn('''
 def try_simple(x):
     try:
         a = x + 1
@@ -451,19 +461,23 @@ def try_simple(x):
 # -- Negative: exception tests -------------------------------------------
 
 def test_raise_wrong_post_rejected():
-    """Function that raises then returns n, but claims result is n+1."""
-    ok, out = verify('''
+    """A guarded raise whose raises() condition does not match the branch
+    guard must fail: the RExn arm cannot be discharged."""
+    ok, out = verify_exn('''
 def bad_raise(n):
-    raise ValueError
-    assert False
-    return n
+    if n < 0:
+        raise ValueError
+    r = n
+    assert r >= 0
+    assert raises(ValueError, n > 100)
+    return r
 ''')
     assert not ok
 
 
 def test_try_wrong_post_rejected():
     """Try body returns x+1, claiming x+2 must fail."""
-    ok, out = verify('''
+    ok, out = verify_exn('''
 def try_wrong(x):
     try:
         a = x + 1

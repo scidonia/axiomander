@@ -143,6 +143,7 @@ class SLit:
         if self.lit_type == "bool": return f"(LitBool {'true' if self.value.lower() == 'true' else 'false'})"
         if self.lit_type == "float": return f"(LitFloat (PrimFloat.of_uint63 (of_Z {self.value})))"
         if self.lit_type == "string": return f'(LitString "{self.value}")'
+        if self.lit_type == "exn": return f'(LitExn "{self.value}" LitUnit)'
         if self.lit_type == "unit": return "LitUnit"
         if self.lit_type in ("tuple", "list", "set"):
             tag = f"Lit{self.lit_type.capitalize()}"
@@ -172,6 +173,7 @@ class SLit:
         if self.lit_type == "bool": return f"(Val (LitBool {'true' if self.value.lower() == 'true' else 'false'}))"
         if self.lit_type == "float": return f"(Val (LitFloat (PrimFloat.of_uint63 (of_Z {self.value}))))"
         if self.lit_type == "string": return f'(Val (LitString "{self.value}"))'
+        if self.lit_type == "exn": return f'(Val (LitExn "{self.value}" LitUnit))'
         if self.lit_type == "unit": return "(Val LitUnit)"
         return "(Val LitUnit)"
 
@@ -256,7 +258,9 @@ class STry:
     kind: Literal["try"] = "try"
 
     def to_coq(self) -> str:
-        return f'(Try {self.body.to_coq()} (Let "{self.exc_var}" (Var "{self.exc_var}") {self.handler.to_coq()}))'
+        # Try body x handler : the catch binder x is bound to the exception
+        # value inside handler (constructor arity 3, not a Let-encoding).
+        return f'(Try {self.body.to_coq()} "{self.exc_var}" {self.handler.to_coq()})'
 
 
 @dataclass

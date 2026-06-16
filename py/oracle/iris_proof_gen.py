@@ -354,6 +354,11 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         return [st] + _gen(entry.body, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
 
     if isinstance(e, SLet):
+        # A raise in the bound position unwinds the Let, discarding the
+        # continuation: the exception propagates and terminates this path.
+        if isinstance(e.value, SRaise):
+            return [Stage("raise_step", "raise_step",
+                          comment="raise unwinds the let")]
         def after_rhs():
             return [Stage("pure_step", "pure_step",
                           comment=f'bind "{e.var}"')] + \
@@ -547,10 +552,10 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         return _gen(e.key, table, overrides, after_dictset_key, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
 
     if isinstance(e, SRaise):
-        def after_exc():
-            return [Stage("pure_step", "pure_step",
-                          comment="raise exception")] + k()
-        return _gen(e.exc, table, overrides, after_exc, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+        # A raise terminates the path with an exception result; the
+        # continuation k() is unreachable.
+        return [Stage("raise_step", "raise_step",
+                      comment="raise exception (terminal)")]
 
     if isinstance(e, STry):
         # ANF ensures the body is an atom (value or variable), so after
@@ -711,6 +716,8 @@ class IrisProof:
     aux_lemmas: list[str] = field(default_factory=list)
     list_params: dict[str, str] = field(default_factory=dict)
     dict_params: dict[str, str] = field(default_factory=dict)
+    raises: dict[str, str] = field(default_factory=dict)
+    """Exception contracts: exc_type -> Coq condition Prop (the RExn arm)."""
 
     def stage_list(self) -> list[Stage]:
         """Flattened stages (for trace/cache consumers)."""
@@ -811,12 +818,30 @@ class IrisProof:
         parts.append(f"  Lemma {self.name}_correct{binders} :")
         if self.pre:
             parts.append(f"    ({self.pre}) ->")
-        # Result-match postcondition.
-        post_match = (
-            f"(fun r => match r with "
-            f"RVal v => {LCEIL}({self.post})%Z{RCEIL} | "
-            f"RExn _ _ => False end)%I"
-        )
+        # Result-match postcondition.  The RVal arm is the normal post;
+        # the RExn arm dispatches on the exception label.  Each raises()
+        # contract becomes [RExn "Type" _ => cond]; un-listed exceptions
+        # default to False (the function must not raise them).
+        if self.raises:
+            # Nest String.eqb checks: dispatch the exception label to its
+            # condition, defaulting un-listed labels to False.
+            exn_arm = "False"
+            for exc_type, cond in reversed(list(self.raises.items())):
+                exn_arm = (
+                    f'(if String.eqb lbl "{exc_type}" '
+                    f'then {LCEIL}({cond})%Z{RCEIL} else {exn_arm})'
+                )
+            post_match = (
+                f"(fun r => match r with "
+                f"RVal v => {LCEIL}({self.post})%Z{RCEIL} | "
+                f"RExn lbl _ => {exn_arm} end)%I"
+            )
+        else:
+            post_match = (
+                f"(fun r => match r with "
+                f"RVal v => {LCEIL}({self.post})%Z{RCEIL} | "
+                f"RExn _ _ => False end)%I"
+            )
         parts.append(f"    {TSTILE} WPE {self.body_coq} "
                      f"{{{{ {post_match} }}}}.")
         parts.append("  Proof.")
@@ -932,9 +957,10 @@ def generate(name: str,
              params: Optional[list[str]] = None,
              pre: Optional[str] = None,
              axioms: Optional[list[str]] = None,
-             pre_overrides: Optional[dict[str, str]] = None,
-             list_params: Optional[dict[str, str]] = None,
-             dict_params: Optional[dict[str, str]] = None) -> IrisProof:
+              pre_overrides: Optional[dict[str, str]] = None,
+              list_params: Optional[dict[str, str]] = None,
+              dict_params: Optional[dict[str, str]] = None,
+              raises: Optional[dict[str, str]] = None) -> IrisProof:
     """Generate a staged Iris proof for a SnakeletIR body.
 
     name: function name (theorem is <name>_correct).
@@ -970,4 +996,5 @@ def generate(name: str,
         aux_lemmas=aux_lemmas,
         list_params=list_params or {},
         dict_params=dict_params or {},
+        raises=raises or {},
     )
