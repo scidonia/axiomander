@@ -943,6 +943,29 @@ Section wp.
         iExact "Hr".
   Qed.
 
+  (** Forall-accumulating for-loop: specialise [wp_for_list'] with the
+      suffix invariant [P M := Forall Q M].  Each element step preserves
+      [Forall Q] on the tail (or raises); when the list is consumed the
+      [Forall Q []] fact feeds the post.  This is the shape the generator
+      uses for loops with a per-element invariant. *)
+  Lemma wp_for_list_forall (Q : sn_val -> Prop) x body (M : list sn_val)
+      (Phi : Result -> iProp Sigma) :
+    (forall w, subst "_" w body = body) ->
+    ⌜Forall Q M⌝ -∗
+    (□ ∀ v vs, ⌜Forall Q (v :: vs)⌝ -∗
+        WPE (subst x v body)
+          {{ (fun r => match r with
+                       | RVal _ => ⌜Forall Q vs⌝
+                       | RExn l p => Phi (RExn l p) end) }}) -∗
+    (⌜Forall Q []⌝ -∗ Phi (RVal LitUnit)) -∗
+    WPE (For x (Val (LitList M)) body) {{ Phi }}.
+  Proof.
+    iIntros (Hclosed) "HP #Hstep Hpost".
+    iApply (wp_for_list' x body M (fun M0 => ⌜Forall Q M0⌝%I) Phi Hclosed
+              with "HP [] Hpost").
+    iModIntro. iIntros (v vs) "HF". iApply ("Hstep" with "HF").
+  Qed.
+
 End wp.
 
 (** Notation for the WP and the two-postcondition form. *)

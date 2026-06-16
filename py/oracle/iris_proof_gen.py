@@ -687,9 +687,6 @@ def _emit_for_list_stage_exn(fl: ForList, indent: str) -> list[str]:
     if fl.iterable_type == "dict":
         raise IrisGenError(
             "exn backend: dict for-loops not yet supported (phase 4)")
-    if fl.forall_predicate:
-        raise IrisGenError(
-            "exn backend: accumulating for-loops not yet supported (phase 4)")
 
     has_cont = bool(fl.continuation_stages)
     lines: list[str] = []
@@ -697,19 +694,45 @@ def _emit_for_list_stage_exn(fl: ForList, indent: str) -> list[str]:
         # The For is the bound expression of a Let "_" _ continuation.
         lines.append(f'{indent}iApply (wp_bind_item (LetCtx "_" _)); '
                      f'[reflexivity|].')
-    # Apply the fold with trivial invariant emp.  Phi is inferred (the
-    # current postcondition, possibly a bind_post after wp_bind_item).
-    lines.append(f'{indent}iApply (wp_for_list' + "'"
-                 + f' "{fl.var}" ({fl.body_coq}) ({fl.lst_coq}) '
-                 f'(fun _ => emp%I) _).')
-    lines.append(f'{indent}{{ intros w; reflexivity. }}')
-    lines.append(f'{indent}{{ (* invariant at full list *) done. }}')
-    lines.append(f'{indent}{{ (* per-element body step *)')
-    lines.append(f'{indent}  iModIntro. iIntros (vfor vrest) "_". simpl.')
-    body_lines = _emit_stage_lines(fl.body_stages, 0, indent + "  ", exn=True)
-    lines.extend(body_lines)
-    lines.append(f'{indent}  finish_pure.')
-    lines.append(f'{indent}}}')
+
+    if fl.forall_predicate:
+        # Accumulating loop: the suffix invariant is [Forall Q vs].  The
+        # full-list premise [Forall Q M] is discharged structurally (works
+        # for literal lists; an opaque list parameter has no such proof and
+        # will fail to compile -- which is sound).
+        q_pred = fl.forall_predicate
+        lines.append(f'{indent}iApply (wp_for_list_forall {q_pred}'
+                     f' "{fl.var}" ({fl.body_coq}) ({fl.lst_coq}) _).')
+        lines.append(f'{indent}{{ intros w; reflexivity. }}')
+        lines.append(f'{indent}{{ (* Forall premise at full list *)')
+        lines.append(f'{indent}  iPureIntro. simpl. '
+                     f'repeat (try constructor; try lia). }}')
+        lines.append(f'{indent}{{ (* per-element body step *)')
+        lines.append(f'{indent}  iModIntro. iIntros (vfor vrest) "%Hfor".')
+        lines.append(f'{indent}  inversion Hfor as [|? ? Hq Hvs]; subst.')
+        lines.append(f'{indent}  simpl.')
+        body_lines = _emit_stage_lines(fl.body_stages, 0, indent + "  ",
+                                       exn=True)
+        lines.extend(body_lines)
+        # Close the body: it reduces to a value; the postcondition is the
+        # tail Forall fact carried in Hvs.
+        lines.append(f'{indent}  popvals; iApply wp_value; iPureIntro; '
+                     f'exact Hvs. }}')
+    else:
+        # No-accumulator case: trivial suffix invariant emp.
+        lines.append(f'{indent}iApply (wp_for_list' + "'"
+                     + f' "{fl.var}" ({fl.body_coq}) ({fl.lst_coq}) '
+                     f'(fun _ => emp%I) _).')
+        lines.append(f'{indent}{{ intros w; reflexivity. }}')
+        lines.append(f'{indent}{{ (* invariant at full list *) done. }}')
+        lines.append(f'{indent}{{ (* per-element body step *)')
+        lines.append(f'{indent}  iModIntro. iIntros (vfor vrest) "_". simpl.')
+        body_lines = _emit_stage_lines(fl.body_stages, 0, indent + "  ",
+                                       exn=True)
+        lines.extend(body_lines)
+        lines.append(f'{indent}  finish_pure.')
+        lines.append(f'{indent}}}')
+
     # The terminal premise: P [] -* Phi (RVal LitUnit).
     lines.append(f'{indent}{{ (* post-loop continuation *) iIntros "_".')
     if has_cont:

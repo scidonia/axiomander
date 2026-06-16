@@ -502,3 +502,28 @@ def sum_pass(xs):
     return 0
 ''')
     assert ok, out
+
+
+def test_for_loop_accumulating_proved_exn():
+    """A for-loop with a per-element invariant over a LITERAL list is
+    verified via wp_for_list_forall: the full-list Forall is discharged
+    structurally, each step preserves Forall on the tail."""
+    ok, out = verify_exn('''
+def all_pos():
+    for x in [1, 2, 3]:
+        assert x > 0
+    return 0
+''')
+    assert ok, out
+
+
+def test_for_loop_accumulating_param_rejected_exn():
+    """The same loop over an OPAQUE list parameter must NOT prove: there is
+    no source for Forall (x > 0) over an arbitrary list."""
+    ok, out = verify_exn('''
+def all_pos(xs):
+    for x in xs:
+        assert x > 0
+    return 0
+''')
+    assert not ok
