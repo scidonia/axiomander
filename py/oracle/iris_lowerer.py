@@ -208,6 +208,11 @@ class IrisLowerer:
                    ">": "gt", ">=": "ge", "is": "eq", "is not": "ne",
                    "in": "in", "not in": "notin"}
         op = op_map.get(expr.op, "eq")
+        if op == "notin":
+            # Emit [in(left,right) == false]
+            return SBinOp(op="eq",
+                          left=SBinOp(op="in", left=left, right=right),
+                          right=SLit(lit_type="bool", value="false"))
         return SBinOp(op=op, left=left, right=right)
 
     def _lower_boolop(self, expr: PyBooleanOp) -> Optional[SExpr]:

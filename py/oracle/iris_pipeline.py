@@ -49,7 +49,7 @@ from oracle.snakelet_ir import (
 )
 
 # Binops supported by SnakeletLang's binop_eval on integers.
-_SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge", "ne", "mod", "and", "or"}
+_SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge", "ne", "mod", "and", "or", "in"}
 
 
 # -- Contract extraction ----------------------------------------------------
@@ -582,24 +582,22 @@ def _anf(e: SExpr, ctr: list[int]) -> SExpr:
                                 then_branch=_anf(e.then_branch, ctr),
                                 else_branch=_anf(e.else_branch, ctr)))
     if isinstance(e, SWhile):
-        # The condition is re-evaluated each iteration: hoisting any
-        # part of it outside the While would change semantics.  The
-        # supported shape is a binop whose operands are atoms or loads
-        # (loads are valid ectx redexes against a value operand).
         cond = e.cond
+        binds: list[tuple[str, SExpr]] = []
+        # Hoist non-atom/non-load condition operands into let-bindings
+        # before the while (sound when the operand is loop-invariant,
+        # which is the common case for len/const expressions).
         if isinstance(cond, SBinOp):
-            left_ok = _is_atom(cond.left) or isinstance(cond.left, SLoad)
-            right_ok = _is_atom(cond.right) or isinstance(cond.right, SLoad)
-            if not (left_ok and right_ok) or \
-               (isinstance(cond.left, SLoad) and isinstance(cond.right, SLoad)):
-                raise IrisGenError(
-                    "while condition must be a binop over atoms with at "
-                    "most one load (value-restricted ectx)")
-        elif not _is_atom(cond):
-            raise IrisGenError(
-                "while condition must be an atom or a simple binop")
-        return SWhile(cond=cond, body=_anf(e.body, ctr),
-                      invariants=e.invariants)
+            if not _is_atom(cond.left) and not isinstance(cond.left, SLoad):
+                v = f"_whl{ctr[0]}"; ctr[0] += 1
+                binds.append((v, cond.left))
+                cond = SBinOp(op=cond.op, left=SVar(v), right=cond.right)
+            if not _is_atom(cond.right) and not isinstance(cond.right, SLoad):
+                v = f"_whl{ctr[0]}"; ctr[0] += 1
+                binds.append((v, cond.right))
+                cond = SBinOp(op=cond.op, left=cond.left, right=SVar(v))
+        return _wrap(binds, SWhile(cond=cond, body=_anf(e.body, ctr),
+                                   invariants=e.invariants))
     if isinstance(e, SFor):
         # The list operand must already be a value (atom): a list literal or
         # a bound variable.  The For evaluation context evaluates it, but the
