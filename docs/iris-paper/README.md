@@ -1,9 +1,9 @@
-# Iris Workshop Paper
+# Iris Experience-Report Paper
 
-**Specification Composition for LLM-Driven Python Verification: Why We Build on Iris**
+**From Flat Stores to Separation Logic: Lessons Building a Python Verifier**
 
-A short workshop paper for the Iris / separation-logic community, justifying and
-explaining Axiomander's specification-composition strategy.
+An experience report for the Iris / formal-methods community on migrating
+Axiomander's proof backend from a flat-store WP to Iris-based separation logic.
 
 ## Source of truth
 
@@ -19,7 +19,7 @@ reading and diffing; the LaTeX is authoritative.
 ```bash
 cd docs/iris-paper
 latexmk -pdf iris-workshop-paper.tex
-# output: iris-workshop-paper.pdf  (6 pages, two-column ACM)
+# output: iris-workshop-paper.pdf  (7 pages, two-column ACM)
 ```
 
 `latexmk -C` cleans build artifacts.
