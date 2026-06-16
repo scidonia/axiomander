@@ -271,15 +271,28 @@ Section wp.
   Proof.
     intros Hnv Hnr Hpure.
     inversion Hpure as [vv xx ee2 Hp | op vv1 vv2 Hp | ee1 ee2 Hp | ee1 ee2 Hp
-                       | vv xx hh Hp | ev xx hh Hp | Ki0 w Hneu Hp ]; subst.
+                       | vv xx hh Hp | ev xx hh Hp | Ki0 w Hneu Hp
+                       | ee1 ee2 Hp | xx bb Hp | xx vv vvs bb Hp ]; subst.
+    (* Let / BinOp / IfTrue / IfFalse / TryVal: the redex shape forces
+       Ki's hole to be a value, contradicting Hnv. *)
     1-5: destruct Ki; simpl in Hp; try discriminate Hp;
          injection Hp; intros; subst; simpl in Hnv; discriminate.
-    - destruct Ki; simpl in Hp; try discriminate Hp.
+    - (* TryCatch: hole would be [Raise (Val ev)], excluded by Hnr. *)
+      destruct Ki; simpl in Hp; try discriminate Hp.
       injection Hp; intros; subst. exfalso. eapply Hnr. reflexivity.
-    - assert (Ki0 = Ki) as ->.
+    - (* RaiseUnwind: hole is a stuck raise, excluded by Hnr. *)
+      assert (Ki0 = Ki) as ->.
       { eapply (fill_item_no_val_inj Ki0 Ki (Raise (Val w)) e);
           [ reflexivity | exact Hnv | exact Hp ]. }
       apply fill_item_inj in Hp. exfalso. eapply Hnr. symmetry. exact Hp.
+    - (* While: no Ki has [While _ _] as a fill_item shape. *)
+      destruct Ki; simpl in Hp; discriminate Hp.
+    - (* ForNil: hole would be [Val (LitList [])], contradicting Hnv. *)
+      destruct Ki; simpl in Hp; try discriminate Hp.
+      injection Hp; intros; subst; simpl in Hnv; discriminate.
+    - (* ForCons: hole would be [Val (LitList (_::_))], contradicting Hnv. *)
+      destruct Ki; simpl in Hp; try discriminate Hp.
+      injection Hp; intros; subst; simpl in Hnv; discriminate.
   Qed.
 
   Lemma kempty_head Ki e sigma e' sigma' efs :
@@ -331,8 +344,9 @@ Section wp.
     intros Hneu Hstep.
     inversion Hstep as [K x sg x1 Hpure Heq | K x sg x1 sg2 efs2 Hhead Heq]; subst.
     - destruct K as [|Ki2 K2]; simpl in Heq.
-      + subst x. inversion Hpure as [| | | | | | Ki0 w Hneu0 Hp]; subst; simpl in *.
+      + subst x. inversion Hpure as [| | | | | | Ki0 w Hneu0 Hp | | | ]; subst; simpl in *.
         1-6: destruct Ki; simpl in *; try discriminate; congruence.
+        2-4: destruct Ki; simpl in *; try discriminate; congruence.
         assert (Ki0 = Ki) as ->.
         { eapply (fill_item_no_val_inj Ki0 Ki (Raise (Val w)) (Raise (Val ev)));
             [ reflexivity | reflexivity | exact Hp ]. }

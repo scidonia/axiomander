@@ -49,7 +49,8 @@ Inductive sn_val :=
   | LitString (s : string)
   | LitLoc (l : loc)
   | LitUnit
-  | LitExn (label : string) (payload : sn_val).   (* exception object: label + value *)
+  | LitExn (label : string) (payload : sn_val)    (* exception object: label + value *)
+  | LitList (vs : list sn_val).                    (* immutable list value *)
 
 (** * Expressions *)
 Inductive binop := AddOp | SubOp | MulOp | EqOp | LeOp | LtOp | GtOp | GeOp.
@@ -65,6 +66,8 @@ Inductive sn_expr :=
   | If (e0 e1 e2 : sn_expr)
   | Raise (e : sn_expr)
   | Try (body : sn_expr) (x : string) (handler : sn_expr)
+  | While (e1 e2 : sn_expr)
+  | For (x : string) (e1 e2 : sn_expr)
   | Call (f : string) (args : list sn_expr).
 
 (** * Evaluation contexts.  Try IS a context (body reduces inside it). *)
@@ -78,7 +81,8 @@ Inductive sn_ectx_item :=
   | AllocCtx
   | IfCtx (e1 e2 : sn_expr)
   | RaiseCtx
-  | TryCtx (x : string) (handler : sn_expr).
+  | TryCtx (x : string) (handler : sn_expr)
+  | ForCtx (x : string) (e2 : sn_expr).
 
 (** Is this context item neutral (i.e. NOT a try frame)?  Raise unwinds
     through neutral contexts but is caught by try frames. *)
@@ -97,6 +101,7 @@ Definition fill_item (Ki : sn_ectx_item) (x : sn_expr) : sn_expr :=
   | IfCtx e1 e2 => If x e1 e2
   | RaiseCtx => Raise x
   | TryCtx x0 h => Try x x0 h
+  | ForCtx x0 e2 => For x0 x e2
   end.
 
 Definition fill_K (K : list sn_ectx_item) (x : sn_expr) : sn_expr :=
@@ -165,6 +170,9 @@ Fixpoint subst (x : string) (v : sn_val) (e : sn_expr) : sn_expr :=
   | Raise e => Raise (subst x v e)
   | Try body y h =>
       Try (subst x v body) y (if String.eqb x y then h else subst x v h)
+  | While e1 e2 => While (subst x v e1) (subst x v e2)
+  | For y e1 e2 =>
+      For y (subst x v e1) (if String.eqb x y then e2 else subst x v e2)
   | Call f args => Call f (List.map (subst x v) args)
   end.
 
@@ -218,7 +226,18 @@ Inductive pure_step : sn_expr -> sn_expr -> Prop :=
   (* Raise unwinding through a neutral context item *)
   | PureRaiseUnwind Ki v :
       neutral Ki = true ->
-      pure_step (fill_item Ki (Raise (Val v))) (Raise (Val v)).
+      pure_step (fill_item Ki (Raise (Val v))) (Raise (Val v))
+  (* While unfolds to a guarded body-then-loop *)
+  | PureWhile e1 e2 :
+      pure_step (While e1 e2)
+                (If e1 (Let "_" e2 (While e1 e2)) (Val LitUnit))
+  (* For over an empty list terminates *)
+  | PureForNil x body :
+      pure_step (For x (Val (LitList [])) body) (Val LitUnit)
+  (* For over a cons peels the head: bind it, then recurse on the tail *)
+  | PureForCons x v vs body :
+      pure_step (For x (Val (LitList (v :: vs))) body)
+                (Let "_" (subst x v body) (For x (Val (LitList vs)) body)).
 
 (** A pure redex is never a value. *)
 Lemma to_val_pure_step x x' : pure_step x x' -> to_val x = None.
