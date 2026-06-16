@@ -1,0 +1,673 @@
+\documentclass[sigconf,nonacm]{acmart}
+
+%% Axiomander -- Iris workshop paper
+%% ACM acmart class, sigconf (two-column workshop/conference) format.
+%% nonacm: this is a self-archived draft, not a submitted ACM proceedings copy.
+
+\usepackage{booktabs}
+\usepackage{mathtools}
+\usepackage{mathpartir}
+\usepackage{listings}
+\usepackage{xcolor}
+
+%% Separation-logic and Iris notation
+\newcommand{\sepc}{\mathbin{\ast}}
+\newcommand{\pto}{\mapsto}
+\newcommand{\wand}{\mathrel{-\!\ast}}
+\newcommand{\pure}[1]{\ulcorner #1 \urcorner}
+\newcommand{\wpre}{\mathrm{wp}}
+\newcommand{\lget}{\mathrm{lget}}
+\newcommand{\lupd}{\mathrm{lupd}}
+\newcommand{\clobber}{\mathrm{clobber}}
+\newcommand{\hoare}[3]{\{#1\}\ #2\ \{#3\}}
+\newcommand{\code}[1]{\texttt{#1}}
+\let\Bbbk\relax
+\usepackage{amssymb}
+
+%% SnakeletLang / SnakeletWp notation
+\newcommand{\later}{{\triangleright}}
+\newcommand{\wpe}[2]{\mathrm{WPE}\ #1\ \{\!\!\{\, #2 \,\}\!\!\}}
+\newcommand{\rval}[1]{\mathsf{val}\,#1}
+\newcommand{\rexn}[2]{\mathsf{exn}\,#1\,#2}
+\newcommand{\sstep}{\leadsto}
+\newcommand{\subs}[3]{#1[#2{:=}#3]}
+\newcommand{\entries}{\mathrm{entries}}
+\newcommand{\binopd}[2]{\mathrm{binop}(\mathit{op},#1,#2)}
+
+%% Lightweight code listing style for Python / Coq snippets
+\lstdefinestyle{snippet}{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  frame=single,
+  framesep=4pt,
+  rulecolor=\color{gray!40},
+  xleftmargin=2pt,
+  xrightmargin=2pt,
+}
+\lstset{style=snippet}
+
+\begin{document}
+
+\title{Specification Composition for LLM-Driven Python Verification:
+Why We Build on Iris}
+\subtitle{A short workshop paper for the Iris community}
+
+\author{Gavin Mendel-Gleason}
+\affiliation{%
+  \institution{Scidonia}
+  \country{}
+}
+\email{}
+
+\renewcommand{\shortauthors}{Mendel-Gleason}
+
+\begin{abstract}
+Axiomander is a verification pipeline that turns ordinary, decorator-free Python
+into machine-checked proof obligations and discharges them through a ladder of
+mechanical tactics, SMT, and an LLM proof oracle. Its purpose is
+\emph{vericoding}: a human iterates on a strong specification, an LLM derives the
+implementation (and the helper specifications needed to prove it), and the
+verifier delivers a deterministic verdict with a structured residual on failure.
+The viability of this loop rests entirely on \emph{specification composition} --
+the ability to verify a caller against a callee's \emph{contract} rather than its
+body, to reuse proofs across edits, and to stub unverified libraries by their
+declared behaviour.
+
+This paper argues that \textbf{separation logic, as realised by Iris, is the
+right foundation for that composition}, and reports our experience replacing an
+ad-hoc framing mechanism with a native Iris one. Our first backend lowered Python
+to a small imperative language (IMP) over a flat store and recovered locality
+through generated per-callee, per-variable \emph{frame lemmas} over an explicit
+\code{clobber} operator. That mechanism works but scales badly: it produces
+WP-term blowup and brittle compiled-Ltac pattern matching, and it does not extend
+to aliasing, ownership transfer, or concurrency. We describe a second backend,
+\textbf{SnakeletLang/SnakeletWp}, an Iris language and weakest-precondition
+calculus (currently 0 \code{Admitted}) in which a callee's footprint is a
+separating resource, framing is the separating conjunction, and a \emph{contract
+table} lets calls be treated opaquely (as stubs) or transparently (unfolded). We
+give Snakelet's full term language and weakest-precondition rule set, the
+contract-to-\code{iProp} compilation, the opaque-call rule that
+underpins stubbing, and a staged, syntax-directed proof generator whose stages
+fail independently and feed residual goals to SMT and an LLM. We close with the
+open questions we would most like the Iris community's input on.
+\end{abstract}
+
+\keywords{separation logic, Iris, weakest preconditions, specification
+composition, stubbing, frame rule, LLM-assisted proof, Python}
+
+\maketitle
+
+\section{The setting: vericoding needs composition}
+
+Axiomander's development model is a loop. The human writes a \emph{strong
+specification} -- a precondition/postcondition pair -- as the primary artifact.
+An LLM proposes an implementation. The verifier reduces ``does the code meet the
+spec?'' to a proof obligation and returns either a certificate or a
+\emph{structured residual} (the remaining goal with its hypotheses, plus a
+counterexample where one exists). The LLM repairs against the residual, not
+against the original natural-language prompt. Crucially, the LLM has freedom in
+\emph{sub-specification}: to prove an entry point it may introduce helper
+functions, each with its own contract, which are checked the same way.
+
+For this loop to be usable on real codebases, three forms of composition must
+hold simultaneously:
+
+\begin{enumerate}
+  \item \textbf{Modular verification.} A caller must be provable from a callee's
+  \emph{contract} alone. If proving \code{f} required unfolding the bodies of
+  everything \code{f} transitively calls, neither proofs nor LLM prompts would
+  scale.
+  \item \textbf{Proof reuse under iteration.} Editing a function body must not
+  invalidate its callers' proofs as long as the function's \emph{contract} is
+  unchanged. The verifier should behave like an incremental build system:
+  \emph{body changes invalidate local proofs; contract changes invalidate
+  callers.}
+  \item \textbf{Stubbing.} Libraries we cannot or will not verify must be
+  replaceable by their declared behaviour. A caller proves against the stub's
+  contract, which becomes an assumption; the trust boundary is the stub, written
+  and reviewed once.
+\end{enumerate}
+
+All three are, at bottom, the \textbf{frame property}: reasoning about one
+component must be insensitive to the parts of the state it does not touch. This is
+exactly what separation logic makes primitive, and it is why -- after building
+framing the hard way once -- we are migrating Axiomander's proof backend to Iris.
+
+\section{First backend: framing by hand over a flat store}
+\label{sec:imp}
+
+Our original backend lowers a verified subset of Python to a small imperative
+language IMP, with a state that is a flat finite map from variable names to values
+(\code{VZ\,|\,VBool\,|\,VUnit}, plus structural \code{VList\,|\,VTuple\,|\,VDict},
+with mutation modelled on a parallel heap representation). The WP calculus is
+standard and proven sound in Rocq:
+\begin{align*}
+\wpre(\mathsf{skip}, Q) &= Q, \\
+\wpre(x := e, Q) &= Q[x \mapsto e], \\
+\wpre(c_1; c_2, Q) &= \wpre(c_1, \wpre(c_2, Q)), \\
+\wpre(\mathsf{if}\ e\ c_1\ c_2, Q) &= (e \Rightarrow \wpre(c_1,Q)) \\
+  &\quad {}\wedge (\neg e \Rightarrow \wpre(c_2,Q)).
+\end{align*}
+
+Calls are the interesting case. A call site \code{t := g(a)} is verified against
+\code{g}'s contract using a \code{CCall} rule. To recover locality -- to let a
+caller conclude that variables it cares about survive the call -- we model the
+callee's effect with an explicit \code{clobber} operator that havocs the callee's
+declared write set, and we must discharge, for \emph{every} variable $v$, an
+obligation of the form
+\begin{multline*}
+\forall v.\; v \notin (\textit{target} :: \textit{writes}) \Rightarrow \\
+\lget\,s\,v = \lget\,(\clobber\,(\lupd\,s\,\textit{target}\,r)\,\textit{writes})\,v.
+\end{multline*}
+
+This is the frame rule, but encoded extensionally over a flat store. Two problems
+follow, both of which we hit in practice:
+
+\begin{itemize}
+  \item \textbf{WP-term blowup.} Each successive call nests the full WP expansion
+  inside the previous call's postcondition. A function with a handful of
+  sequential calls produces terms too large for the kernel to handle comfortably.
+  \item \textbf{Brittle automation.} The single universally-quantified frame
+  subgoal does not match cleanly in compiled Ltac, partly because coercions
+  (e.g.\ an \code{ls} wrapper) normalise away in the \code{.vo} and defeat the
+  source-level pattern.
+\end{itemize}
+
+Our mitigation was to generate, at the Python IR level, \textbf{one frame lemma
+per (callee, preserved-variable) pair}:
+
+\begin{lstlisting}
+(* g writes ["result"]; the caller's "a" is
+   preserved across t := g(a) *)
+Lemma g_frame_a : forall (s : state) (r : Z),
+  ~ In "a" ("t" :: "result" :: nil) ->
+  lget s "a" =
+    lget (clobber (lupd s "t" (VZ r))
+                  ("result" :: nil)) "a".
+Proof. apply wp_ccall_frame. Qed.
+\end{lstlisting}
+
+The caller's proof then replaces the monolithic $\forall v$ subgoal with a
+sequence of \code{apply g\_frame\_a. apply g\_frame\_b. ...}, each trivial and
+each failing independently with its own residual. This restores tractability and
+keeps the per-obligation, fail-locally discipline we want. But it is, frankly, a
+workaround: we are \emph{reconstructing} the frame rule, one variable at a time,
+in a logic that does not have it. It does not model aliasing, it does not express
+ownership transfer, and it has no path to concurrency. The lesson is the familiar
+one: \textbf{if framing is load-bearing, the assertion logic should be
+substructural.}
+
+\section{Second backend: SnakeletLang and SnakeletWp over Iris}
+\label{sec:iris}
+
+We have built a second backend in which framing is not reconstructed but
+inherited. \textbf{Snakelet} is a small Iris \emph{intermediate language} for the
+verified Python subset, and \textbf{SnakeletWp} is its weakest-precondition
+calculus, defined inside the Iris program logic. The state is an Iris heap; a
+mutable Python object field is a points-to assertion $l \pto v$, and ownership is
+a separating resource rather than an entry in a flat map; assertions are
+\code{iProp}. The next three subsections give Snakelet's term language
+(Fig.~\ref{fig:grammar}), its operational semantics (Fig.~\ref{fig:opsem}), and
+its weakest-precondition rules (Fig.~\ref{fig:wp}); the calculus currently carries
+\textbf{0 \code{Admitted}} across the entire rule set -- values, binary operators,
+\texttt{let}, \texttt{if}, load/store/alloc, the two call forms, and the exception
+and loop rules whose postcondition ranges over a \code{Result}.
+
+\subsection{Snakelet: an intermediate language for the verified subset}
+\label{sec:snakelet-il}
+
+Axiomander does not reason about arbitrary Python. The front end lowers a
+\emph{verified subset} -- straight-line assignment, conditionals, \code{while} and
+\code{for} loops, \code{try}/\code{except}, and calls -- to Snakelet, and every
+proof obligation is discharged at the Snakelet level. The Python-to-Snakelet
+lowering is the trusted boundary of the pipeline (intended to be extracted from
+Coq later); Snakelet itself is small enough to carry a complete operational
+semantics and WP calculus, which is what this section gives.
+
+Snakelet is an expression language in administrative-normal form: every operator
+and call takes values or variables, and evaluation order is made explicit by
+\code{let}-binding and a per-item evaluation-context grammar. A store is a finite
+map from locations to values ($\sigma : \mathrm{loc} \rightharpoonup v$); a mutable
+Python object field is a heap cell, exposed in the logic as $l \pto v$. The
+immutable Python containers -- list, tuple, dict, set -- are \emph{structural}
+values, not heap objects, mirroring Dafny's \code{seq} and F\textsuperscript{$\star$}'s
+\code{list}.
+
+\paragraph{Two coordinated developments.} The core language carries float
+literals, dictionary get/set, and the concurrency primitives \code{FAA}/\code{fork};
+the exception-aware extension presented here adds first-class exceptions and
+carries the complete, machine-checked rule set. We present the latter because
+exceptions change the \emph{shape of the judgement}. Following van
+Collem/de~Vilhena/Krebbers (PLDI~2026), $\mathsf{raise}\;v$ on a value is a
+\textbf{stuck terminal} expression -- not itself a value -- so an uncaught raise
+sits in evaluation position as the program's exceptional result. A program thus
+terminates in one of two ways, captured by the result type $r ::= \mathsf{val}\;v
+\mid \mathsf{exn}\;s\;v$, and (Section~\ref{sec:snakelet-wp}) the WP postcondition
+ranges over $r$ rather than over values. Figure~\ref{fig:grammar} gives the term
+language.
+
+\begin{figure}[t]
+\footnotesize
+\[
+\begin{array}{r@{\ }c@{\ }l}
+v &::=& n \mid b \mid \mathit{fl} \mid s \mid l \mid () \mid \mathsf{exn}\;s\;v \\
+  &\mid& [\,\overline{v}\,] \mid (\,\overline{v}\,) \mid \{\,\overline{v\!:\!v}\,\} \mid \{\,\overline{v}\,\} \\[2pt]
+\mathit{op} &::=& {+} \mid {-} \mid {\times} \mid {/} \mid \mathbin{\%} \mid {=} \mid {\neq} \mid {<} \mid {\leq} \mid {>} \mid {\geq} \\
+  &\mid& \mathsf{and} \mid \mathsf{or} \mid \mathsf{in} \mid \mathsf{len} \mid \mathsf{union} \mid \mathsf{inter} \\[2pt]
+e &::=& v \mid x \mid \mathsf{let}\;x{=}e\;\mathsf{in}\;e \mid \mathit{op}(e,e) \mid g(\overline{e}) \\
+  &\mid& \mathord{!}e \mid e \mathbin{:=} e \mid \mathsf{ref}\;e \mid \mathsf{if}\;e\;\mathsf{then}\;e\;\mathsf{else}\;e \\
+  &\mid& \mathsf{raise}\;e \mid \mathsf{try}\;e\;\mathsf{catch}\;x{\Rightarrow}e \\
+  &\mid& \mathsf{while}\;e\;e \mid \mathsf{for}\;x\;\mathsf{in}\;e\;\mathsf{do}\;e \\[2pt]
+K &::=& \mathsf{let}\;x{=}\square\;\mathsf{in}\;e \mid \mathit{op}(\square,v) \mid \mathit{op}(e,\square) \mid \mathord{!}\square \mid \mathsf{ref}\;\square \\
+  &\mid& \square \mathbin{:=} v \mid e \mathbin{:=} \square \mid \mathsf{if}\;\square\;\mathsf{then}\;e\;\mathsf{else}\;e \mid \mathsf{raise}\;\square \\
+  &\mid& \mathsf{try}\;\square\;\mathsf{catch}\;x{\Rightarrow}e \mid \mathsf{for}\;x\;\mathsf{in}\;\square\;\mathsf{do}\;e \\[2pt]
+r &::=& \mathsf{val}\;v \mid \mathsf{exn}\;s\;v
+\end{array}
+\]
+\caption{Snakelet term language: values $v$ (integer, boolean, float, string,
+location, unit, exception object, and the structural list/tuple/dict/set),
+operators $\mathit{op}$, expressions $e$, single-item evaluation contexts $K$, and
+results $r$. Every $K$ is \emph{neutral} except $\mathsf{try}\;\square\,\dots$;
+$\mathit{op}(e,e)$ evaluates its right operand first. The core development
+additionally provides $\mathsf{FAA}$, $\mathsf{fork}$, and dictionary get/set.}
+\label{fig:grammar}
+\end{figure}
+
+\subsection{Operational semantics}
+\label{sec:snakelet-op}
+
+Reduction is small-step and factors into \emph{pure} steps $e \sstep e'$ (no heap,
+deterministic) and \emph{head} steps $(e,\sigma) \rightarrow (e',\sigma';
+\vec{\mathit{ef}})$ (heap and calls), each lifted under an evaluation context by
+the two decomposition rules \textsc{Ctx-P}/\textsc{Ctx-H} (Figure~\ref{fig:opsem}).
+Contexts are single-item because the WP binds one frame at a time.
+
+All context items are \textbf{neutral} except $\mathsf{try}\;\square\;\mathsf{catch}
+\;x{\Rightarrow}h$. The unwinding rule \textsc{Unwind}, $K[\mathsf{raise}\;v]
+\sstep \mathsf{raise}\;v$, fires only for neutral $K$, so a raise propagates
+through \code{let}, operators, loads, and the rest, but is \emph{caught} by an
+enclosing \code{try} frame (\textsc{TryC}) -- exactly Python/ML exception
+propagation. Calls dispatch through a \emph{contract table} $\entries$: a name maps
+to either $\mathsf{FunSpec}\;P\;Q$ (\emph{opaque} -- the call steps to some result
+satisfying $Q$ only when $P$ holds, so calling outside the precondition is stuck)
+or $\mathsf{FunDef}\;\vec{x}\;b$ (\emph{transparent} -- substitute the arguments
+into the body). The two modes share one table with one entry per name, so they are
+mutually exclusive by construction.
+
+\begin{figure*}[t]
+\centering
+\small
+\textbf{Pure reduction}\quad $e \sstep e'$
+\begin{mathpar}
+\inferrule*[left=\textsc{Let}]{\,}{\mathsf{let}\;x{=}v\;\mathsf{in}\;e \sstep \subs{e}{x}{v}}
+\and
+\inferrule*[left=\textsc{Op}]{\,}{\mathit{op}(v_1,v_2) \sstep \binopd{v_1}{v_2}}
+\and
+\inferrule*[left=\textsc{IfT}]{\,}{\mathsf{if}\;\mathsf{true}\;\mathsf{then}\;e_1\;\mathsf{else}\;e_2 \sstep e_1}
+\and
+\inferrule*[left=\textsc{IfF}]{\,}{\mathsf{if}\;\mathsf{false}\;\mathsf{then}\;e_1\;\mathsf{else}\;e_2 \sstep e_2}
+\and
+\inferrule*[left=\textsc{TryV}]{\,}{\mathsf{try}\;v\;\mathsf{catch}\;x{\Rightarrow}h \sstep v}
+\and
+\inferrule*[left=\textsc{TryC}]{\,}{\mathsf{try}\;(\mathsf{raise}\;v)\;\mathsf{catch}\;x{\Rightarrow}h \sstep \subs{h}{x}{v}}
+\and
+\inferrule*[left=\textsc{Unwind}]{\mathrm{neutral}(K)}{K[\mathsf{raise}\;v] \sstep \mathsf{raise}\;v}
+\and
+\inferrule*[left=\textsc{While}]{\,}{\mathsf{while}\;e_1\;e_2 \sstep \mathsf{if}\;e_1\;\mathsf{then}\;(e_2 \mathbin{;} \mathsf{while}\;e_1\;e_2)\;\mathsf{else}\;()}
+\and
+\inferrule*[left=\textsc{ForNil}]{\,}{\mathsf{for}\;x\;\mathsf{in}\;[\,]\;\mathsf{do}\;b \sstep ()}
+\and
+\inferrule*[left=\textsc{ForCons}]{\,}{\mathsf{for}\;x\;\mathsf{in}\;(v\!::\!\mathit{vs})\;\mathsf{do}\;b \sstep \subs{b}{x}{v} \mathbin{;} \mathsf{for}\;x\;\mathsf{in}\;\mathit{vs}\;\mathsf{do}\;b}
+\end{mathpar}
+\smallskip
+\textbf{Head reduction}\quad $(e,\sigma) \rightarrow (e',\sigma';\vec{\mathit{ef}})$ \qquad and \quad \textbf{context decomposition}
+\begin{mathpar}
+\inferrule*[left=\textsc{Load}]{\sigma(l)=v}{(\mathord{!}l,\sigma) \rightarrow (v,\sigma)}
+\and
+\inferrule*[left=\textsc{Store}]{l \in \mathrm{dom}\,\sigma}{(l \mathbin{:=} v,\sigma) \rightarrow ((),\,\sigma[l{\mapsto}v])}
+\and
+\inferrule*[left=\textsc{Alloc}]{\sigma(l)=\bot}{(\mathsf{ref}\;v,\sigma) \rightarrow (l,\,\sigma[l{\mapsto}v])}
+\and
+\inferrule*[left=\textsc{CallSpec}]{\entries(g)=\mathsf{FunSpec}\;P\;Q \\ P\,\vec{v} \\ Q\,\vec{v}\,v}{(g(\vec{v}),\sigma) \rightarrow (v,\sigma)}
+\and
+\inferrule*[left=\textsc{CallDef}]{\entries(g)=\mathsf{FunDef}\;\vec{x}\;b \\ |\vec{v}|=|\vec{x}|}{(g(\vec{v}),\sigma) \rightarrow (\subs{b}{\vec{x}}{\vec{v}},\sigma)}
+\and
+\inferrule*[left=\textsc{Ctx-P}]{e \sstep e'}{(K[e],\sigma) \rightarrow (K[e'],\sigma)}
+\and
+\inferrule*[left=\textsc{Ctx-H}]{(e,\sigma) \rightarrow (e',\sigma';\vec{\mathit{ef}})}{(K[e],\sigma) \rightarrow (K[e'],\sigma';\vec{\mathit{ef}})}
+\end{mathpar}
+\caption{Snakelet operational semantics. Pure steps are heap-independent and
+deterministic; head steps touch the heap or the contract table $\entries$.
+\textsc{CallSpec} fires only inside the callee's precondition $P$ (calling outside
+$P$ is stuck), making the precondition a proof obligation on the caller.
+$\vec{\mathit{ef}}$ collects forked threads (empty except for \code{fork} in the
+core development).}
+\label{fig:opsem}
+\end{figure*}
+
+\subsection{The weakest-precondition rules}
+\label{sec:snakelet-wp}
+
+SnakeletWp is a hand-rolled weakest precondition whose postcondition is $\Phi :
+\code{Result} \to \mathit{iProp}$. It is the guarded fixpoint of: if $e$ is
+terminal ($\mathrm{result}(e) = \mathsf{Some}\,r$) then $\Phi\,r$ holds under a
+fancy update; otherwise $e$ is reducible in the current heap and, after one step,
+the state interpretation (the Iris \code{gen\_heap} authoritative view) and the WP
+of the reduct are re-established. Ranging $\Phi$ over \code{Result} is the one
+structural change exceptions force; everything else is standard Iris.
+Figure~\ref{fig:wp} lists the rules, all proved with \textbf{0 \code{Admitted}}.
+
+Three points. First, \textbf{composition goes through} $\mathrm{bindp}$: the bind
+rule \textsc{Bind} threads a \code{Result}-typed continuation
+$\mathrm{bindp}\,K\,\Phi$ defined by $\mathrm{bindp}\,K\,\Phi\,(\rval{v}) =
+\wpe{K[v]}{\Phi}$ and $\mathrm{bindp}\,K\,\Phi\,(\rexn{s}{v}) = \Phi(\rexn{s}{v})$
+-- on a value it keeps evaluating the context, on an exception it short-circuits to
+the exceptional postcondition. This is the convergence-critical lemma: it is what
+makes the exception WP \emph{compose}, and with \textsc{Unwind}/\textsc{LetRaise}
+it delivers full propagation. Second, the \textbf{heap rules are orthogonal to
+exceptions}: \textsc{Load}/\textsc{Store}/\textsc{Alloc} are the usual Iris
+points-to rules, and the exceptional arm of $\Phi$ describes the heap \emph{as it
+stood at the raise} -- a function that mutates a cell then raises satisfies a
+postcondition whose $\rexn{s}{}$ arm asserts $l \pto v$ with the \emph{mutated}
+value. Third, the \textbf{two call rules are the composition story} expanded in
+Section~\ref{sec:opaque}: \textsc{CallOpaque} is stubbing and modular verification
+(the caller establishes $P\,\vec{v}$, receives $Q\,\vec{v}\,v$, and never sees the
+body); \textsc{CallDef} unfolds a first-party body.
+
+For loops, \textsc{While}/\textsc{ForNil}/\textsc{ForCons} unfold one iteration. On
+top of \textsc{ForCons} we derive a structural fold rule that carries a user
+invariant $P$ over the \emph{remaining suffix} of the iterated list and
+re-establishes it (or escapes through the exceptional arm) at each element:
+\[
+\begin{array}{l}
+P\,M \;\sepc\; \big(\,\Box\,\forall v\,\mathit{vs}.\ P\,(v\!::\!\mathit{vs}) \wand
+  \wpe{\subs{b}{x}{v}}{r.\,\theta(r)}\,\big) \\[2pt]
+\quad {}\sepc\; (P\,[\,] \wand \Phi(\rval{()})) \;\;\vdash\;\;
+  \wpe{\mathsf{for}\;x\;\mathsf{in}\;M\;\mathsf{do}\;b}{\Phi},
+\end{array}
+\]
+where $\theta(\rval{\_}) = P\,\mathit{vs}$ and $\theta(\rexn{s}{v}) =
+\Phi(\rexn{s}{v})$; specialising $P\,M := \pure{\mathrm{Forall}\,Q\,M}$ yields the
+per-element \code{forall} loop the generator emits. A dedicated heap-counter
+\code{while} rule closes counting loops by L\"ob induction. Each rule has a
+matching \emph{stage tactic} (Section~\ref{sec:staged}): \code{pure\_step} fires
+\textsc{Let}\slash\textsc{Op}\slash\textsc{IfT}\slash\textsc{IfF}\slash\textsc{TryV}\slash\textsc{TryC},
+\code{heap\_load}\slash\code{store}\slash\code{alloc} the heap rules,
+\code{call\_opaque}\slash\code{call\_transparent} the call rules, \code{raise\_step}
+\textsc{Raise}\slash\textsc{Unwind}, and \code{loop\_unfold} the loop rules.
+
+\begin{figure*}[t]
+\centering
+\small
+\begin{mathpar}
+\inferrule*[left=\textsc{Val}]{\,}{\Phi(\rval{v}) \vdash \wpe{v}{\Phi}}
+\and
+\inferrule*[left=\textsc{Raise}]{\,}{\Phi(\rexn{s}{v}) \vdash \wpe{\mathsf{raise}\;(\rexn{s}{v})}{\Phi}}
+\and
+\inferrule*[left=\textsc{Wand}]{\,}{\wpe{e}{\Phi} \sepc (\forall r.\ \Phi\,r \wand \Psi\,r) \vdash \wpe{e}{\Psi}}
+\and
+\inferrule*[left=\textsc{Let}]{\,}{\later \wpe{\subs{e}{x}{v}}{\Phi} \vdash \wpe{\mathsf{let}\;x{=}v\;\mathsf{in}\;e}{\Phi}}
+\and
+\inferrule*[left=\textsc{LetRaise}]{\,}{\Phi(\rexn{s}{v}) \vdash \wpe{\mathsf{let}\;x{=}\mathsf{raise}\,(\rexn{s}{v})\;\mathsf{in}\;e}{\Phi}}
+\and
+\inferrule*[left=\textsc{Op}]{\,}{\later \wpe{\binopd{v_1}{v_2}}{\Phi} \vdash \wpe{\mathit{op}(v_1,v_2)}{\Phi}}
+\and
+\inferrule*[left=\textsc{IfT}]{\,}{\later \wpe{e_1}{\Phi} \vdash \wpe{\mathsf{if}\;\mathsf{true}\;\mathsf{then}\;e_1\;\mathsf{else}\;e_2}{\Phi}}
+\and
+\inferrule*[left=\textsc{IfF}]{\,}{\later \wpe{e_2}{\Phi} \vdash \wpe{\mathsf{if}\;\mathsf{false}\;\mathsf{then}\;e_1\;\mathsf{else}\;e_2}{\Phi}}
+\and
+\inferrule*[left=\textsc{TryV}]{\,}{\later \wpe{v}{\Phi} \vdash \wpe{\mathsf{try}\;v\;\mathsf{catch}\;x{\Rightarrow}h}{\Phi}}
+\and
+\inferrule*[left=\textsc{TryC}]{\,}{\later \wpe{\subs{h}{x}{v}}{\Phi} \vdash \wpe{\mathsf{try}\;(\mathsf{raise}\;v)\;\mathsf{catch}\;x{\Rightarrow}h}{\Phi}}
+\and
+\inferrule*[left=\textsc{Bind}]{\mathrm{neutral}(K)}{\wpe{e}{\mathrm{bindp}\,K\,\Phi} \vdash \wpe{K[e]}{\Phi}}
+\and
+\inferrule*[left=\textsc{Load}]{\,}{l \pto v \;\sepc\; \later (l \pto v \wand \Phi(\rval{v})) \vdash \wpe{\mathord{!}l}{\Phi}}
+\and
+\inferrule*[left=\textsc{Store}]{\,}{l \pto w \;\sepc\; \later (l \pto v \wand \Phi(\rval{()})) \vdash \wpe{l \mathbin{:=} v}{\Phi}}
+\and
+\inferrule*[left=\textsc{Alloc}]{\,}{\later (\forall l.\ l \pto v \wand \Phi(\rval{l})) \vdash \wpe{\mathsf{ref}\;v}{\Phi}}
+\and
+\inferrule*[left=\textsc{ForNil}]{\,}{\later \Phi(\rval{()}) \vdash \wpe{\mathsf{for}\;x\;\mathsf{in}\;[\,]\;\mathsf{do}\;b}{\Phi}}
+\and
+\inferrule*[left=\textsc{CallOpaque}]{\entries(g)=\mathsf{FunSpec}\;P\;Q \\ P\,\vec{v}}{\later (\forall v.\ \pure{Q\,\vec{v}\,v} \wand \Phi(\rval{v})) \vdash \wpe{g(\vec{v})}{\Phi}}
+\and
+\inferrule*[left=\textsc{CallDef}]{\entries(g)=\mathsf{FunDef}\;\vec{x}\;b \\ |\vec{v}|=|\vec{x}|}{\later \wpe{\subs{b}{\vec{x}}{\vec{v}}}{\Phi} \vdash \wpe{g(\vec{v})}{\Phi}}
+\end{mathpar}
+\[
+\begin{array}{l}
+\textsc{While}\quad \later \wpe{\mathsf{if}\;e_1\;\mathsf{then}\;(e_2 \mathbin{;} \mathsf{while}\;e_1\;e_2)\;\mathsf{else}\;()}{\Phi} \\
+\qquad\quad {}\vdash\; \wpe{\mathsf{while}\;e_1\;e_2}{\Phi} \\[4pt]
+\textsc{ForCons}\quad \later \wpe{\subs{b}{x}{v} \mathbin{;} \mathsf{for}\;x\;\mathsf{in}\;\mathit{vs}\;\mathsf{do}\;b}{\Phi} \\
+\qquad\quad {}\vdash\; \wpe{\mathsf{for}\;x\;\mathsf{in}\;(v\!::\!\mathit{vs})\;\mathsf{do}\;b}{\Phi}
+\end{array}
+\]
+\caption{SnakeletWp weakest-precondition rules. The postcondition $\Phi :
+\code{Result} \to \mathit{iProp}$ ranges over $r ::= \rval{v} \mid \rexn{s}{v}$;
+$\later$ is the Iris later modality, $\sepc$ the separating conjunction, $\wand$
+the magic wand, and $\pure{\cdot}$ the persistent embedding of a pure proposition.
+\textsc{Bind} uses the \code{Result}-transformer $\mathrm{bindp}$ (text); the
+wider \textsc{While}/\textsc{ForCons} rules are shown beneath the grid. Every
+rule is machine-checked.}
+\label{fig:wp}
+\end{figure*}
+
+\subsection{Contracts compile to \code{iProp}, composed with the separating
+conjunction}
+
+Contracts remain ordinary Python -- plain \code{assert} statements (leading $=$
+precondition, trailing-before-return $=$ postcondition, in-loop $=$ invariant) or
+a verifier-only \code{axiomander:} docstring. A shared \code{ContractLinter}
+parses them into a contract IR; a backend-specific pass (\code{contract\_ir\_iris})
+compiles that IR to \code{iProp}. Pure facts are injected with the persistent
+embedding $\pure{P}$; resource facts compile to points-to assertions.
+
+\begin{table}[t]
+\caption{Contract fragments compiled to \code{iProp}.}
+\label{tab:compile}
+\small
+\begin{tabular}{@{}ll@{}}
+\toprule
+Python contract fragment & \code{iProp} \\
+\midrule
+\code{assert x >= 1} & $\pure{x \ge 1}$ \\
+\code{assert implies(A, B)} & $\pure{A \to B}$ \\
+\code{assert all(x != i for i in range(0,10))} &
+  $\pure{\forall i,\ 0 \le i < 10 \to x \ne i}$ \\
+\code{owns(box)} & $\textit{box.value} \pto v$ (a resource) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The decisive design choice is that \textbf{the default composition of contract
+clauses is the separating conjunction $\sepc$, not $\wedge$.} When a precondition
+or postcondition is built from several \code{assert}s, they are joined with
+$\sepc$. For the current pure-integer fragment this costs nothing, since
+$\pure{P} \sepc \pure{Q} \dashv\vdash \pure{P \wedge Q}$; but it means the
+\emph{same} composition rule already accounts for disjoint resources, and it is
+the connective that will let us scale to invariants and atomic updates without
+changing the front end.
+
+A typical mixed pure/resource contract, written by the user with no Iris
+notation:
+
+\begin{lstlisting}[language=Python]
+def bump(box: Box) -> int:
+    """
+    axiomander:
+        requires:
+            owns(box)
+            box.value >= 0
+        modifies:
+            box.value
+        ensures:
+            owns(box)
+            box.value == old(box.value) + 1
+            result == box.value
+    """
+    box.value = box.value + 1
+    return box.value
+\end{lstlisting}
+
+compiles to the Hoare triple
+\begin{multline*}
+\{\,\textit{box.value} \pto n \sepc \pure{n \ge 0}\,\}\quad
+\textit{bump(box)} \\
+\{\,r.\ \textit{box.value} \pto n{+}1 \sepc \pure{r = n{+}1}\,\}.
+\end{multline*}
+
+\code{owns(box)} plus \code{modifies: box.value} \emph{is} the resource
+footprint; the user never writes $\sepc$, $\pto$, masks, or proof-mode tactics.
+
+\subsection{The frame rule is free, and so is composition}
+
+Because assertions are \code{iProp}, the structural frame rule
+\[
+\inferrule{\hoare{P}{c}{Q}}{\hoare{P \sepc R}{c}{Q \sepc R}}
+\]
+holds without a side condition: any resource $R$ describing a disjoint region of
+the heap is carried across $c$ by the separating conjunction, automatically.
+Compared with Section~\ref{sec:imp}, the entire \code{clobber}/$\forall v \notin
+\textit{writes}$ apparatus, and the per-callee per-variable frame-lemma generator
+that papered over it, simply disappear. Locality stops being something we encode
+and becomes the shape of the logic. This is the single biggest reason for the
+migration: \emph{composability is sound, not merely convenient.}
+
+\subsection{Opaque vs.\ transparent calls: stubbing as a logical primitive}
+\label{sec:opaque}
+
+Calls are dispatched through a \textbf{contract table} (an Iris \code{FunCtx})
+that maps each callee to its specification. SnakeletWp provides two call rules:
+
+\begin{itemize}
+  \item \textbf{Transparent call} -- the callee's body is available and is
+  unfolded; used for first-party functions being verified in the same run.
+  \item \textbf{Opaque call} -- only the callee's \emph{contract} is available;
+  the caller consumes the callee's precondition (giving up the relevant
+  resources), receives its postcondition, and frames the rest. Schematically, for
+  a callee with spec $\hoare{P_g}{g}{Q_g}$:
+\end{itemize}
+\[
+\inferrule{P_g \sepc R \\\\
+  \forall r.\ (Q_g \sepc R) \vdash \wpre\ K\ \{\Phi\}}
+{\wpre\ (\mathsf{call}\ g;\ K)\ \{\Phi\}}
+\]
+
+The opaque rule is exactly \textbf{stubbing as a logical primitive}. A library
+function is given a contract -- in a \code{.pyi} stub or an \code{axiomander:}
+docstring -- and that contract enters the \code{FunCtx}; callers prove against it
+via the opaque rule, and the body is never required. It is also exactly
+\textbf{modular verification under iteration}: a transparent callee can be
+re-declared opaque once its contract is stable, and its callers' proofs depend
+only on the contract, so a body edit does not disturb them. The \code{FunCtx}
+entry's hash is the summary that our incremental cache keys on.
+
+\subsection{Staged, syntax-directed proofs with independent failure}
+\label{sec:staged}
+
+SnakeletWp ships a small instruction set of \textbf{stage tactics} --
+\code{pure\_step}, \code{case\_bool}, \code{call\_opaque},
+\code{call\_transparent}, \code{finish\_pure}, and a precondition-discharge stage
+\code{call\_opaque\_pre} -- and the proof generator (\code{iris\_proof\_gen})
+emits exactly one stage per IR node, chosen by the node's syntax and the callee's
+table entry. The generator performs no symbolic execution and needs no knowledge
+of intermediate values: each stage tactic extracts what it needs from the Iris
+goal at proof time. Loops are handled by an \code{iL\"ob}-based invariant stage,
+with the invariant taken verbatim from the user's in-loop \code{assert}. The
+proof script \emph{is} the trace.
+
+The payoff for the LLM loop is that \textbf{stages fail independently with
+classifiable errors}. When \code{call\_opaque\_pre} cannot discharge a callee
+precondition (e.g.\ nonlinear arithmetic, a string fact), the residual is exported
+to SMT; an UNSAT result is imported as \code{Axiom smt\_ax\_N : ...} and the stage
+is regenerated as \code{call\_opaque\_pre (exact smt\_ax\_N)}. A pure
+postcondition that \code{finish\_pure} cannot close (\code{reflexivity}/\code{lia})
+is likewise an SMT candidate, and beyond SMT the \emph{structured residual goal}
+-- a named stage plus the goal state from coq-lsp, rather than a stderr regex --
+is what the LLM oracle receives. Small named obligations give better SMT
+performance, better LLM prompts, per-stage caching, and parallelism, and they mean
+a failed attempt yields a reusable artifact rather than a dead end.
+
+\subsection{What the Iris choice does and does not change}
+
+The migration is deliberately confined to the proof backend. The
+\code{ContractLinter}, the SMT export (\code{smt\_export}, \code{theory\_smt}),
+the LLM oracle, and the function-level incremental cache are all backend-agnostic;
+the contract IR diverges only at the final rendering step (flat-store
+\code{to\_coq} vs.\ \code{contract\_ir\_iris.iris\_prop}). Iris \emph{adds}
+per-stage hashing for finer-grained reuse but does not replace the cache. From the
+user's side, nothing changes: contracts are still decorator-free Python, and
+\code{owns(...)} is the only new, entirely optional, resource vocabulary.
+
+\section{Discussion and relation to prior work}
+
+Axiomander's separation-logic interpretation of object fields and its opaque call
+rule are textbook Iris; the novelty is not in the logic but in the \emph{system
+context}. To our knowledge the combination is unusual: (i) the assertion logic is
+never exposed to the user -- contracts are plain Python and the separating
+conjunction is the implicit default composition; (ii) the proof obligations are
+generated and largely discharged by an LLM operating on structured residual goals,
+with Iris/Rocq as the trust kernel; and (iii) the same \code{FunCtx} opaque rule
+serves simultaneously as modular verification, incremental-reuse boundary, and
+library stubbing mechanism. We see Axiomander as a stress test of the claim that
+Iris's framing and ownership story is the right substrate for \emph{automated},
+composition-heavy verification, not only for expert-driven interactive proof.
+
+Our experience also offers a small, concrete data point: building a verifier
+without a substructural logic and then retrofitting locality
+(Section~\ref{sec:imp}) is costly and bounded; starting from Iris
+(Section~\ref{sec:iris}) makes the very properties our LLM loop depends on --
+frame, stub, reuse -- definitional.
+
+\section{Status and open questions for the community}
+
+\paragraph{Status (June 2026).} Snakelet and SnakeletWp are complete and free of
+\code{Admitted} across the rule set of Figures~\ref{fig:opsem}--\ref{fig:wp}: the
+core fragment (binop, let, if, load/store/alloc, opaque/transparent call) and the
+exception-aware extension with its \code{Result}-typed postcondition and loop
+rules, whose eight-lemma convergence gate is \code{Qed}. The staged generator, the
+end-to-end Python-to-Iris pipeline (sharing the \code{ContractLinter}), the
+contract-to-\code{iProp} compiler, and the SMT-axiom escalation slot are in place,
+with tens of Iris-specific tests passing alongside the mature flat-store backend.
+Remaining work wires the exception calculus into the Python lowering and extends
+the fragment to loop invariants over shared disjoint memory, in-place
+data-structure mutation, and a typed subset
+(strings\slash floats\slash\code{isinstance}\slash\code{None}).
+
+We would value the community's view on:
+
+\begin{enumerate}
+  \item \textbf{Ownership inference from \code{modifies}.} We currently derive a
+  footprint from explicit \code{owns(...)} plus \code{modifies:}. How far can
+  footprints be \emph{inferred} for an LLM-generated body without burdening the
+  user, and what is the right failure mode when inference is ambiguous?
+  \item \textbf{Specs as the LLM's search space.} The LLM proposes both code and
+  helper contracts. Are there idioms (magic wands, representation predicates,
+  abstract predicates with \code{FunCtx}-level abstraction) that are especially
+  amenable to automatic \emph{generation}, as opposed to automatic \emph{use}?
+  \item \textbf{Residual goals as oracle inputs.} We feed a failed stage's goal
+  state to an LLM. Which Iris proof-mode presentations of a residual (hypothesis
+  naming, spatial/persistent split, masks elided) make the best prompts?
+  \item \textbf{Concurrency on the same front end.} Our composition default is
+  already $\sepc$. What is the minimal extension of the decorator-free contract
+  surface that could express invariants/atomic updates without exposing Iris
+  syntax to the user?
+  \item \textbf{Trust surface.} With SMT-discharged facts imported as axioms and
+  LLM-generated proofs re-checked by Rocq, the kernel remains the authority but
+  the axiom slots are a trust boundary. What discipline (e.g.\ logged query
+  hashes, replay) would the community consider acceptable for reproducibility?
+\end{enumerate}
+
+\section*{Artifact pointers}
+
+This paper summarises material developed in the Axiomander repository: the Iris
+migration plan and current state; the Iris backend prototype (the
+\code{bump}/\code{owns} example and resource classification); the per-callee frame
+lemmas in the flat-store backend (Section~\ref{sec:imp}); the staged proof
+engineering notes; the incremental-verification cache design; and the companion
+whitepaper and slides motivating vericoding.
+
+\end{document}
