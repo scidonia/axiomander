@@ -93,21 +93,20 @@ Ltac pure_step_redex :=
 (** One pure reduction.  Focusing is goal-driven: [reshape_item] finds the
     innermost evaluation position; if it is nested, [wp_bind] focuses it
     first.  Calls are never reduced here. *)
-Ltac pure_step :=
-  popvals;
+(** Focus the innermost evaluation position by repeatedly binding the
+    outermost non-value context item until a redex sits at the top. *)
+Ltac focus_redex :=
   lazymatch goal with
   | |- envs_entails _ (wp_exn ?e _) =>
       reshape_item e ltac:(fun Ki e' =>
         lazymatch Ki with
-        | @None sn_ectx_item => pure_step_redex
-        | Some ?K =>
-            lazymatch e' with
-            | Call _ _ => fail "pure_step: redex is a call; use call_opaque"
-            | _ => wp_bind_ctx K; pure_step_redex
-            end
+        | @None sn_ectx_item => idtac      (* redex already at top *)
+        | Some ?K => wp_bind_ctx K; focus_redex
         end)
-  | _ => fail "pure_step: not a WPE goal"
   end.
+
+Ltac pure_step :=
+  popvals; focus_redex; pure_step_redex.
 
 (** Raise step: reduce an in-focus [Raise (Val (LitExn ...))] to its
     exception result.  Also handles a raise nested in a neutral context
@@ -123,6 +122,7 @@ Ltac raise_step :=
 
 (** Path fork on a symbolic boolean condition. *)
 Ltac case_bool :=
+  popvals;
   lazymatch goal with
   | |- envs_entails _ (wp_exn (If (Val (LitBool ?b)) _ _) _) =>
       lazymatch b with
@@ -246,3 +246,45 @@ Ltac heap_store :=
       iApply (wp_store with "[$]"); iNext
   | _ => fail "heap_store: goal is not a Store"
   end.
+
+Ltac heap_alloc :=
+  lazymatch goal with
+  | |- envs_entails _ (wp_exn (Alloc (Val _)) _) =>
+      iApply wp_alloc; iNext;
+      let l := fresh "l" in iIntros (l)
+  | _ => fail "heap_alloc: goal is not an Alloc"
+  end.
+
+(** Transparent call: unfold the FunDef body. *)
+Ltac call_transparent_redex :=
+  lazymatch goal with
+  | |- envs_entails _ (wp_exn (Call ?f ?args) _) =>
+      let vs := strip_vals args in
+      let entry := eval hnf in (fun_entries f) in
+      lazymatch entry with
+      | Some (FunDef ?params ?body) =>
+          iApply (wp_call_unfold f params body vs);
+            [ reflexivity | reflexivity | iNext; simpl ]
+      | _ => fail "call_transparent: not a transparent (FunDef) call"
+      end
+  | _ => fail "call_transparent: redex is not a Call"
+  end.
+
+Ltac call_transparent_core :=
+  popvals;
+  lazymatch goal with
+  | |- envs_entails _ (wp_exn ?e _) =>
+      reshape_item e ltac:(fun Ki e' =>
+        lazymatch e' with
+        | Call _ _ =>
+            lazymatch Ki with
+            | @None sn_ectx_item => call_transparent_redex
+            | Some ?K => wp_bind_ctx K; call_transparent_redex
+            end
+        | _ => fail "call_transparent: redex is not a Call"
+        end)
+  | _ => fail "call_transparent: not a WPE goal"
+  end.
+
+Tactic Notation "call_transparent" := call_transparent_core.
+Tactic Notation "call_transparent" constr(f) := check_callee f; call_transparent_core.

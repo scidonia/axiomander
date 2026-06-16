@@ -700,6 +700,83 @@ Section wp.
     - iNext. by iApply wp_raise.
   Qed.
 
+
+  (* ==== transparent call unfold ==== *)
+  Lemma prim_callunfold_inv f params body vs sigma kappa er sigma2 efs :
+    fun_entries f = Some (FunDef params body) ->
+    length vs = length params ->
+    prim_step (Call f (map Val vs)) sigma kappa er sigma2 efs ->
+    kappa = [] /\ er = subst_list params vs body /\ sigma2 = sigma /\ efs = [].
+  Proof.
+    intros Hfe Hlen Hstep.
+    inversion Hstep as [K x sg x1 Hpure Heq | K x sg x1 sg2 efs2 Hhead Heq]; subst.
+    - destruct K as [|Ki K2]; simpl in Heq.
+      + subst x. inversion Hpure; subst; simpl in *. destruct Ki; simpl in *; discriminate.
+      + destruct Ki; simpl in Heq; discriminate Heq.
+    - destruct K as [|Ki K2]; simpl in Heq.
+      + subst x. inversion Hhead; subst.
+        * match goal with Hm : map Val ?vs0 = map Val vs |- _ => apply map_Val_inj in Hm; subst vs0 end.
+          match goal with He : fun_entries f = Some (FunSpec _ _) |- _ => rewrite Hfe in He; discriminate He end.
+        * match goal with Hm : map Val ?vs0 = map Val vs |- _ => apply map_Val_inj in Hm; subst vs0 end.
+          match goal with He : fun_entries f = Some (FunDef _ _) |- _ =>
+            rewrite Hfe in He; injection He; intros; subst end.
+          repeat split; reflexivity.
+      + destruct Ki; simpl in Heq; discriminate Heq.
+  Qed.
+
+  Lemma wp_call_unfold f params body vs Phi :
+    fun_entries f = Some (FunDef params body) ->
+    length vs = length params ->
+    ▷ WPE (subst_list params vs body) {{ Phi }} -∗
+    WPE (Call f (map Val vs)) {{ Phi }}.
+  Proof.
+    intros Hfe Hlen. iIntros "H".
+    rewrite (wp_exn_unfold (Call f (map Val vs))) /wp_pre /=.
+    iIntros (sigma) "Hs".
+    iApply fupd_mask_intro; [set_solver|]. iIntros "Hclose".
+    iSplit.
+    { iPureIntro. eapply reducible_head. eapply HeadCallUnfold; eauto. }
+    iIntros (e2 sigma2 efs Hps).
+    destruct (prim_callunfold_inv _ _ _ _ _ _ _ _ _ Hfe Hlen Hps) as (_ & -> & -> & ->).
+    iModIntro. iNext. iMod "Hclose". iModIntro. iFrame "Hs". iSplitL; [iApply "H"|done].
+  Qed.
+
+  (* ==== heap alloc ==== *)
+  Lemma prim_alloc_inv v sigma kappa er sigma2 efs :
+    prim_step (Alloc (Val v)) sigma kappa er sigma2 efs ->
+    kappa = [] /\ efs = [] /\ exists l, sigma !! l = None /\ er = Val (LitLoc l) /\ sigma2 = <[l:=v]> sigma.
+  Proof.
+    intros Hstep.
+    inversion Hstep as [K x sg x1 Hpure Heq | K x sg x1 sg2 efs2 Hhead Heq]; subst.
+    - destruct K as [|Ki K2]; simpl in Heq.
+      + subst x. inversion Hpure; subst; simpl in *. destruct Ki; simpl in *; discriminate.
+      + destruct Ki; simpl in Heq; try discriminate Heq.
+        injection Heq as Hin. apply fill_K_val in Hin as [-> ->].
+        apply to_val_pure_step in Hpure. discriminate.
+    - destruct K as [|Ki K2]; simpl in Heq.
+      + subst x. inversion Hhead; subst.
+        repeat split. eexists; repeat split; eauto.
+      + destruct Ki; simpl in Heq; try discriminate Heq.
+        injection Heq as Hin. apply fill_K_val in Hin as [-> ->].
+        apply to_val_head_step in Hhead. discriminate.
+  Qed.
+
+  Lemma wp_alloc v Phi :
+    ▷ (∀ l, l ↦ v -∗ Phi (RVal (LitLoc l))) -∗ WPE (Alloc (Val v)) {{ Phi }}.
+  Proof.
+    iIntros "HPhi". rewrite (wp_exn_unfold (Alloc (Val v))) /wp_pre /=.
+    iIntros (sigma) "Hs".
+    iApply fupd_mask_intro; [set_solver|]. iIntros "Hclose".
+    iSplit.
+    { iPureIntro. destruct (exist_fresh (dom sigma)) as [l Hl].
+      eapply reducible_head. eapply HeadAlloc. by apply not_elem_of_dom. }
+    iIntros (e2 sigma2 efs Hps).
+    destruct (prim_alloc_inv _ _ _ _ _ _ Hps) as (_ & -> & l & Hfree & -> & ->).
+    iMod (gen_heap_alloc _ l v with "Hs") as "(Hs & Hl & _)"; [exact Hfree|].
+    iModIntro. iNext. iMod "Hclose". iModIntro. iFrame "Hs". iSplitL; [|done].
+    iApply wp_value. iApply ("HPhi" with "Hl").
+  Qed.
+
 End wp.
 
 (** Notation for the WP and the two-postcondition form. *)
