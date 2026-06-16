@@ -68,6 +68,7 @@ class Contracts:
 
 def extract_contracts(
     source: str, fn_node: ast.FunctionDef,
+    list_model: dict[str, str] | None = None,
 ) -> tuple[Contracts, list[ast.stmt], ContractLinter]:
     """Split positional asserts out of the function body.
 
@@ -84,6 +85,8 @@ def extract_contracts(
     params = [a.arg for a in fn_node.args.args]
     pre_linter = ContractLinter(params=params, context="precondition")
     post_linter = ContractLinter(params=params, context="postcondition")
+
+    lm = list_model or {}
 
     body = list(fn_node.body)
     pres: list[str] = []
@@ -115,7 +118,7 @@ def extract_contracts(
     while body and isinstance(body[0], ast.Assert):
         linted = pre_linter.lint_expression(body[0].test)
         if linted.ir is not None:
-            pres.append(compile_precondition(linted.ir))
+            pres.append(compile_precondition(linted.ir, list_model=lm))
         body = body[1:]
 
     pre = None
@@ -135,12 +138,12 @@ def extract_contracts(
                 and ret_var is not None):
             linted = post_linter.lint_expression(body[-2].test)
             if linted.ir is not None:
-                post = compile_postcondition(linted.ir, ret_var)
+                post = compile_postcondition(linted.ir, ret_var, list_model=lm)
             body = body[:-2] + [ret_node]
 
     # Extract loop invariants from while loops in the body
     loop_invs: list[list[str]] = []
-    _extract_while_invariants(body, loop_invs, pre_linter)
+    _extract_while_invariants(body, loop_invs, pre_linter, lm)
 
     return Contracts(pre=pre, post=post, loop_invariants=loop_invs,
                      raises=raises), body, post_linter
@@ -249,7 +252,8 @@ def _iterable_not_supported_msg(kind: str, var: str) -> str:
 
 
 def _extract_while_invariants(stmts: list[ast.stmt], acc: list[list[str]],
-                               linter: ContractLinter) -> None:
+                                linter: ContractLinter,
+                                lm: dict[str, str] | None = None) -> None:
     """Walk [stmts] depth-first, collecting invariant asserts from
     [ast.While] and [ast.For] bodies.  Each loop contributes one list of
     Coq Prop strings (in encounter order)."""
@@ -260,25 +264,25 @@ def _extract_while_invariants(stmts: list[ast.stmt], acc: list[list[str]],
                 if isinstance(b, ast.Assert):
                     linted = linter.lint_expression(b.test)
                     if linted.ir is not None:
-                        invs.append(compile_precondition(linted.ir))
+                        invs.append(compile_precondition(linted.ir, list_model=lm))
             acc.append(invs)
-            _extract_while_invariants(s.body, acc, linter)
+            _extract_while_invariants(s.body, acc, linter, lm)
         elif isinstance(s, ast.For):
             invs = []
             for b in s.body:
                 if isinstance(b, ast.Assert):
                     linted = linter.lint_expression(b.test)
                     if linted.ir is not None:
-                        invs.append(compile_precondition(linted.ir))
+                        invs.append(compile_precondition(linted.ir, list_model=lm))
             acc.append(invs)
-            _extract_while_invariants(s.body, acc, linter)
+            _extract_while_invariants(s.body, acc, linter, lm)
         elif isinstance(s, ast.If):
-            _extract_while_invariants(s.body, acc, linter)
-            _extract_while_invariants(s.orelse, acc, linter)
+            _extract_while_invariants(s.body, acc, linter, lm)
+            _extract_while_invariants(s.orelse, acc, linter, lm)
         elif isinstance(s, ast.Try):
-            _extract_while_invariants(s.body, acc, linter)
+            _extract_while_invariants(s.body, acc, linter, lm)
             for h in s.handlers:
-                _extract_while_invariants(h.body, acc, linter)
+                _extract_while_invariants(h.body, acc, linter, lm)
 
 
 def _fold(stmts: list[PyStmt], lw: IrisLowerer,
@@ -805,13 +809,9 @@ def python_to_iris_proof(source: str,
     if target is None:
         raise IrisGenError(f"function '{func_name}' not found in source")
 
-    # Contracts: use ContractLinter + contract_ir_iris
-    contracts, body_ast, _ = extract_contracts(source, target)
-
-    # Body: PyIR -> SnakeletIR -> ANF
-    fn = PyIRTranslator().translate_function(target)
+    # Detect list/dict params from type annotations (needed before
+    # contract extraction for len() compilation and before lowering).
     user_dict = dict_params or set()
-    # Detect list/dict params from type annotations for the lowerer
     ann_list_params: set[str] = set()
     for a in target.args.args:
         if a.annotation and isinstance(a.annotation, ast.Subscript):
@@ -822,6 +822,13 @@ def python_to_iris_proof(source: str,
                 ann_list_params.add(a.arg)
             elif base in ("dict", "Dict"):
                 user_dict.add(a.arg)
+    ann_lm = {p: f"M_{p}" for p in ann_list_params}
+
+    # Contracts: use ContractLinter + contract_ir_iris
+    contracts, body_ast, _ = extract_contracts(source, target, list_model=ann_lm)
+
+    # Body: PyIR -> SnakeletIR -> ANF
+    fn = PyIRTranslator().translate_function(target)
 
     lw = IrisLowerer(loc_map={}, func_name=fn.name, dict_params=user_dict,
                      list_params=ann_list_params)

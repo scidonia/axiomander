@@ -30,26 +30,37 @@ from oracle.contract_ir import (
 )
 
 
+"""Contract IR to Iris Coq Prop compiler."""
+
+# Module-level thread for list_model (avoids threading through the
+# recursive iris_prop call chain — _binop / _logical lose it).
+_LIST_MODEL: dict[str, str] = {}
+
+
 def iris_prop(node: Expr, *,
               param_set: frozenset[str] = frozenset(),
-              post_var: str = "") -> str:
+              post_var: str = "",
+              list_model: dict[str, str] | None = None) -> str:
     """Compile a contract_ir Expr to a pure Coq Prop for Iris.
 
-    param_set: variable names that are NOT Iris context binders
-               (quantifier-bound variables).
-    post_var: if non-empty, rename this variable to 'z' in the output
-              (used for postconditions where the return value is
-              re-bound existentially).
+    param_set: variable names that are NOT Iris context binders.
+    post_var: if non-empty, rename this variable to 'z' (postconditions).
+    list_model: mapping from Python list-parameter names to their
+                Coq model names (e.g. {'xs': 'M_xs'}) for len(xs).
     """
+    global _LIST_MODEL
+    if list_model is not None:
+        _LIST_MODEL = list_model
+    lm = _LIST_MODEL
     kind = node.kind
     dispatch = {
         "var": _var, "int": _int_lit, "bool": _bool_lit,
         "binop": _binop, "logical": _logical,
-        "len": _placeholder, "index": _placeholder,
-        "dict_len": _placeholder, "dict_count": _placeholder,
-        "all": _all, "any": _any, "slice_len": _slice_len,
-        "min": _min, "max": _max, "sum": _placeholder,
-        "float": _float, "strlit": _str_lit,
+        "len": lambda n, ps, pv: _list_len(n, ps, pv, lm),
+        "index": _placeholder, "dict_len": _placeholder,
+        "dict_count": _placeholder, "all": _all, "any": _any,
+        "slice_len": _slice_len, "min": _min, "max": _max,
+        "sum": _placeholder, "float": _float, "strlit": _str_lit,
         "tuple": _placeholder, "dict": _placeholder, "set": _placeholder,
         "implies": _implies, "raises": _placeholder,
         "is_shape": _placeholder, "is_valid": _placeholder,
@@ -58,7 +69,19 @@ def iris_prop(node: Expr, *,
         "string_eq": _string_eq,
         "recursor": _recursor, "rown": _placeholder,
     }
+    # The "len" dispatch captures lm via closure.  For "binop" and
+    # "logical" which recurse into iris_prop, the inner call does NOT
+    # pass list_model, but that's fine: "len" nodes appear as direct
+    # operands of binops, and the dispatch at the top of iris_prop
+    # handles them before the binop's recursion reaches them.
     return dispatch[kind](node, param_set, post_var)
+
+
+def _list_len(n, ps, pv, list_model):
+    """len(x) for a list parameter: use Coq model [M_x]."""
+    if n.name in _LIST_MODEL:
+        return f"Z.of_nat (List.length {_LIST_MODEL[n.name]})"
+    return f"Z.of_nat (List.length {n.name})"
 
 
 def _var(n, ps, pv):
@@ -76,10 +99,11 @@ def _bool_lit(n, ps, pv):
 
 
 def _binop(n, ps, pv):
-    # In Z_scope (the postcondition), arithmetic comparisons must use
-    # the bool-valued Z operators (Z.ltb etc.) coerced to Z via Z.b2z.
-    # In Prop scope (precondition), use the standard Prop operators.
-    z_scope = bool(pv)  # post_var is non-empty only for postconditions
+    z_scope = bool(pv)
+    # Recurse with list_model from the outer iris_prop (passed via a
+    # module-level thread or just default — _list_len handles missing
+    # model gracefully by using the raw variable name).
+    def ch(node): return iris_prop(node, param_set=ps, post_var=pv)
     if z_scope:
         if n.op == ">":
             left = iris_prop(n.left, param_set=ps, post_var=pv)
@@ -206,16 +230,18 @@ def _placeholder(n, ps, pv):
 
 # -- Convenience: compile contracts from the linter ---------------------------
 
-def compile_postcondition(node: Expr, ret_var: str) -> str:
+def compile_postcondition(node: Expr, ret_var: str,
+                         list_model: dict[str, str] | None = None) -> str:
     r"""Compile a postcondition expression to an Iris WP post Prop.
 
     Produces the shape finish_pure expects:
         exists z : Z, v = LitInt z /\ P[ret_var := z]
     """
-    prop = iris_prop(node, post_var=ret_var)
+    prop = iris_prop(node, post_var=ret_var, list_model=list_model)
     return f"exists z : Z, v = LitInt z /\\ ({prop})"
 
 
-def compile_precondition(node: Expr) -> str:
+def compile_precondition(node: Expr,
+                         list_model: dict[str, str] | None = None) -> str:
     """Compile a precondition expression to a bare Coq Prop."""
-    return iris_prop(node)
+    return iris_prop(node, list_model=list_model)
