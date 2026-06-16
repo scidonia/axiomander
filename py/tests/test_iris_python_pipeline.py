@@ -370,10 +370,6 @@ def count_to_n(n):
 
 # -- Loop invariants via assert (step 1) -----------------------------------
 
-@pytest.mark.xfail(reason="symbolic while-invariant (heap-counter Loeb "
-                          "lemma) not yet ported to the exception backend; "
-                          "such functions defer to the IMP pipeline",
-                   raises=IrisGenError, strict=True)
 def test_while_with_inline_invariant():
     """Symbolic while with invariants: needs the per-loop lemma path, which
     is not yet ported to the exception backend (raises IrisGenError so the
@@ -392,10 +388,6 @@ def while_inv(n):
     assert ok, out
 
 
-@pytest.mark.xfail(reason="inline loop invariant routes through the "
-                          "WhileInv lemma path, not yet ported to the "
-                          "exception backend",
-                   raises=IrisGenError, strict=True)
 def test_while_concrete_with_invariant():
     """Concrete bound but with an inline invariant assert: the invariant
     triggers the WhileInv path, unsupported on the exception backend."""

@@ -572,6 +572,27 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         f"(phase 3: heap/exceptions/loops)")
 
 
+def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
+    """Emit a wp_while_inv call for the heap-counter while-loop pattern.
+
+    The While sits under a Let "_" (sequencing binder) and a Let for the
+    return variable.  Focus it with wp_bind_item, then apply the lemma."""
+    bound = wi.bound_expr
+    if bound.startswith("LitInt "):
+        bound = bound[len("LitInt "):].strip()
+
+    lines: list[str] = []
+    # Focus the While: it's under Let "_" (While) (Let "r" (Load ...) ...).
+    lines.append(f'{indent}iApply (wp_bind_item (LetCtx "_" _)); '
+                 f'[reflexivity|].')
+    lines.append(
+        f'{indent}iApply (wp_while_inv l {bound} 0 _ with "[$] []").')
+    lines.append(f'{indent}{{ iPureIntro. lia. }}')
+    lines.append(f'{indent}{{ iIntros "Hl". unfold bind_post; simpl. '
+                 f'pure_step. heap_load. pure_step. finish_pure. }}')
+    return lines
+
+
 def _emit_stage_lines(nodes: list[StageNode], depth: int,
                       indent: str, post: str = "") -> list[str]:
     """Render a stage tree into proof-script lines for the exception
@@ -594,11 +615,7 @@ def _emit_stage_lines(nodes: list[StageNode], depth: int,
                 lines.append(f"{indent}{bullet} {first}")
                 lines.extend(arm_lines[1:])
         elif isinstance(n, WhileInv):
-            # Symbolic while-loops with an invariant (heap-counter Loeb
-            # lemma) are not yet ported to the exception backend; defer
-            # such functions to the IMP pipeline.
-            raise IrisGenError(
-                "exn backend: symbolic while-invariant loops not supported")
+            lines.extend(_emit_while_inv_stage_exn(n, indent))
         elif isinstance(n, ForList):
             lines.extend(_emit_for_list_stage_exn(n, indent))
     return lines
