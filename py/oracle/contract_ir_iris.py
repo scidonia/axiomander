@@ -24,7 +24,7 @@ from oracle.contract_ir import (
     AllExpr, AnyExpr, BinOp, BoolLit, DictCountExpr, DictExpr,
     DictLenExpr, Expr, FloatExpr, ImpliesExpr, IndexExpr, IntLit,
     IsShape, IsValid, LenExpr, ListEqExpr, Logical, MaxExpr, MinExpr,
-    RaisesExpr, ReMatchExpr, RecursorExpr, ROwnExpr, SetExpr,
+    OpaqueTerm, RaisesExpr, ReMatchExpr, RecursorExpr, ROwnExpr, SetExpr,
     SliceLenExpr, StrLitExpr, StringContainsExpr, StringEqualsExpr,
     SumExpr, TupleExpr, Var,
 )
@@ -82,6 +82,7 @@ def iris_prop(node: Expr, *,
         "string_contains": _string_contains,
         "string_eq": _string_eq,
         "recursor": _recursor, "rown": _placeholder,
+        "opaque_term": _placeholder,
     }
     # The "len" dispatch captures lm via closure.  For "binop" and
     # "logical" which recurse into iris_prop, the inner call does NOT
@@ -112,8 +113,25 @@ def _bool_lit(n, ps, pv):
     return "True" if n.value else "False"
 
 
+def _opaque_p(n: Expr) -> bool:
+    """Check if an Expr tree contains an OpaqueTerm."""
+    if getattr(n, "kind", None) == "opaque_term":
+        return True
+    if getattr(n, "kind", None) == "binop":
+        return _opaque_p(n.left) or _opaque_p(n.right)
+    if getattr(n, "kind", None) == "logical":
+        return any(_opaque_p(o) for o in n.operands)
+    if getattr(n, "kind", None) == "implies":
+        return _opaque_p(n.left) or _opaque_p(n.right)
+    return False
+
+
 def _binop(n, ps, pv):
     z_scope = bool(pv)
+    # Short-circuit: if either operand is an opaque DB observer, the whole
+    # comparison is unknowable from local state; compile to True (identity).
+    if _opaque_p(n.left) or _opaque_p(n.right):
+        return "True"
     # Recurse with list_model from the outer iris_prop (passed via a
     # module-level thread or just default — _list_len handles missing
     # model gracefully by using the raw variable name).

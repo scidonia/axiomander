@@ -61,11 +61,26 @@ class OpaqueSpec:
     side: optional Coq Prop over the args (the nontrivial precondition);
           None means the precondition is just the arity/typing constraint.
     result: Coq Z expression over the args giving the (deterministic)
-            result -- post is `r = LitInt (result)`.
+            result -- post is `r = LitInt (result)`.  Used when the callee
+            returns a known function of its arguments.
+
+    For NON-deterministic opaque operations whose guarantee is a PREDICATE
+    on the result (not a function of the args) -- e.g. a DB op that returns
+    0 or 1, with only `0 <= r <= 1` promised -- set [post_pred] and
+    [post_witness] instead of relying on [result]:
+
+    post_pred:    Coq Prop over the args and the result-as-Z [r_z].
+                  E.g. "0 <= r_z /\\ r_z <= 1".  The emitted post becomes
+                  `exists rz : Z, r = LitInt rz /\\ (post_pred)`.
+    post_witness: Coq Z expression satisfying [post_pred], used to realize
+                  the callee's totality promise (exists v, post v).  The
+                  proof discharges `post_pred[r_z := witness]` by lia.
     """
     args: list[str]
     side: Optional[str]
     result: str
+    post_pred: Optional[str] = None
+    post_witness: Optional[str] = None
 
 
 @dataclass
@@ -205,9 +220,15 @@ def _emit_pre_def(name: str, spec: OpaqueSpec) -> str:
 
 def _emit_post_def(name: str, spec: OpaqueSpec) -> str:
     args_pat = "; ".join(f"LitInt {a}" for a in spec.args)
+    if spec.post_pred is not None:
+        # Predicate post: the result is some Z [r_z] satisfying post_pred.
+        rhs = (f"exists r_z : Z, r = LitInt r_z /\\ ({spec.post_pred})")
+    else:
+        # Functional post: the result is a known expression of the args.
+        rhs = f"r = LitInt ({spec.result})"
     return (f"Definition {name}_post (args : list sn_val) (r : sn_val) : Prop :=\n"
             f"  match args with\n"
-            f"  | [{args_pat}] => r = LitInt ({spec.result})\n"
+            f"  | [{args_pat}] => {rhs}\n"
             f"  | _ => False\n"
             f"  end.")
 
@@ -256,7 +277,16 @@ def _emit_totality(table: FunTable) -> str:
             pat = " & ".join(entry.args) + " & ->"
             if entry.side:
                 pat += " & Hside"
-            lines.append(f"  {{ destruct Hpre as ({pat}). by eexists. }}")
+            if entry.post_pred is not None:
+                # Predicate post: realize with the supplied witness, then
+                # discharge post_pred[r_z := witness] by lia.
+                wit = entry.post_witness if entry.post_witness is not None else "0"
+                lines.append(
+                    f"  {{ destruct Hpre as ({pat}). "
+                    f"exists (LitInt ({wit})). exists ({wit}). "
+                    f"split; [reflexivity | lia]. }}")
+            else:
+                lines.append(f"  {{ destruct Hpre as ({pat}). by eexists. }}")
         # TransparentDef: both branches close via simplify_eq (FunDef <> FunSpec).
     lines.append("Qed.")
     return "\n".join(lines)
@@ -403,12 +433,13 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         entry = table[e.func]
         if isinstance(entry, OpaqueSpec):
             ov = overrides.get(e.func)
+            tactic = "call_opaque_pred" if entry.post_pred else "call_opaque"
             if ov is not None:
-                st = Stage(f"call_opaque_pre ({ov})", "call_opaque",
+                st = Stage(f"{tactic}_pre ({ov})", tactic,
                            comment=f"{e.func} (pre via SMT axiom)",
                            smt_relevant=True)
             else:
-                st = Stage(f'call_opaque "{e.func}"', "call_opaque",
+                st = Stage(f'{tactic} "{e.func}"', tactic,
                            comment=f"opaque, pre: "
                                    f"{entry.side or 'arity/typing'}",
                            smt_relevant=entry.side is not None)

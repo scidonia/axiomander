@@ -800,6 +800,10 @@ def python_to_iris_proof(source: str,
     dict_params: set of parameter names that are dicts (for for-loop detection).
     """
     tree = ast.parse(source)
+    # Load the shape/enum registry so enum member refs (PaymentState.CAPTURED)
+    # are resolved to their integer encodings in contract expressions.
+    from oracle.shape_ir import build_shape_registry
+    build_shape_registry(tree)
     target = None
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef):
@@ -824,8 +828,30 @@ def python_to_iris_proof(source: str,
                 user_dict.add(a.arg)
     ann_lm = {p: f"M_{p}" for p in ann_list_params}
 
-    # Contracts: use ContractLinter + contract_ir_iris
+    # Contracts: use ContractLinter + contract_ir_iris.
+    # First parse docstring contracts and merge them into contract extraction.
+    from oracle.docstring_contracts import docstring_assert_nodes
+    dc_asserts = docstring_assert_nodes(target)
+    # Inject docstring assertions as synthetic asserts at the top of the body
+    # so extract_contracts picks them up (same as the IMP pipeline does via
+    # _docstring_contract_asserts).
+    for (node, klass) in dc_asserts:
+        if klass == "precondition":
+            target.body.insert(0, node)
+        elif klass == "postcondition":
+            # Insert before the last Return statement.
+            for i in range(len(target.body) - 1, -1, -1):
+                if isinstance(target.body[i], ast.Return):
+                    target.body.insert(i, node)
+                    break
     contracts, body_ast, _ = extract_contracts(source, target, list_model=ann_lm)
+
+    # Strip docstring string-node from the body before lowering (it leaks
+    # into the IR as a LitString literal otherwise).
+    _is_str_expr = (
+        lambda s: isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant)
+        and isinstance(s.value.value, str))
+    target.body = [s for s in target.body if not _is_str_expr(s)]
 
     # Body: PyIR -> SnakeletIR -> ANF
     fn = PyIRTranslator().translate_function(target)

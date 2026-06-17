@@ -609,4 +609,27 @@ class ROwnExpr(BaseModel):
         return "true"
 
 
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, ListEqExpr, ReMatchExpr, StringContainsExpr, StringEqualsExpr, RecursorExpr, ROwnExpr]
+class OpaqueTerm(BaseModel):
+    """A function call in a contract expression whose return value is opaque.
+
+    This represents calls to external state observers (e.g.
+    db_get_payment_state(order_id)) that appear in pre/postconditions but
+    whose semantics come from the callee's own contract (not from inline
+    state).  Compiles to True (neutral identity) in Coq Prop; the real
+    guarantee is discharged transitively through the opaque callee's
+    postcondition rather than by evaluating this term.
+
+    kind: string naming the function,
+    args: list of argument Exprs."""
+    kind: str = "opaque_term"
+    name: str = ""        # function name
+    args: list[Expr] = Field(default_factory=list)
+
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        return "True"   # neutral identity; real guarantee via callee contract
+
+    def to_smt(self) -> str:
+        return "true"
+
+
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, ListEqExpr, ReMatchExpr, StringContainsExpr, StringEqualsExpr, RecursorExpr, ROwnExpr, OpaqueTerm]

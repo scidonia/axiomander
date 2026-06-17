@@ -269,6 +269,41 @@ Tactic Notation "call_opaque" := call_opaque_core.
 Tactic Notation "call_opaque" constr(f) := check_callee f; call_opaque_core.
 Tactic Notation "call_opaque_pre" tactic3(t) := call_opaque_pre t.
 
+(** Opaque call with a PREDICATE postcondition [exists r_z, v = LitInt r_z
+    /\ P].  Unlike [call_opaque] (which expects a functional equation
+    [v = LitInt e] and [subst]s the result), this destructs the existential,
+    substitutes [v := LitInt r_z], and KEEPS the predicate [P] as a
+    hypothesis so the continuation can use the result bound (e.g.
+    [0 <= r_z <= 1]).  [r_z] is the result-as-Z, [Hr] the predicate. *)
+Ltac call_opaque_pred_redex solver :=
+  lazymatch goal with
+  | |- envs_entails _ (wp_exn (Call ?f ?args) _) =>
+      let vs := strip_vals args in
+      let entry := eval hnf in (fun_entries f) in
+      lazymatch entry with
+      | Some (FunSpec ?pre ?post) =>
+          iApply (wp_call f pre post vs); [ reflexivity | solve [solver] | ];
+          iNext; let v := fresh "v" in let Hv := fresh "Hv" in
+          iIntros (v Hv); simpl in Hv;
+          let rz := fresh "r_z" in let Hr := fresh "Hr" in
+          destruct Hv as (rz & -> & Hr); simpl
+      | _ => fail "call_opaque_pred: not an opaque (FunSpec) call"
+      end
+  | _ => fail "call_opaque_pred: redex is not a Call"
+  end.
+
+Ltac call_opaque_pred_pre solver :=
+  popvals; focus_redex;
+  lazymatch goal with
+  | |- envs_entails _ (wp_exn (Call _ _) _) => call_opaque_pred_redex solver
+  | _ => fail "call_opaque_pred: redex is not a Call"
+  end.
+
+Ltac call_opaque_pred_core := call_opaque_pred_pre snakelet_solve_pre.
+
+Tactic Notation "call_opaque_pred" := call_opaque_pred_core.
+Tactic Notation "call_opaque_pred" constr(f) := check_callee f; call_opaque_pred_core.
+
 (** Heap stages.  Each focuses its redex (typically the bound expression
     of a Let) via [focus_redex], applies the heap WP lemma framing the
     relevant points-to from the spatial context, and reintroduces the
