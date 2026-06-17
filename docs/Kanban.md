@@ -1,6 +1,55 @@
 # Kanban
 
-## Done
+## Iris Backend — Done
+
+- [x] `wp_while_inv_gen` — Qed (heap-counter while with side condition)
+- [x] `wp_while_str` — Qed (string-guard while, Hoare rule, coinduction-free)
+- [x] `call_opaque_pred` + ghost threading — self-contained Z-witness extraction
+- [x] `OpaqueSpec.post_pred / post_witness` — non-deterministic callee contracts
+- [x] `OpaqueSpec.ghost_vars / ghost_wits` — observer → ghost variable mapping
+- [x] Per-branch ghost_close — observer ensures verified for non-branched subcontracts
+- [x] `OpaqueTerm` — unknown calls in contracts → True (trusted, transitive)
+- [x] IntEnum resolution — contract linter + IR lowering (`OrderStatus.READY` → `LitInt 0`)
+- [x] Multi-file enum resolution — `build_shape_registry` follows imports
+- [x] Docstring contract wiring — `axiomander:` blocks feed Iris pipeline
+- [x] Multi-post ensures — conjoined under shared existential
+- [x] `->` → `implies()` rewrite in docstring parser
+- [x] `owns` / `frame` / `preserves` — parsed and stored (not yet consumed by WP)
+- [x] Set membership in postconditions — string set → `String.eqb` disjunction
+- [x] `finish_pure` — handles string existentials, disjunctive set membership
+- [x] `fulfil_order` composition — all 3 subcontracts + contract.py verifies
+- [x] 68 tests, 0 failures
+
+## Iris Backend — To Retire IMP
+
+### Must-have (block retire)
+
+- [ ] **Pydantic model expansion** — `is_shape`/`is_valid` in Iris postconditions (2d)
+- [ ] **Dict operations** — `d.get`, `d[k]`, `len(d)`, `k in d` as opaque-call specs or heap ops (3d)
+- [ ] **List append** — `xs.append(x)` as opaque heap op (1d)
+- [ ] **String ops** — `startswith`, `endswith`, `len(s)`, `s[i]` (1d)
+- [ ] **Float operations** — `VFloat` with coercion rules (1d)
+
+### Nice-to-have
+
+- [ ] **Set state operations** — `set_add`, `x in s` as ghost state (2d)
+- [ ] **isinstance type dispatch** — tag-based branching (1d)
+- [ ] **Composition ghost_close fix** — rz shadowing in 3+ callee branches (0.5d)
+- [ ] **Structured results** — `result.status` field access (1d)
+- [ ] **Existential quantifier** — `exists e in EventBus.emitted` (1d)
+- [ ] **For loops over dicts** — `for k, v in d.items()` (1d)
+
+### Deferred (no impact on IMP retirement)
+
+- [ ] History model — `exactly_once_domain_effect`
+- [ ] Event log ghost theory — `may_emit` / `must_not_emit`
+- [ ] Global invariants — `preserves GlobalInvariant.*`
+- [ ] Frame lemmas from `frame:` declarations
+- [ ] Old-value capture — `old(x)` in docstring ensures
+
+## IMP Backend — Done
+
+## IMP Backend — Done
 
 ### Core pipeline
 - [x] IMP language — value-typed state model: `VZ | VBool | VUnit | VString | VFloat | VNone | VTuple | VList | VDict | VBytes`

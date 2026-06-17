@@ -201,12 +201,13 @@ class IrisLowerer:
             return SLit(lit_type="bool", value="false")
 
         # -- len(xs): LengthOp.  For heap-allocated lists, load first;
-        #    for list parameters, use the variable directly (it holds a
-        #    LitList value after substitution).
+        #    for list/string/dict parameters, use the variable directly
+        #    (it holds a value after substitution, not a heap loc).
         if expr.func == "len" and len(expr.args) == 1:
             arg = expr.args[0]
             if isinstance(arg, PyName):
-                if arg.name in self._list_params:
+                if (arg.name in self._list_params
+                        or self._param_types.get(arg.name) in ("str", "string", "dict", "set", "tuple")):
                     return SBinOp(op="length",
                                   left=SVar(name=arg.name),
                                   right=SLit(lit_type="int", value="0"))

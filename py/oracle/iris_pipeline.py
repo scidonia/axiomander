@@ -482,67 +482,87 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
 
 # -- Parameter substitution -------------------------------------------------
 
+def _param_type_map(fn_node: ast.FunctionDef) -> dict[str, str]:
+    """Extract {param_name: python_type_name} from function annotations."""
+    out: dict[str, str] = {}
+    for a in fn_node.args.args:
+        if a.annotation:
+            if isinstance(a.annotation, ast.Name):
+                out[a.arg] = a.annotation.id
+            elif isinstance(a.annotation, ast.Subscript):
+                if isinstance(a.annotation.value, ast.Name):
+                    out[a.arg] = a.annotation.value.id
+    return out
+
+
 def _subst_params(e: SExpr, params: set[str], bound: set[str],
-                   list_params: set[str] | None = None) -> SExpr:
+                   list_params: set[str] | None = None,
+                   param_types: dict[str, str] | None = None) -> SExpr:
     """Replace free references to function parameters with Coq-level
-    binders: SVar("x") -> SLit("int", "x") prints as (Val (LitInt x)).
-    List params (in list_params) become SLit("val", name) printing as (Val name).
+    binders.  The Coq value type is determined by the parameter's type
+    annotation (defaults to Int).  List params (in list_params) become
+    value-level SLit that print as (Val name).
     Respects shadowing by let-bound program variables."""
     lp = list_params or set()
+    pt = param_types or {}
     if isinstance(e, SVar):
         if e.name in params and e.name not in bound:
             if e.name in lp:
                 return SLit(lit_type="val", value=e.name)
-            return SLit(lit_type="int", value=e.name)
+            ptype = pt.get(e.name, "int")
+            lit_map = {"int": "int", "str": "string", "bool": "bool",
+                        "list": "val", "dict": "dict",
+                        "set": "set", "tuple": "tuple"}
+            return SLit(lit_type=lit_map.get(ptype, "int"), value=e.name)
         return e
     if isinstance(e, SLit):
         return e
     if isinstance(e, SBinOp):
         return SBinOp(op=e.op,
-                      left=_subst_params(e.left, params, bound, lp),
-                      right=_subst_params(e.right, params, bound, lp))
+                      left=_subst_params(e.left, params, bound, lp, pt),
+                      right=_subst_params(e.right, params, bound, lp, pt))
     if isinstance(e, SLet):
         return SLet(var=e.var,
-                    value=_subst_params(e.value, params, bound, lp),
-                    body=_subst_params(e.body, params, bound | {e.var}, lp))
+                    value=_subst_params(e.value, params, bound, lp, pt),
+                    body=_subst_params(e.body, params, bound | {e.var}, lp, pt))
     if isinstance(e, SIf):
-        return SIf(cond=_subst_params(e.cond, params, bound, lp),
-                   then_branch=_subst_params(e.then_branch, params, bound, lp),
-                   else_branch=_subst_params(e.else_branch, params, bound, lp))
+        return SIf(cond=_subst_params(e.cond, params, bound, lp, pt),
+                   then_branch=_subst_params(e.then_branch, params, bound, lp, pt),
+                   else_branch=_subst_params(e.else_branch, params, bound, lp, pt))
     if isinstance(e, SWhile):
-        return SWhile(cond=_subst_params(e.cond, params, bound, lp),
-                      body=_subst_params(e.body, params, bound, lp),
+        return SWhile(cond=_subst_params(e.cond, params, bound, lp, pt),
+                      body=_subst_params(e.body, params, bound, lp, pt),
                       invariants=e.invariants)
     if isinstance(e, SFor):
         return SFor(var=e.var,
-                    lst=_subst_params(e.lst, params, bound, lp),
-                    body=_subst_params(e.body, params, bound | {e.var}, lp),
+                    lst=_subst_params(e.lst, params, bound, lp, pt),
+                    body=_subst_params(e.body, params, bound | {e.var}, lp, pt),
                     invariants=e.invariants,
                     iterable_type=e.iterable_type)
     if isinstance(e, SApp):
         return SApp(func=e.func,
-                    args=[_subst_params(a, params, bound, lp) for a in e.args])
+                    args=[_subst_params(a, params, bound, lp, pt) for a in e.args])
     if isinstance(e, SAlloc):
-        return SAlloc(value=_subst_params(e.value, params, bound, lp))
+        return SAlloc(value=_subst_params(e.value, params, bound, lp, pt))
     if isinstance(e, SStore):
-        return SStore(loc=e.loc, value=_subst_params(e.value, params, bound, lp))
+        return SStore(loc=e.loc, value=_subst_params(e.value, params, bound, lp, pt))
     if isinstance(e, SLoad):
         return e
     if isinstance(e, SReturn):
-        return _subst_params(e.value, params, bound, lp)
+        return _subst_params(e.value, params, bound, lp, pt)
     if isinstance(e, SDictGet):
         return SDictGet(loc=e.loc,
-                        key=_subst_params(e.key, params, bound, lp))
+                        key=_subst_params(e.key, params, bound, lp, pt))
     if isinstance(e, SDictSet):
         return SDictSet(loc=e.loc,
-                        key=_subst_params(e.key, params, bound, lp),
-                        value=_subst_params(e.value, params, bound, lp))
+                        key=_subst_params(e.key, params, bound, lp, pt),
+                        value=_subst_params(e.value, params, bound, lp, pt))
     if isinstance(e, SRaise):
-        return SRaise(exc=_subst_params(e.exc, params, bound, lp))
+        return SRaise(exc=_subst_params(e.exc, params, bound, lp, pt))
     if isinstance(e, STry):
-        return STry(body=_subst_params(e.body, params, bound, lp),
+        return STry(body=_subst_params(e.body, params, bound, lp, pt),
                     exc_var=e.exc_var,
-                    handler=_subst_params(e.handler, params, bound, lp))
+                    handler=_subst_params(e.handler, params, bound, lp, pt))
     raise IrisGenError(
         f"unsupported node in parameter substitution: {type(e).__name__}")
 
@@ -900,7 +920,8 @@ def python_to_iris_proof(source: str,
     fn = PyIRTranslator().translate_function(target)
 
     lw = IrisLowerer(loc_map={}, func_name=fn.name, dict_params=user_dict,
-                     list_params=ann_list_params)
+                      list_params=ann_list_params,
+                      param_types=_param_type_map(target))
     invs_iter = iter(contracts.loop_invariants) if contracts.loop_invariants else None
     body = _fold(fn.body, lw, invs_iter=iter(contracts.loop_invariants))
     list_params = _detect_list_params(body, set(fn.params))
@@ -911,7 +932,8 @@ def python_to_iris_proof(source: str,
         if lp not in merged_lp:
             merged_lp[lp] = f"M_{lp}"
     body = _subst_params(body, set(fn.params), set(),
-                          set(merged_lp.keys()) | set(detected_dict.keys()))
+                          set(merged_lp.keys()) | set(detected_dict.keys()),
+                          param_types=_param_type_map(target))
     body = _anf(body, [0])
     _validate_ops(body)
 
