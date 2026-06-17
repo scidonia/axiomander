@@ -85,6 +85,13 @@ def parse_axiomander_docstring(func_node: ast.FunctionDef) -> DocstringContracts
             in_axiomander = True
             section = None
             continue
+        # One-liner: axiomander: requires: expr; ensures: expr
+        if stripped.startswith("axiomander:") and stripped != "axiomander:":
+            in_axiomander = True
+            section = None
+            stripped = stripped[len("axiomander:"):].strip()
+            # Recurse into this line to handle per-line keywords
+            raw = stripped  # feed back to the keyword handler below
         if not in_axiomander:
             continue
 
@@ -96,7 +103,7 @@ def parse_axiomander_docstring(func_node: ast.FunctionDef) -> DocstringContracts
 
         # ── Per-line-keyword style: <keyword> <expr> ──
         m_kw = re.match(
-            r"^(requires|ensures|owns|preserves)\s+(.+?)$", stripped)
+            r"^(requires|ensures|owns|preserves)(?:\s+|\s*:\s*)(.+?)$", stripped)
         if m_kw:
             kw = m_kw.group(1)
             rest = m_kw.group(2).strip()

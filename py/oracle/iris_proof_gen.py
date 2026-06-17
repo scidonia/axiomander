@@ -471,13 +471,17 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                            smt_relevant=entry.side is not None)
                 result = [st]
                 # Ghost vars: nested inside Hr as existentials.  Emit a
-                # destruct stage to bring them into scope so the caller's
-                # postcondition (compiled via ghost_resolver) can reference
-                # them by name.
+                # destruct stage to bring them into scope, then split Hr
+                # into the equality hypotheses (Hrz for the result, one
+                # per ghost var).
                 if entry.ghost_vars:
                     gv_names = " & ".join(entry.ghost_vars.values())
+                    gv_splits = "".join(
+                        f"; destruct Hr as [Hrz H_{gv}]"
+                        for gv in entry.ghost_vars.values())
                     result.append(Stage(
-                        f"destruct Hr as ({gv_names} & Hr)",
+                        f"destruct Hr as ({gv_names} & Hr)"
+                        f"{gv_splits}",
                         "destruct_ghost",
                         comment=f"name ghost vars: {', '.join(entry.ghost_vars.values())}"))
                 return result + k()
@@ -1107,6 +1111,9 @@ class IrisProof:
     dict_params: dict[str, str] = field(default_factory=dict)
     raises: dict[str, str] = field(default_factory=dict)
     """Exception contracts: exc_type -> Coq condition Prop (the RExn arm)."""
+    ghost_close: list[str] = field(default_factory=list)
+    """Ghost variable names collected from callee calls; emit [exists gv]
+    steps after finish_pure to close the residual existentials."""
 
     def stage_list(self) -> list[Stage]:
         """Flattened stages (for trace/cache consumers)."""
@@ -1209,6 +1216,11 @@ class IrisProof:
             parts.append("    intros Hpre.")
         parts.append("    iStartProof.")
         parts.extend(_emit_stage_lines(self.stages, 0, "    ", self.post))
+        # Ghost-close: after finish_pure, the ghost var existentials in the
+        # WP postcondition still need witnesses.  The dcvt Hr stages earlier
+        # bring Hrz (result equality) and Hgv (ghost equality) into scope.
+        for gv in self.ghost_close:
+            parts.append(f"    exists {gv}. split; [exact Hrz | exact H_{gv}].")
         parts.append("  Qed.")
         parts.append("End generated_proofs.")
         return "\n".join(parts) + "\n"
@@ -1245,7 +1257,12 @@ def generate(name: str,
                                  comment="postcondition")],
                   func_name=name, _inv_counter=inv_counter,
                   list_params=list_params or {},
-                  dict_params=dict_params or {})
+                   dict_params=dict_params or {})
+    # Collect ghost var names from all callee OpaqueSpec entries for ghost_close.
+    ghost_close: list[str] = []
+    for entry in table.values():
+        if isinstance(entry, OpaqueSpec):
+            ghost_close.extend(entry.ghost_vars.values())
     return IrisProof(
         name=name,
         body_coq=body.to_coq(),
@@ -1258,4 +1275,5 @@ def generate(name: str,
         list_params=list_params or {},
         dict_params=dict_params or {},
         raises=raises or {},
+        ghost_close=ghost_close,
     )
