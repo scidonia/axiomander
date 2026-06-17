@@ -155,9 +155,16 @@ class IrisLowerer:
         return SLoad(loc=loc)
 
     def _lower_attribute(self, expr: "PyAttribute") -> Optional[SExpr]:
-        """obj.attr → heap load from obj.attr location."""
+        """obj.attr → heap load from obj.attr location, UNLESS obj.attr is an
+        enum member (OrderStatus.READY), in which case it's an IntLit with
+        the member's integer encoding."""
         if isinstance(expr.obj, PyName):
             obj_name = expr.obj.name
+            # Check for enum member resolution (IntEnum in contracts)
+            from oracle.shape_ir import lookup_enum_value
+            ev = lookup_enum_value(obj_name, expr.attr)
+            if ev is not None:
+                return SLit(lit_type="int", value=str(ev))
         else:
             obj_name = self._extract_name(expr.obj)
         if obj_name:

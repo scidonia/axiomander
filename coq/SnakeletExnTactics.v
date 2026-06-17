@@ -215,7 +215,7 @@ Ltac strip_vals args :=
 Ltac snakelet_solve_pre :=
   solve [ done
         | hnf; repeat lazymatch goal with |- @ex _ _ => eexists end;
-          first [ done | split; [done | lia] | lia ] ].
+          first [ done | split; [done | lia] | split; [reflexivity | lia] | lia ] ].
 
 (** Apply [wp_call] once the Call redex is at the top of the WP. *)
 Ltac call_opaque_redex solver :=
@@ -274,15 +274,34 @@ Tactic Notation "call_opaque_pre" tactic3(t) := call_opaque_pre t.
     [v = LitInt e] and [subst]s the result), this destructs the existential,
     substitutes [v := LitInt r_z], and KEEPS the predicate [P] as a
     hypothesis so the continuation can use the result bound (e.g.
-    [0 <= r_z <= 1]).  [r_z] is the result-as-Z, [Hr] the predicate. *)
-Ltac call_opaque_pred_redex solver :=
+    [0 <= r_z <= 1]).  [r_z] is the result-as-Z, [Hr] the predicate.
+
+    The precondition is discharged by extracting concrete Z witnesses
+    directly from [vs] ([LitInt n] -> [n]), avoiding the variable-
+    shadowing problem that [snakelet_solve_pre]'s [exists _] hits when
+    the [_pre] binder reuse the call-site parameter name.
+
+    Note: this only handles LitInt args.  String/bool args are not
+    supported in opaque callee specs yet. *)
+Ltac call_opaque_pred_redex :=
   lazymatch goal with
   | |- envs_entails _ (wp_exn (Call ?f ?args) _) =>
       let vs := strip_vals args in
       let entry := eval hnf in (fun_entries f) in
       lazymatch entry with
       | Some (FunSpec ?pre ?post) =>
-          iApply (wp_call f pre post vs); [ reflexivity | solve [solver] | ];
+          iApply (wp_call f pre post vs); [ reflexivity | | ];
+          [ hnf;
+            (* Provide the concrete Z values from vs as exists witnesses. *)
+            let ts := strip_vals args in
+            let rec extract_wit ts :=
+              lazymatch ts with
+              | nil => idtac
+              | (LitInt ?z) :: ?rest => exists (z : Z); extract_wit rest
+              | _ :: ?rest => extract_wit rest
+              end in
+            extract_wit ts;
+            split; [ reflexivity | lia ] | ];
           iNext; let v := fresh "v" in let Hv := fresh "Hv" in
           iIntros (v Hv); simpl in Hv;
           let rz := fresh "r_z" in let Hr := fresh "Hr" in
@@ -292,14 +311,14 @@ Ltac call_opaque_pred_redex solver :=
   | _ => fail "call_opaque_pred: redex is not a Call"
   end.
 
-Ltac call_opaque_pred_pre solver :=
+Ltac call_opaque_pred_pre :=
   popvals; focus_redex;
   lazymatch goal with
-  | |- envs_entails _ (wp_exn (Call _ _) _) => call_opaque_pred_redex solver
+  | |- envs_entails _ (wp_exn (Call _ _) _) => call_opaque_pred_redex
   | _ => fail "call_opaque_pred: redex is not a Call"
   end.
 
-Ltac call_opaque_pred_core := call_opaque_pred_pre snakelet_solve_pre.
+Ltac call_opaque_pred_core := call_opaque_pred_pre.
 
 Tactic Notation "call_opaque_pred" := call_opaque_pred_core.
 Tactic Notation "call_opaque_pred" constr(f) := check_callee f; call_opaque_pred_core.

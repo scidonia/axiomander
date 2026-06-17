@@ -433,13 +433,18 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         entry = table[e.func]
         if isinstance(entry, OpaqueSpec):
             ov = overrides.get(e.func)
-            tactic = "call_opaque_pred" if entry.post_pred else "call_opaque"
-            if ov is not None:
-                st = Stage(f"{tactic}_pre ({ov})", tactic,
+            if entry.post_pred is not None:
+                # Predicate post: self-contained (no solver needed).
+                st = Stage(f'call_opaque_pred "{e.func}"', "call_opaque_pred",
+                           comment=f"opaque, pre: "
+                                   f"{entry.side or 'arity/typing'}",
+                           smt_relevant=entry.side is not None)
+            elif ov is not None:
+                st = Stage(f"call_opaque_pre ({ov})", "call_opaque",
                            comment=f"{e.func} (pre via SMT axiom)",
                            smt_relevant=True)
             else:
-                st = Stage(f'{tactic} "{e.func}"', tactic,
+                st = Stage(f'call_opaque "{e.func}"', "call_opaque",
                            comment=f"opaque, pre: "
                                    f"{entry.side or 'arity/typing'}",
                            smt_relevant=entry.side is not None)
