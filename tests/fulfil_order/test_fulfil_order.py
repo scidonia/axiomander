@@ -173,3 +173,115 @@ def test_multicell_while_loop():
 """
     ok, out = _verify(src, "two_cell_while")
     assert ok, f"Compilation failed:\n{out}"
+
+
+# -- Phase 6: top-level composition ---------------------------------------
+
+
+def test_fulfil_order_composition():
+    """fulfil_order calling all 3 subcontracts against the DB theory.
+
+    This is THE capstone test: the full specification graph composes.
+    Each subcontract carries its own axiomander: contract (docstring);
+    the DB theory ops are in the callee table with predicate posts.
+
+    The implementation flow:
+      reserve_inventory -> if fail: bail
+      capture_payment    -> idempotent
+      commit_order       -> CAS READY->DONE + queue + emit (conditionally)
+
+    Verified compositionally: each callee's postcondition feeds the next.
+    """
+    from oracle.iris_proof_gen import OpaqueSpec
+    from oracle.iris_pipeline import python_to_iris_proof
+
+    src = """
+class OrderStatus(IntEnum): READY = 0; DONE = 2
+class PaymentState(IntEnum): AUTHORIZED = 0; CAPTURED = 2
+class QueueState(IntEnum): READY = 0; DONE = 2
+
+def reserve_inventory(order_id: int) -> int: result = 1; return result
+def capture_payment(order_id: int) -> int: result = 2; return result
+def cas_order_status(order_id: int, e: int, n: int) -> int: result = 1; return result
+def db_set_queue_state(order_id: int, ns: int) -> int: result = 2; return result
+def emit_fulfilled_event(order_id: int, worker_id: int) -> int: result = 1; return result
+
+def do_reserve_inventory(order_id: int) -> int:
+    \"\"\"
+    axiomander:
+        requires: order_id > 0
+        ensures: result >= 0; result <= 1
+    \"\"\"
+    r = reserve_inventory(order_id); result = r; return result
+
+def do_capture_payment(order_id: int) -> int:
+    \"\"\"
+    axiomander:
+        requires: order_id > 0
+        ensures: result == PaymentState.CAPTURED
+    \"\"\"
+    p = capture_payment(order_id); result = p; return result
+
+def do_commit_order(order_id: int, worker_id: int) -> int:
+    \"\"\"
+    axiomander:
+        requires: order_id > 0; worker_id > 0
+        ensures: result >= 0; result <= 1
+    \"\"\"
+    won = cas_order_status(order_id, OrderStatus.READY, OrderStatus.DONE)
+    if won == 1:
+        q = db_set_queue_state(order_id, QueueState.DONE)
+        e = emit_fulfilled_event(order_id, worker_id)
+        result = 1; return result
+    result = 0; return result
+
+def fulfil_order(order_id: int, worker_id: int) -> int:
+    \"\"\"
+    axiomander:
+        requires:
+            order_id > 0
+            worker_id > 0
+        ensures:
+            result >= 0
+            result <= 1
+    \"\"\"
+    reserved = do_reserve_inventory(order_id)
+    if reserved == 0:
+        result = 0
+        return result
+    captured = do_capture_payment(order_id)
+    committed = do_commit_order(order_id, worker_id)
+    result = committed
+    return result
+"""
+    table = {
+        "reserve_inventory": OpaqueSpec(
+            args=["order_id"], side="order_id > 0", result="0",
+            post_pred="0 <= r_z /\\ r_z <= 1", post_witness="1"),
+        "capture_payment": OpaqueSpec(
+            args=["order_id"], side="order_id > 0", result="0",
+            post_pred="r_z = 2", post_witness="2"),
+        "cas_order_status": OpaqueSpec(
+            args=["order_id", "e", "n"], side="order_id > 0", result="0",
+            post_pred="r_z = 0 \\/ r_z = 1", post_witness="1"),
+        "db_set_queue_state": OpaqueSpec(
+            args=["order_id", "ns"], side="order_id > 0", result="0",
+            post_pred="r_z = 2", post_witness="2"),
+        "emit_fulfilled_event": OpaqueSpec(
+            args=["order_id", "worker_id"],
+            side="order_id > 0 /\\ worker_id > 0", result="0",
+            post_pred="r_z = 1", post_witness="1"),
+        "do_reserve_inventory": OpaqueSpec(
+            args=["order_id"], side="order_id > 0", result="0",
+            post_pred="0 <= r_z /\\ r_z <= 1", post_witness="1"),
+        "do_capture_payment": OpaqueSpec(
+            args=["order_id"], side="order_id > 0", result="0",
+            post_pred="r_z = 2", post_witness="2"),
+        "do_commit_order": OpaqueSpec(
+            args=["order_id", "worker_id"],
+            side="order_id > 0 /\\ worker_id > 0", result="0",
+            post_pred="0 <= r_z /\\ r_z <= 1", post_witness="1"),
+    }
+    proof = python_to_iris_proof(src, table, func_name="fulfil_order")
+    ok, out = run_coqc(proof.emit_exn())
+    assert ok, f"Composition failed:\n{out}"
