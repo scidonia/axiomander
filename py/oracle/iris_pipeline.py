@@ -69,7 +69,6 @@ class Contracts:
 def extract_contracts(
     source: str, fn_node: ast.FunctionDef,
     list_model: dict[str, str] | None = None,
-    ghost_resolver: dict[str, str] | None = None,
 ) -> tuple[Contracts, list[ast.stmt], ContractLinter]:
     """Split positional asserts out of the function body.
 
@@ -84,10 +83,8 @@ def extract_contracts(
         pre-configured for the postcondition (for subsequent callee use).
     """
     params = [a.arg for a in fn_node.args.args]
-    pre_linter = ContractLinter(params=params, context="precondition",
-                                ghost_resolver=ghost_resolver)
-    post_linter = ContractLinter(params=params, context="postcondition",
-                                 ghost_resolver=ghost_resolver)
+    pre_linter = ContractLinter(params=params, context="precondition")
+    post_linter = ContractLinter(params=params, context="postcondition")
 
     lm = list_model or {}
 
@@ -155,25 +152,11 @@ def extract_contracts(
             if len(posts) == 1:
                 # Single assert: use the standard wrapper.
                 linted = post_linter.lint_expression(post_asserts[0].test)
-                post = compile_postcondition(linted.ir, ret_var, list_model=lm,
-                                               ghost_resolver=ghost_resolver)
+                post = compile_postcondition(linted.ir, ret_var, list_model=lm)
             elif posts:
-                # Shared existential: exists z, v = LitInt z /\ P1 /\ P2.
-                # Ghost vars from ghost_resolver are nested inside.
-                gh = ghost_resolver or {}
-                ghost_vars_used: list[str] = []
-                # Collect ghost vars referenced in any of the posts
-                for p in posts:
-                    # Parse the post string to extract var names (simplified:
-                    # ghost vars are named identically to resolver values).
-                    pass  # posts are raw Coq Prop strings, not IR nodes
-                # For now: add ghost var binders for ALL resolver entries
-                ghost_binders = "".join(
-                    f"(exists ({gv} : Z), " for gv in gh.values())
-                ghost_closers = "".join(")" for _ in gh.values())
+                # Shared existential: exists z, v = LitInt z /\ P1 /\ P2
                 inner = " /\\ ".join(f"({p})" for p in posts)
-                post = (f"exists z : Z, v = LitInt z /\\ "
-                        f"({ghost_binders} ({inner}){ghost_closers})")
+                post = f"exists z : Z, v = LitInt z /\\ ({inner})"
             body = body[:idx + 1] + [ret_node]
 
     # Extract loop invariants from while loops in the body
@@ -887,8 +870,7 @@ def python_to_iris_proof(source: str,
                 if isinstance(target.body[i], ast.Return):
                     target.body.insert(i, node)
                     break
-    contracts, body_ast, _ = extract_contracts(source, target, list_model=ann_lm,
-                                                ghost_resolver=ghost_resolver)
+    contracts, body_ast, _ = extract_contracts(source, target, list_model=ann_lm)
 
     # Strip docstring string-node from the body before lowering (it leaks
     # into the IR as a LitString literal otherwise).

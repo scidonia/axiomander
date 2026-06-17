@@ -85,15 +85,13 @@ class ContractLinter(ast.NodeVisitor):
     """
 
     def __init__(self, params: list[str] | None = None, context: str = "postcondition",
-                 predicates: dict | None = None, unbound: frozenset[str] = frozenset(),
-                 ghost_resolver: dict[str, str] | None = None):
+                 predicates: dict | None = None, unbound: frozenset[str] = frozenset()):
         self.violations: list[LintViolation] = []
         self.params = params or []
         self.context = context
         self.predicates: dict = predicates or {}
         self.var_types: dict[str, str] = {}  # var_name → "dict" | "list" | "int" | "unknown"
         self.unbound: frozenset[str] = unbound  # ghost/forall vars excluded from state scoping
-        self.ghost_resolver: dict[str, str] = ghost_resolver or {}
 
     def lint_expression(self, node: ast.expr) -> LintResult:
         """Convert a Python expression to IR. Returns LintResult with coq/smt."""
@@ -627,10 +625,6 @@ class ContractLinter(ast.NodeVisitor):
                 from .contract_ir import ROwnExpr
                 return ROwnExpr(obj=node.args[0].id)
             return IntLit(value=1)
-        # Ghost resolver: observer calls resolved to ghost variable names
-        # from the callee's OpaqueSpec.ghost_vars mapping.
-        if name in self.ghost_resolver:
-            return Var(name=self.ghost_resolver[name])
         # Unknown function call → opaque DB observer (OpaqueTerm → True)
         # opaque DB observer (e.g. db_get_payment_state(order_id)).
         # Compiles to True in Coq Prop; the real guarantee is discharged
