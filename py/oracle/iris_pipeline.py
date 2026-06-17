@@ -829,6 +829,13 @@ def python_to_iris_proof(source: str,
     ann_lm = {p: f"M_{p}" for p in ann_list_params}
 
     # Contracts: use ContractLinter + contract_ir_iris.
+    # Build a ghost_resolver from the callee table: observer calls in
+    # contracts resolve to the ghost variable names the callee's post names.
+    ghost_resolver: dict[str, str] = {}
+    from oracle.iris_proof_gen import OpaqueSpec
+    for entry in table.values():
+        if isinstance(entry, OpaqueSpec):
+            ghost_resolver.update(entry.ghost_vars)
     # First parse docstring contracts and merge them into contract extraction.
     from oracle.docstring_contracts import docstring_assert_nodes
     dc_asserts = docstring_assert_nodes(target)

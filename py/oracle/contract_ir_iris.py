@@ -316,6 +316,24 @@ def _result_value_kind(node: Expr, ret_var: str) -> str:
     return found["kind"] or "int"
 
 
+def _collect_vars(node: Expr) -> set[str]:
+    """Collect all Var-name references in an Expr subtree."""
+    out: set[str] = set()
+    k = getattr(node, "kind", None)
+    if k == "var":
+        out.add(node.name)
+    elif k == "binop":
+        out.update(_collect_vars(node.left))
+        out.update(_collect_vars(node.right))
+    elif k == "logical":
+        for o in getattr(node, "operands", []):
+            out.update(_collect_vars(o))
+    elif k == "implies":
+        out.update(_collect_vars(node.left))
+        out.update(_collect_vars(node.right))
+    return out
+
+
 # Per-kind wrapper: (Coq binder type, value constructor, post_var rename target)
 _RESULT_KIND_WRAPPER = {
     "int": ("Z", "LitInt", "z"),
@@ -326,7 +344,8 @@ _RESULT_KIND_WRAPPER = {
 
 def compile_postcondition(node: Expr, ret_var: str,
                          list_model: dict[str, str] | None = None,
-                         result_kind: str | None = None) -> str:
+                         result_kind: str | None = None,
+                         ghost_resolver: dict[str, str] | None = None) -> str:
     r"""Compile a postcondition expression to an Iris WP post Prop.
 
     Produces the shape finish_pure expects, dispatched on the return
@@ -335,8 +354,11 @@ def compile_postcondition(node: Expr, ret_var: str,
         bool   -> exists b : bool, v = LitBool b /\ P[ret_var := b]
         string -> exists s : string, v = LitString s /\ P[ret_var := s]
 
-    [result_kind] may be supplied by the caller (e.g. from the function's
-    return annotation); otherwise it is inferred from the postcondition IR.
+    If [ghost_resolver] is provided, Var nodes whose names are ghost
+    variable names are UNWRAPPED to the ghost var name for the proof
+    context (the resume from [destruct Hr] in the proof script provides
+    the ghost value).  Full observer verification requires the
+    invariant/ownership model (next layer).
     """
     kind = result_kind or _result_value_kind(node, ret_var)
     binder_ty, ctor, bound = _RESULT_KIND_WRAPPER.get(

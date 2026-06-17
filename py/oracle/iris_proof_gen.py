@@ -70,17 +70,36 @@ class OpaqueSpec:
     [post_witness] instead of relying on [result]:
 
     post_pred:    Coq Prop over the args and the result-as-Z [r_z].
-                  E.g. "0 <= r_z /\\ r_z <= 1".  The emitted post becomes
-                  `exists rz : Z, r = LitInt rz /\\ (post_pred)`.
+                   E.g. "0 <= r_z /\\ r_z <= 1".  The emitted post becomes
+                   `exists rz : Z, r = LitInt rz /\\ (post_pred)`.
     post_witness: Coq Z expression satisfying [post_pred], used to realize
-                  the callee's totality promise (exists v, post v).  The
-                  proof discharges `post_pred[r_z := witness]` by lia.
+                   the callee's totality promise (exists v, post v).  The
+                   proof discharges `post_pred[r_z := witness]` by lia.
+
+    ghost_vars: Mapping from observer function names to the Coq variable
+                names they correspond to in [post_pred].  Contract
+                expressions that reference the observer (e.g.
+                `db_get_payment_state(order_id)` in an ensures clause) are
+                resolved to these ghost variables, so the caller can name
+                and reason about the opaque state the callee establishes.
+                Example: {"db_get_payment_state": "payment_final"} means
+                `post_pred` contains `payment_final = 2`, and any ensures
+                referencing `db_get_payment_state(order_id)` compiles to
+                `payment_final == 2` -- a real hypothesis the proof can use.
+
+    ghost_wits: Z-expr witness values for each ghost variable in
+                [ghost_vars], keyed by ghost variable name (not observer
+                name).  Used in the callee's totality proof to provide
+                concrete witnesses for the existential binders.  Defaults
+                to "0" for any ghost var not listed.
     """
     args: list[str]
     side: Optional[str]
     result: str
     post_pred: Optional[str] = None
     post_witness: Optional[str] = None
+    ghost_vars: dict[str, str] = field(default_factory=dict)
+    ghost_wits: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -221,8 +240,13 @@ def _emit_pre_def(name: str, spec: OpaqueSpec) -> str:
 def _emit_post_def(name: str, spec: OpaqueSpec) -> str:
     args_pat = "; ".join(f"LitInt {a}" for a in spec.args)
     if spec.post_pred is not None:
-        # Predicate post: the result is some Z [r_z] satisfying post_pred.
-        rhs = (f"exists r_z : Z, r = LitInt r_z /\\ ({spec.post_pred})")
+        # Ghost variables are nested inside post_pred as existentials so
+        # call_opaque_pred's [destruct Hv as (rz & -> & Hr)] pattern
+        # works unchanged.  The caller destructs Hr to name the ghosts.
+        ghost_binders = " ".join(
+            f"exists ({v} : Z)," for v in spec.ghost_vars.values())
+        rhs = (f"exists r_z : Z, r = LitInt r_z /\\ "
+               f"({ghost_binders} ({spec.post_pred}))")
     else:
         # Functional post: the result is a known expression of the args.
         rhs = f"r = LitInt ({spec.result})"
@@ -278,13 +302,19 @@ def _emit_totality(table: FunTable) -> str:
             if entry.side:
                 pat += " & Hside"
             if entry.post_pred is not None:
-                # Predicate post: realize with the supplied witness, then
-                # discharge post_pred[r_z := witness] by lia.
                 wit = entry.post_witness if entry.post_witness is not None else "0"
+                # Nested ghost-var existentials inside post_pred:
+                #   exists r_z, v = LitInt r_z /\ (exists gv..., post_pred)
+                # Witnesses: LitInt(wit) for v, wit for r_z, then ghost_wits
+                # per nested binder, then reflexivity/lia for the conj.
+                gh_exists = " ".join(
+                    f"exists ({entry.ghost_wits.get(v, '0')}). "
+                    for v in entry.ghost_vars.values())
                 lines.append(
                     f"  {{ destruct Hpre as ({pat}). "
                     f"exists (LitInt ({wit})). exists ({wit}). "
-                    f"split; [reflexivity | lia]. }}")
+                    f"split. {{ reflexivity. }} {{ {gh_exists}"
+                    f"repeat split; lia. }} }}")
             else:
                 lines.append(f"  {{ destruct Hpre as ({pat}). by eexists. }}")
         # TransparentDef: both branches close via simplify_eq (FunDef <> FunSpec).
@@ -434,11 +464,23 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         if isinstance(entry, OpaqueSpec):
             ov = overrides.get(e.func)
             if entry.post_pred is not None:
-                # Predicate post: self-contained (no solver needed).
+                # Predicate post: self-contained.
                 st = Stage(f'call_opaque_pred "{e.func}"', "call_opaque_pred",
                            comment=f"opaque, pre: "
                                    f"{entry.side or 'arity/typing'}",
                            smt_relevant=entry.side is not None)
+                result = [st]
+                # Ghost vars: nested inside Hr as existentials.  Emit a
+                # destruct stage to bring them into scope so the caller's
+                # postcondition (compiled via ghost_resolver) can reference
+                # them by name.
+                if entry.ghost_vars:
+                    gv_names = " & ".join(entry.ghost_vars.values())
+                    result.append(Stage(
+                        f"destruct Hr as ({gv_names} & Hr)",
+                        "destruct_ghost",
+                        comment=f"name ghost vars: {', '.join(entry.ghost_vars.values())}"))
+                return result + k()
             elif ov is not None:
                 st = Stage(f"call_opaque_pre ({ov})", "call_opaque",
                            comment=f"{e.func} (pre via SMT axiom)",
