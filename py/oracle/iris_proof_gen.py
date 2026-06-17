@@ -979,9 +979,16 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
 
 
 def _emit_stage_lines(nodes: list[StageNode], depth: int,
-                      indent: str, post: str = "") -> list[str]:
+                      indent: str, post: str = "",
+                      active_ghost_vars: set[str] | None = None) -> list[str]:
     """Render a stage tree into proof-script lines for the exception
-    backend (the sole Iris backend)."""
+    backend (the sole Iris backend).
+
+    active_ghost_vars: accumulated set of ghost var names from
+    destruct_ghost stages in the current branch.  Emitted as ghost_close
+    after each finish_pure stage, then cleared."""
+    if active_ghost_vars is None:
+        active_ghost_vars = set()
     lines: list[str] = []
     for n in nodes:
         if isinstance(n, Stage):
@@ -989,13 +996,28 @@ def _emit_stage_lines(nodes: list[StageNode], depth: int,
             if n.comment:
                 text += f"  (* {n.comment} *)"
             lines.append(text)
+            # Track ghost vars from destruct_ghost stages
+            if n.category == "destruct_ghost":
+                for gv in _parse_ghost_names(n.comment):
+                    active_ghost_vars.add(gv)
+            # Emit ghost_close after finish_pure -- only for ghost vars
+            # that actually appear in the WP postcondition.
+            if n.category == "finish_pure" and active_ghost_vars:
+                for gv in sorted(active_ghost_vars):
+                    if gv in post:
+                        lines.append(
+                            f"{indent}exists {gv}. "
+                            f"split; [exact Hrz | exact H_{gv}].")
+                active_ghost_vars.clear()
         elif isinstance(n, Branch):
             if depth >= len(_BULLETS):
                 raise IrisGenError("case split nesting exceeds bullet depth")
             bullet = _BULLETS[depth]
             for arm in n.arms:
+                # Each arm starts with a fresh copy of active ghost vars
+                arm_vars = set(active_ghost_vars)
                 arm_lines = _emit_stage_lines(arm, depth + 1, indent + "  ",
-                                              post)
+                                               post, arm_vars)
                 first = arm_lines[0].lstrip()
                 lines.append(f"{indent}{bullet} {first}")
                 lines.extend(arm_lines[1:])
@@ -1006,6 +1028,17 @@ def _emit_stage_lines(nodes: list[StageNode], depth: int,
         elif isinstance(n, ForList):
             lines.extend(_emit_for_list_stage_exn(n, indent))
     return lines
+
+
+def _parse_ghost_names(comment: str) -> list[str]:
+    """Extract ghost variable names from a destruct_ghost comment.
+
+    Comment format: 'name ghost vars: payment_final'
+    Returns the part after 'name ghost vars: ' split by commas."""
+    prefix = "name ghost vars: "
+    if comment.startswith(prefix):
+        return [s.strip() for s in comment[len(prefix):].split(",") if s.strip()]
+    return []
 
 
 # -- Top-level ------------------------------------------------------------

@@ -363,9 +363,18 @@ def compile_postcondition(node: Expr, ret_var: str,
     kind = result_kind or _result_value_kind(node, ret_var)
     binder_ty, ctor, bound = _RESULT_KIND_WRAPPER.get(
         kind, _RESULT_KIND_WRAPPER["int"])
+    # Ghost vars referenced in the postcondition — nested inside the
+    # result existential so finish_pure handles the result and leaves
+    # the ghost var residual for per-branch ghost_close.
+    gh = ghost_resolver or {}
+    ghost_vars_used = sorted(_collect_vars(node).intersection(gh.values()))
+    ghost_binders = "".join(
+        f"(exists ({gv} : Z), " for gv in ghost_vars_used)
+    ghost_closers = "".join(")" for _ in ghost_vars_used)
     prop = iris_prop(node, post_var=ret_var, list_model=list_model,
                      post_bound=bound)
-    return f"exists {bound} : {binder_ty}, v = {ctor} {bound} /\\ ({prop})"
+    return (f"exists {bound} : {binder_ty}, v = {ctor} {bound} /\\ "
+            f"({ghost_binders} ({prop}){ghost_closers})")
 
 
 def compile_precondition(node: Expr,
