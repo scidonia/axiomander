@@ -113,6 +113,26 @@ FunEntry = Union[OpaqueSpec, TransparentDef]
 FunTable = dict[str, FunEntry]
 
 
+# -- Iris built-in primitives (the equivalent of IMP's PURE_BUILTINS).
+# These are transparent definitions for common Python operations that
+# the Iris pipeline doesn't have native primitives for yet.
+# Each is a simple Coq-level function body that computes the result.
+
+_IRIS_STRING_COPY = TransparentDef(
+    params=["s"],
+    body=SLit(lit_type="string", value="s"))
+_IRIS_STR_INDEX = SReturn(value=SLit(lit_type="int", value="0"))
+
+
+IRIS_BUILTINS: FunTable = {
+    # String operations (return the string itself — mock for now)
+    "s.startswith": _IRIS_STRING_COPY,
+    "s.endswith": _IRIS_STRING_COPY,
+    "s.lower": _IRIS_STRING_COPY,
+    "s.upper": _IRIS_STRING_COPY,
+}
+
+
 # -- Stage tree -----------------------------------------------------------
 
 @dataclass
