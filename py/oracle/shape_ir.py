@@ -74,29 +74,51 @@ def lookup_enum_value(enum_name: str, member_name: str) -> int | None:
     return members.get(member_name)
 
 
+_ENUM_BASES = frozenset({"Enum", "IntEnum", "IntFlag", "StrEnum"})
+
+
 def _is_enum(node: ast.ClassDef) -> bool:
-    """Check if a ClassDef inherits from Enum."""
+    """Check if a ClassDef inherits from Enum / IntEnum / etc.
+
+    Recognises the standard-library enum bases (used by Pydantic models for
+    enum-typed fields): Enum, IntEnum, IntFlag, StrEnum.  Matched by base
+    name whether referenced bare (IntEnum) or qualified (enum.IntEnum)."""
     for base in node.bases:
-        if isinstance(base, ast.Name) and base.id == "Enum":
+        if isinstance(base, ast.Name) and base.id in _ENUM_BASES:
             return True
-        if isinstance(base, ast.Attribute) and base.attr == "Enum":
+        if isinstance(base, ast.Attribute) and base.attr in _ENUM_BASES:
             return True
     return False
 
 
 def _build_enum_values(node: ast.ClassDef) -> dict[str, int]:
     """Build {member_name: integer_encoding} for an enum class.
-    
-    Encoding is 0-based by declaration order in the AST body.
+
+    If every member has an explicit integer value (the IntEnum idiom,
+    e.g. READY = 0), those values are used directly.  Otherwise the
+    encoding is 0-based by declaration order in the AST body.
     """
     values: dict[str, int] = {}
     idx = 0
+    all_explicit = True
+    pending: list[str] = []
     for stmt in node.body:
         if isinstance(stmt, ast.Assign):
-            for target in stmt.targets if isinstance(stmt.targets, list) else [stmt.targets]:
+            for target in (stmt.targets if isinstance(stmt.targets, list)
+                           else [stmt.targets]):
                 if isinstance(target, ast.Name):
-                    values[target.id] = idx
+                    pending.append(target.id)
+                    val = stmt.value
+                    if (isinstance(val, ast.Constant)
+                            and isinstance(val.value, int)
+                            and not isinstance(val.value, bool)):
+                        values[target.id] = val.value
+                    else:
+                        all_explicit = False
                     idx += 1
+    if not all_explicit or len(values) != len(pending):
+        # Fall back to 0-based declaration order.
+        values = {name: i for i, name in enumerate(pending)}
     return values
 
 
