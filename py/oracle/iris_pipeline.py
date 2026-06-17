@@ -127,19 +127,37 @@ def extract_contracts(
     elif pres:
         pre = " /\\ ".join(f"({p})" for p in pres)
 
-    # Assert immediately before final return = postcondition
+    # Asserts immediately before final return = postcondition.
+    # Multiple asserts are conjoined with `and`.
     post = "True"
     if body and isinstance(body[-1], ast.Return):
         ret_node = body[-1]
         ret_var = None
         if isinstance(ret_node.value, ast.Name):
             ret_var = ret_node.value.id
-        if (len(body) >= 2 and isinstance(body[-2], ast.Assert)
-                and ret_var is not None):
-            linted = post_linter.lint_expression(body[-2].test)
-            if linted.ir is not None:
+        post_asserts: list[ast.Assert] = []
+        idx = len(body) - 2
+        while idx >= 0 and isinstance(body[idx], ast.Assert):
+            post_asserts.insert(0, body[idx])
+            idx -= 1
+        if post_asserts and ret_var is not None:
+            posts: list[str] = []
+            for a in post_asserts:
+                linted = post_linter.lint_expression(a.test)
+                if linted.ir is not None:
+                    # Strip the existential wrapper so we can share [z].
+                    prop = iris_prop(linted.ir, post_var=ret_var,
+                                     post_bound="z")
+                    posts.append(prop)
+            if len(posts) == 1:
+                # Single assert: use the standard wrapper.
+                linted = post_linter.lint_expression(post_asserts[0].test)
                 post = compile_postcondition(linted.ir, ret_var, list_model=lm)
-            body = body[:-2] + [ret_node]
+            elif posts:
+                # Shared existential: exists z, v = LitInt z /\ P1 /\ P2
+                inner = " /\\ ".join(f"({p})" for p in posts)
+                post = f"exists z : Z, v = LitInt z /\\ ({inner})"
+            body = body[:idx + 1] + [ret_node]
 
     # Extract loop invariants from while loops in the body
     loop_invs: list[list[str]] = []

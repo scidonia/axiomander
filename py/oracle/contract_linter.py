@@ -475,12 +475,24 @@ class ContractLinter(ast.NodeVisitor):
                 idx = IntLit(value=0)
             return IndexExpr(name=name, index=idx)
         # Resolve enum member references to their integer encoding
-        # e.g. ProofLevel.UNPROVED → IntLit(3)
         if isinstance(node.value, ast.Name):
             from .shape_ir import lookup_enum_value
             ev = lookup_enum_value(node.value.id, node.attr)
             if ev is not None:
                 return IntLit(value=ev)
+        # If the base is a Call (e.g. Order(order_id).status), the
+        # contract language can't represent the call return value as
+        # a flat variable.  Return OpaqueTerm so the comparison
+        # short-circuits to True (the observer's guarantee comes from
+        # the callee's contract transitively).
+        if isinstance(node.value, ast.Call):
+            from .contract_ir import OpaqueTerm
+            return OpaqueTerm(name=self._get_call_name(node.value) or "?")
+        # result.attr (e.g. result.status) — structured return values
+        # are deferred to the shape model.  Compile as OpaqueTerm for now.
+        if isinstance(node.value, ast.Name) and node.value.id == "result":
+            from .contract_ir import OpaqueTerm
+            return OpaqueTerm(name=f"result.{node.attr}")
         path = self._attribute_path(node)
         # Always normalise dots to underscores with _escape_field convention:
         # precondition: bare var  e.g. item_value  (Coq param name)
