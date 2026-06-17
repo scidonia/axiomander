@@ -11,6 +11,7 @@ into Coq state predicates at codegen time.
 from __future__ import annotations
 
 import ast
+import os
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -52,17 +53,45 @@ _shape_registry: dict[str, Shape] = {}
 _enum_registry: dict[str, dict[str, int]] = {}  # e.g. ProofLevel → {"UNPROVED": 0, ...}
 
 
-def build_shape_registry(tree: ast.Module) -> dict[str, Shape]:
+def build_shape_registry(tree: ast.Module, _cwd: str = ".") -> dict[str, Shape]:
+    """Build the shape/enum registry from [tree] AND its imported modules.
+
+    Walks the AST for Pydantic/dataclass shapes and enum definitions.
+    Also follows relative imports (e.g. `from external_db import ...`)
+    to parse the imported module's shapes/enums into the same registry,
+    so enum member refs resolve across file boundaries."""
     _shape_registry.clear()
     _enum_registry.clear()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ClassDef):
-            continue
-        if _inherits_base_model(node) or _is_dataclass(node):
-            shape = _build_shape(node)
-            _shape_registry[node.name] = shape
-        elif _is_enum(node):
-            _enum_registry[node.name] = _build_enum_values(node)
+
+    def _scan(node: ast.Module) -> None:
+        for stmt in ast.walk(node):
+            if isinstance(stmt, ast.ClassDef):
+                if _inherits_base_model(stmt) or _is_dataclass(stmt):
+                    _shape_registry[stmt.name] = _build_shape(stmt)
+                elif _is_enum(stmt):
+                    _enum_registry[stmt.name] = _build_enum_values(stmt)
+
+    _scan(tree)
+
+    # Follow relative imports to pick up enums from other files.
+    _visited: set[str] = set()
+    for stmt in ast.walk(tree):
+        if isinstance(stmt, ast.ImportFrom) and stmt.module:
+            module = stmt.module
+            if module in _visited:
+                continue
+            import_path = os.path.join(_cwd, f"{module}.py")
+            alt_path = os.path.join(_cwd, f"{module.replace('.', '/')}.py")
+            for path in (import_path, alt_path):
+                try:
+                    with open(path) as f:
+                        mod_tree = ast.parse(f.read())
+                    _scan(mod_tree)
+                    _visited.add(module)
+                    break
+                except (OSError, SyntaxError):
+                    continue
+
     return _shape_registry
 
 

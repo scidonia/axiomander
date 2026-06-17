@@ -790,6 +790,7 @@ def python_to_iris_proof(source: str,
                          axioms: Optional[list[str]] = None,
                          pre_overrides: Optional[dict[str, str]] = None,
                          dict_params: Optional[set[str]] = None,
+                         _cwd: str = ".",
                          ) -> IrisProof:
     """Lower a Python function with assert contracts to a staged Iris proof.
 
@@ -803,7 +804,7 @@ def python_to_iris_proof(source: str,
     # Load the shape/enum registry so enum member refs (PaymentState.CAPTURED)
     # are resolved to their integer encodings in contract expressions.
     from oracle.shape_ir import build_shape_registry
-    build_shape_registry(tree)
+    build_shape_registry(tree, _cwd=_cwd)
     target = None
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef):
