@@ -36,21 +36,35 @@ from oracle.contract_ir import (
 # recursive iris_prop call chain — _binop / _logical lose it).
 _LIST_MODEL: dict[str, str] = {}
 
+# Module-level thread for the post-variable rename target.  Postconditions
+# rename [post_var] to this bound name; defaults to "z" (integer results),
+# but string/bool results use "s"/"b" so the existential binder matches the
+# LitString/LitBool constructor.
+_POST_BOUND: str = "z"
+
 
 def iris_prop(node: Expr, *,
               param_set: frozenset[str] = frozenset(),
               post_var: str = "",
-              list_model: dict[str, str] | None = None) -> str:
+              list_model: dict[str, str] | None = None,
+              post_bound: str | None = None) -> str:
     """Compile a contract_ir Expr to a pure Coq Prop for Iris.
 
     param_set: variable names that are NOT Iris context binders.
-    post_var: if non-empty, rename this variable to 'z' (postconditions).
+    post_var: if non-empty, rename this variable to [post_bound]
+              (postconditions).
     list_model: mapping from Python list-parameter names to their
                 Coq model names (e.g. {'xs': 'M_xs'}) for len(xs).
+    post_bound: the bound-variable name [post_var] renames to (default
+                "z"; "s" for string results, "b" for bool).  None means
+                "keep the current module-level setting" so recursive
+                calls from _binop / _logical preserve the chosen binder.
     """
-    global _LIST_MODEL
+    global _LIST_MODEL, _POST_BOUND
     if list_model is not None:
         _LIST_MODEL = list_model
+    if post_bound is not None:
+        _POST_BOUND = post_bound
     lm = _LIST_MODEL
     kind = node.kind
     dispatch = {
@@ -86,7 +100,7 @@ def _list_len(n, ps, pv, list_model):
 
 def _var(n, ps, pv):
     if n.name == pv:
-        return "z"
+        return _POST_BOUND
     return n.name
 
 
@@ -217,7 +231,8 @@ def _string_contains(n, ps, pv):
 
 def _string_eq(n, ps, pv):
     op = "<>" if n.negated else "="
-    return f'(String.eqb {n.var} "{n.literal}"%string {op} true)'
+    var = _POST_BOUND if n.var == pv else n.var
+    return f'(String.eqb {var} "{n.literal}"%string {op} true)'
 
 
 def _recursor(n, ps, pv):
@@ -230,15 +245,87 @@ def _placeholder(n, ps, pv):
 
 # -- Convenience: compile contracts from the linter ---------------------------
 
+def _result_value_kind(node: Expr, ret_var: str) -> str:
+    """Infer the SnakeletLang value constructor for the return value.
+
+    Walks the postcondition IR looking for the way [ret_var] is compared:
+      - against a string literal (StringEqualsExpr on ret_var, or a
+        BinOp '='/'<>' whose other side is a StrLitExpr) -> "string"
+      - against a bool                                    -> "bool"
+      - otherwise (arithmetic / Z comparison)             -> "int"
+
+    Returns one of "int" | "bool" | "string".
+    """
+    found: dict[str, Optional[str]] = {"kind": None}
+
+    def walk(n: Expr) -> None:
+        if found["kind"] is not None:
+            return
+        k = getattr(n, "kind", None)
+        if k == "string_eq" and getattr(n, "var", None) == ret_var:
+            found["kind"] = "string"
+            return
+        if k == "binop":
+            left = getattr(n, "left", None)
+            right = getattr(n, "right", None)
+            op = getattr(n, "op", None)
+            l_is_ret = (getattr(left, "kind", None) == "var"
+                        and getattr(left, "name", None) == ret_var)
+            r_is_ret = (getattr(right, "kind", None) == "var"
+                        and getattr(right, "name", None) == ret_var)
+            if op in ("=", "<>"):
+                if l_is_ret and getattr(right, "kind", None) == "strlit":
+                    found["kind"] = "string"
+                    return
+                if r_is_ret and getattr(left, "kind", None) == "strlit":
+                    found["kind"] = "string"
+                    return
+            if left is not None:
+                walk(left)
+            if right is not None:
+                walk(right)
+            return
+        if k == "logical":
+            for o in getattr(n, "operands", []):
+                walk(o)
+            return
+        if k == "implies":
+            walk(getattr(n, "left"))
+            walk(getattr(n, "right"))
+            return
+
+    walk(node)
+    return found["kind"] or "int"
+
+
+# Per-kind wrapper: (Coq binder type, value constructor, post_var rename target)
+_RESULT_KIND_WRAPPER = {
+    "int": ("Z", "LitInt", "z"),
+    "bool": ("bool", "LitBool", "b"),
+    "string": ("string", "LitString", "s"),
+}
+
+
 def compile_postcondition(node: Expr, ret_var: str,
-                         list_model: dict[str, str] | None = None) -> str:
+                         list_model: dict[str, str] | None = None,
+                         result_kind: str | None = None) -> str:
     r"""Compile a postcondition expression to an Iris WP post Prop.
 
-    Produces the shape finish_pure expects:
-        exists z : Z, v = LitInt z /\ P[ret_var := z]
+    Produces the shape finish_pure expects, dispatched on the return
+    value's constructor:
+        int    -> exists z : Z, v = LitInt z /\ P[ret_var := z]
+        bool   -> exists b : bool, v = LitBool b /\ P[ret_var := b]
+        string -> exists s : string, v = LitString s /\ P[ret_var := s]
+
+    [result_kind] may be supplied by the caller (e.g. from the function's
+    return annotation); otherwise it is inferred from the postcondition IR.
     """
-    prop = iris_prop(node, post_var=ret_var, list_model=list_model)
-    return f"exists z : Z, v = LitInt z /\\ ({prop})"
+    kind = result_kind or _result_value_kind(node, ret_var)
+    binder_ty, ctor, bound = _RESULT_KIND_WRAPPER.get(
+        kind, _RESULT_KIND_WRAPPER["int"])
+    prop = iris_prop(node, post_var=ret_var, list_model=list_model,
+                     post_bound=bound)
+    return f"exists {bound} : {binder_ty}, v = {ctor} {bound} /\\ ({prop})"
 
 
 def compile_precondition(node: Expr,

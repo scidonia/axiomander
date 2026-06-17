@@ -195,7 +195,12 @@ Ltac finish_pure :=
             [ reflexivity
             | try rewrite Z.leb_le; try rewrite Z.ltb_lt;
               try rewrite Z.eqb_eq;
-              first [ reflexivity | nia ] ])
+              first [ reflexivity | nia
+                    (* string set-membership: pick a disjunct *)
+                    | left; reflexivity | right; reflexivity
+                    | (repeat first [ left; reflexivity
+                                    | right
+                                    | reflexivity ]) ] ])
          | (repeat split; first [ reflexivity | nia ]) ]).
 
 (** Convert a syntactic list of value expressions [[Val v1; ...; Val vn]]
@@ -365,9 +370,20 @@ Section while_lemma.
 
   (** Generic while-loop invariant: the body's WP is a boxed hypothesis.
       Works for ANY body (including multi-cell) as long as the body
-      increments the counter cell [l] by 1 each iteration. *)
+      increments the counter cell [l] by 1 each iteration.
+
+      SIDE CONDITION [body_closed]: the throwaway binder ["_"] used by the
+      While desugaring [Let "_" body (While ...)] must not occur free in
+      [body], i.e. substituting through it is a no-op.  This is required
+      for soundness: after one iteration the loop re-emerges as
+      [While ... (subst "_" vv body)], and we need this to equal the
+      original [While ... body] to apply the Loeb hypothesis.  For all
+      generated bodies ["_"] is only ever a *binding* occurrence (Let "_"
+      sequencing), never a free use, so callers discharge this by
+      [intros; reflexivity]. *)
   Lemma wp_while_inv_gen (l : loc) (bound : Z) (z : Z) (body : sn_expr)
       (Phi : Result -> iProp Sigma) :
+    (forall v, subst "_" v body = body) ->
     l ↦ LitInt z -∗
     ⌜Z.le z bound⌝ -∗
     □ (∀ (z' : Z), l ↦ LitInt z' -∗ ⌜(z' < bound)%Z⌝ -∗
@@ -378,6 +394,7 @@ Section while_lemma.
     (l ↦ LitInt bound -∗ Phi (RVal LitUnit)) -∗
     WPE (While (BinOp LtOp (Load (Val (LitLoc l))) (Val (LitInt bound))) body) {{ Phi }}.
   Proof.
+    intros Hbc.
     iLöb as "IH" forall (z Phi).
     iIntros "Hc %Hz #Hbody Hwand".
     iApply wp_while; iNext; simpl.
@@ -394,12 +411,16 @@ Section while_lemma.
       iIntros (r) "Hr". destruct r as [vv | lbl p].
       + (* RVal: cell is at z+1. Sequence into the While and recurse. *)
         iApply wp_let. iNext. simpl.
-        admit.
+        (* Goal body is [subst "_" vv body]; the side condition rewrites
+           it back to [body] so the Loeb hypothesis applies. *)
+        rewrite (Hbc vv).
+        iApply ("IH" $! (z + 1)%Z Phi with "Hr [] Hbody Hwand").
+        iPureIntro. lia.
       + (* RExn: the exception escapes through wp_wand/implicit propagation *)
         iExact "Hr".
     - snakelet_pure_hyps.
       assert (z = bound) by lia. subst z.
       pure_step.  (* if false branch *)
       iApply wp_value. iApply "Hwand". iFrame.
-  Admitted.
+  Qed.
 End while_lemma.

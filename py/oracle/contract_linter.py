@@ -128,6 +128,17 @@ class ContractLinter(ast.NodeVisitor):
                 if left and isinstance(left, Var) and op in ("=", "<>"):
                     n = len(node.comparators[0].elts)
                     return ListEqExpr(name=left.name, op=op, n_elements=n)
+            # Set-literal membership: x in {"a", "b", ...} expands to a
+            # disjunction of equalities; x not in {...} to a conjunction of
+            # inequalities.  String elements use StringEqualsExpr; ints use
+            # BinOp '='.  This is the contract-language form for
+            # `result.status in {"fulfilled", "failed_recoverably"}`.
+            if (op in ("in", "notin")
+                    and isinstance(node.comparators[0], ast.Set)):
+                member = self._expand_set_membership(
+                    node.left, node.comparators[0], negated=(op == "notin"))
+                if member is not None:
+                    return member
             left = self.visit(node.left)
             right = self.visit(node.comparators[0])
             if op == "in":
@@ -182,6 +193,42 @@ class ContractLinter(ast.NodeVisitor):
             if left and right:
                 conjuncts.append(BinOp(op=op_str, left=left, right=right))
         return Logical(op="and", operands=conjuncts) if conjuncts else None
+
+    def _expand_set_membership(self, left_node: ast.expr, set_node: ast.Set,
+                               negated: bool) -> Optional[Expr]:
+        """Expand `x in {e1, e2, ...}` to a disjunction of equalities.
+
+        `x in {"a", "b"}`     -> (x = "a") \\/ (x = "b")
+        `x not in {"a", "b"}` -> (x <> "a") /\\ (x <> "b")
+
+        String elements produce StringEqualsExpr; integer elements produce
+        BinOp.  The left operand may be a Name or an attribute chain
+        (e.g. result.status), resolved through the normal visitor.
+        """
+        from .contract_ir import StringEqualsExpr
+        left = self.visit(left_node)
+        if left is None or not isinstance(left, Var):
+            return None
+        terms: list[Expr] = []
+        for elt in set_node.elts:
+            if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                terms.append(StringEqualsExpr(
+                    var=left.name, literal=elt.value, negated=negated))
+            elif isinstance(elt, ast.Constant) and isinstance(elt.value, bool):
+                iv = 1 if elt.value else 0
+                terms.append(BinOp(op=("<>" if negated else "="),
+                                   left=left, right=IntLit(value=iv)))
+            elif isinstance(elt, ast.Constant) and isinstance(elt.value, int):
+                terms.append(BinOp(op=("<>" if negated else "="),
+                                   left=left, right=IntLit(value=elt.value)))
+            else:
+                # Unsupported element kind: bail to the generic path.
+                return None
+        if not terms:
+            return None
+        if len(terms) == 1:
+            return terms[0]
+        return Logical(op=("and" if negated else "or"), operands=terms)
 
     def visit_BoolOp(self, node: ast.BoolOp) -> Optional[Expr]:
         operands = [self.visit(v) for v in node.values]

@@ -217,6 +217,19 @@ Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
       | LengthOp => LitInt (Z.of_nat (List.length vs))
       | _ => LitUnit
       end
+  | LitString s1, LitString s2 =>
+      match op with
+      | AddOp => LitString (String.append s1 s2)
+      | EqOp  => LitBool (String.eqb s1 s2)
+      | NeOp  => LitBool (negb (String.eqb s1 s2))
+      | LenOp => LitInt (Z.of_nat (String.length s1))
+      | _ => LitUnit
+      end
+  | LitString s, _ =>
+      match op with
+      | LenOp => LitInt (Z.of_nat (String.length s))
+      | _ => LitUnit
+      end
   | _, _ => LitUnit
   end.
 

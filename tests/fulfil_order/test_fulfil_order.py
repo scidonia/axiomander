@@ -85,12 +85,13 @@ def test_phase3_compiles():
 # -- Phase 4: postcondition subsets ---------------------------------------
 
 
-@pytest.mark.xfail(
-    reason="set-membership postcondition not yet compiled by iris_prop",
-    strict=True,
-)
 def test_set_membership_postcondition():
-    """Postcondition [result in {"fulfilled", "failed"}]."""
+    """Postcondition [result in {"fulfilled", "failed"}].
+
+    Set-membership over string literals expands to a disjunction of
+    String.eqb equalities (ContractLinter._expand_set_membership) and the
+    string return value is wrapped as [exists s : string, v = LitString s]
+    (contract_ir_iris.compile_postcondition)."""
     src = """def in_set(x: int) -> str:
     assert x >= 0
     result = "fulfilled"
@@ -101,13 +102,12 @@ def test_set_membership_postcondition():
     assert ok, f"Compilation failed:\n{out}"
 
 
-@pytest.mark.xfail(
-    reason="string-value postconditions (LitString in RVal arm) need "
-           "postcondition format extended beyond LitInt",
-    strict=True,
-)
 def test_string_postcondition():
-    """Postcondition [result == "fulfilled"] with string return value."""
+    """Postcondition [result == "fulfilled"] with string return value.
+
+    The return value is wrapped as [exists s : string, v = LitString s]
+    rather than the integer [exists z : Z, v = LitInt z] shape, dispatched
+    on the inferred result kind (contract_ir_iris.compile_postcondition)."""
     src = """def str_result(x: int) -> str:
     assert x >= 0
     result = "fulfilled"

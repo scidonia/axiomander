@@ -23,11 +23,11 @@ PYTHONPATH=py python3 -m pytest tests/fulfil_order/ -v
 
 | Test | Status | Blocker |
 |---|---|---|
-| `test_phase3_generates` | ✅ PASS | — |
-| `test_phase3_compiles` | ❌ XFAIL | EqOp on LitString (binop_eval) |
-| `test_set_membership_postcondition` | ❌ XFAIL | `∈` compilation in iris_prop |
-| `test_string_postcondition` | ❌ XFAIL | LitString in RVal arm of postcondition |
-| `test_multicell_while_loop` | ❌ XFAIL | wp_while_inv_gen (IPM pattern) |
+| `test_phase3_generates` | PASS | -- |
+| `test_phase3_compiles` | XFAIL | string-conditional while loop (wp_while_str) |
+| `test_set_membership_postcondition` | PASS | -- (string set -> String.eqb disjunction) |
+| `test_string_postcondition` | PASS | -- (LitString RVal arm via result-kind dispatch) |
+| `test_multicell_while_loop` | XFAIL | multi-cell while-invariant (wp_while_inv_gen) |
 
 ## Contract Elements Tracker
 
