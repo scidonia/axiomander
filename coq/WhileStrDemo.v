@@ -18,10 +18,37 @@ Section demo.
     (at level 20, e, Q at level 200) : bi_scope.
   Local Notation "l ↦ v" := (pointsto l (DfracOwn 1) v) (at level 20) : bi_scope.
 
-  (* Minimal single-cell string-guard loop:
+  (* The loop invariant for a guard-changing loop is PATH-DEPENDENT:
+     when the guard cell still reads "ready" we are at the start; once it
+     reads anything else it must read "done".  Indexed by the guard value. *)
+  Definition demo_inv (s : string) : iProp Sigma :=
+    (⌜s = "ready" \/ s = "done"⌝)%I.
+
+  (* ---- BODY OBLIGATION: a SEPARATE, NAMED lemma ---------------------
+     The Hoare triple for one body run, guard true (cell reads "ready"):
+       {l ↦ "ready" * demo_inv "ready"}
+         store(l, "done")
+       {∃ s', l ↦ s' * demo_inv s' * eqb s' "ready" = false}
+     This is proved on its own and consumed by the loop rule below. *)
+  Lemma demo_body_spec (l : loc) :
+    l ↦ LitString "ready" -∗ demo_inv "ready" -∗
+    WPE (Store (Val (LitLoc l)) (Val (LitString "done")))
+      {{ (fun r => match r with
+          | RVal _ => ∃ s', l ↦ LitString s' ∗ demo_inv s' ∗ ⌜String.eqb s' "ready" = false⌝
+          | RExn lbl p => False
+          end)%I }}.
+  Proof.
+    iIntros "Hl _".
+    heap_store.
+    iExists "done". iFrame. iSplit.
+    - iPureIntro. right. reflexivity.    (* demo_inv "done" *)
+    - iPureIntro. reflexivity.           (* eqb "done" "ready" = false *)
+  Qed.
+
+  (* ---- LOOP: applies wp_while_str, FEEDING IN the body lemma --------
        c = ref "ready";
        while load(c) == "ready": store(c, "done")
-       result = load(c)        (* "done" *)
+       result = load(c)
      Postcondition: result = "done". *)
   Lemma demo_str_loop :
     ⊢ WPE
@@ -37,31 +64,23 @@ Section demo.
     iStartProof.
     heap_alloc.  (* fresh location l for c *)
     pure_step.   (* bind "c" *)
-    (* Focus the While via the outer Let "_" *)
     iApply (wp_bind_item (LetCtx "_" (Let "result" (Load (Val (LitLoc l))) (Var "result")))); [reflexivity|].
-    (* Apply the string-guard while lemma.  Single cell => trivial frame emp. *)
+    (* Apply the Hoare loop rule.  Initial invariant demo_inv "ready". *)
     iApply (wp_while_str l "ready" "ready"
               (Store (Val (LitLoc l)) (Val (LitString "done")))
-              emp (fun s' => ⌜s' = "done"⌝%string)%I _ with "[$] [] [] [] []").
-    - intros v. reflexivity.   (* Hbc: "_" not free in body *)
-    - (* Qfalse: Q s' = (s' = "done") entails guard "ready" falsified *)
-      intros s'. iIntros "%Hq". subst s'. iSplit; [done | done].
-    - done.                    (* Rpre = emp *)
-    - (* body spec: from l ↦ "ready", run [store(l,"done")] => l ↦ "done" *)
-      iIntros "Hl _".
-      heap_store.
-      iExists "done". iFrame. iPureIntro. reflexivity.
-    - (* closing wand (after body): Q s' gives s' = "done", reassemble *)
-      iIntros (s') "%Hq Hl".
-      subst s'.
+              demo_inv _ with "[$] [] [] []").
+    - intros v. reflexivity.            (* Hbc: "_" not free in body *)
+    - iPureIntro. left. reflexivity.    (* demo_inv "ready" *)
+    - (* body obligation: discharged by the NAMED lemma, no inline body proof *)
+      iApply demo_body_spec.
+    - (* closing wand: guard-false sf with demo_inv sf gives sf = "done" *)
+      iIntros (sf) "%Hsf Hl %Hinv".
+      assert (sf = "done") as ->.
+      { destruct Hinv as [-> | ->]; [discriminate Hsf | reflexivity]. }
       unfold bind_post; simpl.
-      pure_step.        (* sequencing _ : While returned LitUnit, into Let result *)
+      pure_step.        (* sequencing _ : While -> Let result *)
       heap_load.        (* result = load(c) = "done" *)
       pure_step.        (* bind result *)
       finish_pure.
-    - (* immediate-exit wand: guard was "ready" =? "ready" = true, so this
-         path is vacuous (Hf contradictory). *)
-      iIntros "%Hf Hl _".
-      simpl in Hf. discriminate Hf.
   Qed.
 End demo.
