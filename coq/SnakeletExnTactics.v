@@ -435,33 +435,45 @@ Section while_lemma.
       the body changes [c] away from the guard value, the well-founded
       measure (guard permanently false after one pass).
 
-      [Rpre]/[Rpost] are arbitrary frame resources (the OTHER heap cells
-      the body reads/writes), threaded through one body run.  The body only
-      runs when the guard is true ([s0 = g]); on the immediate-exit path
-      (guard already false) [Rpre] is handed straight to [Wpre].
+      [Rpre] is an arbitrary pre-frame resource (the OTHER heap cells the
+      body reads/writes before the run).  [Q : string -> iProp] is the
+      body-post predicate: after one body run the guard cell holds some
+      [s'] and [Q s'] holds -- [Q] captures BOTH the guard-falsification
+      ([String.eqb s' g = false], required for termination) AND any value
+      knowledge the postcondition needs (e.g. [s' = "fulfilled"] and the
+      other cells' final states).  The body must establish
+      [String.eqb s' g = false] inside [Q s'] for the second unfolding to
+      exit -- so [Qfalse] extracts it.
+
+      The body only runs when the guard is true ([s0 = g]); on the
+      immediate-exit path (guard already false) [Rpre] is handed straight
+      to the immediate-exit wand.
 
       Side condition [Hbc]: the desugaring binder ["_"] is not free in the
       body (callers discharge by [intros; reflexivity]). *)
   Lemma wp_while_str (l : loc) (s0 g : string) (body : sn_expr)
-      (Rpre Rpost : iProp Sigma) (Phi : Result -> iProp Sigma) :
+      (Rpre : iProp Sigma) (Q : string -> iProp Sigma)
+      (Phi : Result -> iProp Sigma) :
     (forall v, subst "_" v body = body) ->
+    (* [Q s'] must entail the guard is falsified (termination measure). *)
+    (forall s', Q s' -∗ ⌜String.eqb s' g = false⌝ ∗ Q s') ->
     l ↦ LitString s0 -∗
     Rpre -∗
     (* Body spec (only used when the guard is true): from [l ↦ g] plus the
-       pre-frame, one body run returns with the cell at some guard-false
-       [s'] plus the post-frame, or raises (then [Phi] already holds). *)
+       pre-frame, one body run returns with the cell at some [s'] and
+       [Q s'], or raises (then [Phi] already holds). *)
     (l ↦ LitString g -∗ Rpre -∗
         wp_exn body (fun r => match r with
-            | RVal _ => ∃ s', l ↦ LitString s' ∗ ⌜String.eqb s' g = false⌝ ∗ Rpost
+            | RVal _ => ∃ s', l ↦ LitString s' ∗ Q s'
             | RExn lbl p => Phi (RExn lbl p)
             end)) -∗
-    (* Closing wand after a body run (post-frame). *)
-    (∀ s', ⌜String.eqb s' g = false⌝ -∗ l ↦ LitString s' -∗ Rpost -∗ Phi (RVal LitUnit)) -∗
+    (* Closing wand after a body run: any [s'] with [Q s'] establishes Phi. *)
+    (∀ s', Q s' -∗ l ↦ LitString s' -∗ Phi (RVal LitUnit)) -∗
     (* Closing wand on the immediate-exit path (pre-frame, guard false). *)
     (⌜String.eqb s0 g = false⌝ -∗ l ↦ LitString s0 -∗ Rpre -∗ Phi (RVal LitUnit)) -∗
     WPE (While (BinOp EqOp (Load (Val (LitLoc l))) (Val (LitString g))) body) {{ Phi }}.
   Proof.
-    intros Hbc.
+    intros Hbc Qfalse.
     iIntros "Hc Hpre Hbody Hwand Hwand0".
     (* First unfolding: evaluate the guard on [s0]. *)
     iApply wp_while; iNext; simpl.
@@ -475,10 +487,11 @@ Section while_lemma.
       iPoseProof ("Hbody" with "Hpt2 Hpre") as "Hwp".
       iApply (wp_wand with "Hwp").
       iIntros (r) "Hr". destruct r as [vv | lbl p].
-      + (* body returned: cell at s' with guard false + post-frame.  Do the
-           SECOND unfolding -- the guard is now false so the loop exits.
-           No recursion / Loeb. *)
-        iDestruct "Hr" as (s') "(Hpt & %Hsf & Hrpost)".
+      + (* body returned: cell at s' with Q s'.  Extract the guard-false
+           fact from Q, do the SECOND unfolding -- the guard is now false so
+           the loop exits.  No recursion / Loeb. *)
+        iDestruct "Hr" as (s') "[Hpt HQ]".
+        iDestruct (Qfalse with "HQ") as "[%Hsf HQ]".
         iApply wp_let. iNext. simpl.
         rewrite (Hbc vv).
         iApply wp_while; iNext; simpl.
@@ -486,7 +499,7 @@ Section while_lemma.
         (* guard evaluates to LitBool (String.eqb s' g) = LitBool false *)
         rewrite Hsf. pure_step.  (* if false branch *)
         iRename select (_ ↦ _)%I into "Hpt3".
-        iApply wp_value. iApply ("Hwand" $! s' with "[//] Hpt3 Hrpost").
+        iApply wp_value. iApply ("Hwand" $! s' with "HQ Hpt3").
       + (* body raised: exception propagates, Phi already holds. *)
         iExact "Hr".
     - (* guard false: String.eqb s0 g = false, exit immediately. *)
