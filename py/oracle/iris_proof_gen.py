@@ -116,6 +116,32 @@ class WhileInv:
 
 
 @dataclass
+class WhileStr:
+    """String-guard while loop, proven via the wp_while_str Hoare rule.
+
+    Models [while load(c) == g: body] where the body STORES a non-[g] value
+    to the guard cell [c], so the loop runs the body at most once (guard
+    falsified).  No counter, no coinduction.
+
+    The body obligation is emitted as a SEPARATE named lemma
+    [<func>_body_spec_<id>] (proved standalone); the call site applies
+    wp_while_str and discharges the body via [iApply <func>_body_spec_<id>].
+
+    The path-dependent invariant [Inv s := (s = g \\/ s = final)] records
+    that the guard cell is either the guard value (start) or [final] (after
+    the body).  Combined with the guard-false exit it yields [s = final]."""
+    lemma_name: str            # e.g. fulfil_body_spec_0
+    guard_cell: str            # IR var name of the guard cell (e.g. "c_status")
+    guard_value: str           # the guard string literal (e.g. "ready")
+    final_value: str           # value the body stores to the guard cell (e.g. "fulfilled")
+    cond_coq: str              # Coq While condition
+    body_coq: str              # Coq While body
+    body_stages: list["StageNode"]  # per-iteration proof stages
+    other_cells: list[tuple[str, str, str]] = field(default_factory=list)
+    """Other heap cells the body writes: (cell_var, pre_value, post_value)."""
+
+
+@dataclass
 class ForList:
     """For-each loop over a list value, proven via wp_for_list or wp_for_list_forall.
 
@@ -160,7 +186,7 @@ def _make_forall_predicate(invariants: list[str], loop_var: str) -> str:
     return f"(fun (_ : sn_val) => True)"
 
 
-StageNode = Union[Stage, Branch, WhileInv, ForList]
+StageNode = Union[Stage, Branch, WhileInv, ForList, WhileStr]
 
 _BULLETS = ["-", "+", "*", "--", "++", "**"]
 
@@ -299,6 +325,42 @@ def _extract_while_bound(cond: SExpr) -> str:
     return "n"
 
 
+def _detect_string_guard(e: "SWhile") -> Optional[tuple[str, str]]:
+    """Detect a string-guard loop: while load(c) == "literal": ...
+
+    Returns (guard_cell, guard_value) if the condition is
+    [SBinOp(op="eq", left=SLoad(c), right=SLit(string))], else None."""
+    cond = e.cond
+    if (isinstance(cond, SBinOp) and cond.op == "eq"
+            and isinstance(cond.left, SLoad)
+            and isinstance(cond.right, SLit)
+            and cond.right.lit_type == "string"):
+        return (cond.left.loc, cond.right.value)
+    return None
+
+
+def _collect_body_stores(e: SExpr) -> list[tuple[str, str]]:
+    """Collect (cell, value) for every [store(cell, "literal")] in a loop body.
+
+    Walks the SExpr tree (SSeq / SLet bodies) gathering SStore nodes whose
+    value is a string literal.  Used to synthesise the guard cell's final
+    value and the other-cell frame for wp_while_str."""
+    out: list[tuple[str, str]] = []
+
+    def walk(n: SExpr) -> None:
+        if isinstance(n, SStore):
+            if isinstance(n.value, SLit) and n.value.lit_type == "string":
+                out.append((n.loc, n.value.value))
+        if isinstance(n, SSeq):
+            for x in n.exprs:
+                walk(x)
+        elif isinstance(n, SLet):
+            walk(n.value)
+            walk(n.body)
+    walk(e)
+    return out
+
+
 def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
          k, func_name: str = "", _inv_counter: list[int] | None = None,
          list_params: dict[str, str] | None = None,
@@ -372,6 +434,46 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
     if isinstance(e, SWhile):
         cond_stages = _gen(e.cond, table, overrides, lambda: [], func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
         body_stages = _gen(e.body, table, overrides, lambda: [], func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+
+        # String-guard loop: while load(c) == "literal": ...; store(c, ...)
+        # Terminates by falsifying the guard (wp_while_str), NOT a counter.
+        guard = _detect_string_guard(e)
+        if guard is not None:
+            guard_cell, guard_value = guard
+            stores = _collect_body_stores(e.body)
+            # The guard cell's final value: the last store to it in the body.
+            final_value = None
+            for cell, val in stores:
+                if cell == guard_cell:
+                    final_value = val
+            if final_value is None:
+                raise IrisGenError(
+                    f"string-guard while on '{guard_cell}' but the body never "
+                    f"stores to it; cannot prove the guard is falsified")
+            if final_value == guard_value:
+                raise IrisGenError(
+                    f"string-guard while on '{guard_cell}' stores the guard "
+                    f"value '{guard_value}' back; loop would not terminate")
+            # Other cells the body writes (cell, post_value); pre_value filled
+            # from the alloc later via overrides if available.
+            other = [(cell, "", val) for cell, val in stores
+                     if cell != guard_cell]
+            if _inv_counter is not None:
+                cid = _inv_counter[0]
+                _inv_counter[0] += 1
+            else:
+                cid = 0
+            lemma_name = f"{func_name}_body_spec_{cid}"
+            return [WhileStr(
+                lemma_name=lemma_name,
+                guard_cell=guard_cell,
+                guard_value=guard_value,
+                final_value=final_value,
+                cond_coq=e.cond.to_coq(),
+                body_coq=e.body.to_coq(),
+                body_stages=body_stages,
+                other_cells=other,
+            )]
 
         # Symbolic loop with invariants: generate the per-loop lemma.
         if e.invariants:
@@ -675,6 +777,101 @@ def _collect_while_invs_exn(stages: list[StageNode]) -> list[WhileInv]:
     return out
 
 
+def _while_str_inv_coq(ws: WhileStr) -> str:
+    """The path-dependent loop invariant for a string-guard loop.
+
+    [Inv s := (s = guard \\/ s = final)] for the guard cell, conjoined with
+    the other cells' post-state points-to (those are written unconditionally
+    in the body so they hold the post value once the body has run; in the
+    invariant we only need them framed, so we phrase them path-dependently
+    too).  Single-cell case: just the guard-value disjunction."""
+    g = ws.guard_value
+    f = ws.final_value
+    # Guard cell: starts at g, ends at f.  Both branches are guard-false-
+    # detectable: s = f gives eqb f g = false (f != g enforced at detection).
+    return f'(fun s => (⌜s = "{g}"%string \\/ s = "{f}"%string⌝)%I)'
+
+
+def _emit_while_str_lemma_exn(ws: WhileStr) -> str:
+    """Generate the NAMED body-obligation lemma for a string-guard loop.
+
+    This is the Hoare triple {l ↦ g * Inv g} body {∃ s', l ↦ s' * Inv s' *
+    eqb s' g = false}, proved standalone and consumed by wp_while_str at the
+    call site.  Single-cell (no other cells) for now."""
+    g = ws.guard_value
+    f = ws.final_value
+    # Substitute the guard cell variable with the lemma's [l] location.
+    body = ws.body_coq.replace(f'(Var "{ws.guard_cell}")', '(Val (LitLoc l))')
+    inv_pred = f'(⌜s = "{g}"%string \\/ s = "{f}"%string⌝)%I'
+
+    body_lines = _emit_stage_lines(ws.body_stages, 0, "      ")
+    body_proof = "\n".join(body_lines)
+
+    return f"""  Definition {ws.lemma_name}_inv (s : string) : iProp Sigma :=
+    {inv_pred}.
+
+  Lemma {ws.lemma_name} (l : loc) :
+    l ↦ LitString "{g}"%string -∗ {ws.lemma_name}_inv "{g}"%string -∗
+    WPE ({body})
+      {{{{ (fun r => match r with
+          | RVal _ => ∃ s', l ↦ LitString s' ∗ {ws.lemma_name}_inv s' ∗ ⌜String.eqb s' "{g}"%string = false⌝
+          | RExn lbl p => False
+          end)%I }}}}.
+  Proof.
+    iIntros "Hl _".
+{body_proof}
+    iExists "{f}"%string. iFrame. iSplit.
+    - iPureIntro. right. reflexivity.
+    - iPureIntro. reflexivity.
+  Qed."""
+
+
+def _collect_while_strs_exn(stages: list[StageNode]) -> list[WhileStr]:
+    """Walk the stage tree and collect all WhileStr nodes."""
+    out: list[WhileStr] = []
+    def walk(nodes: list[StageNode]) -> None:
+        for n in nodes:
+            if isinstance(n, WhileStr):
+                out.append(n)
+            elif isinstance(n, Branch):
+                for arm in n.arms:
+                    walk(arm)
+    walk(stages)
+    return out
+
+
+def _emit_while_str_stage_exn(ws: WhileStr, indent: str) -> list[str]:
+    """Emit the call-site proof applying wp_while_str + the body lemma.
+
+    Focuses the While via wp_bind_item, applies wp_while_str with the
+    synthesised invariant, discharges the body obligation by [iApply
+    <lemma>] (the named body lemma), and proves the closing wand (guard-
+    false + Inv => continuation)."""
+    g = ws.guard_value
+    f = ws.final_value
+    body = ws.body_coq.replace(f'(Var "{ws.guard_cell}")', '(Val (LitLoc l))')
+
+    lines: list[str] = []
+    lines.append(f'{indent}iApply (wp_bind_item (LetCtx "_" _)); [reflexivity|].')
+    lines.append(
+        f'{indent}iApply (wp_while_str l "{g}"%string "{g}"%string '
+        f'({body}) {ws.lemma_name}_inv _ with "[$] [] [] []").')
+    # Hbc: "_" not free in body
+    lines.append(f'{indent}{{ intros v. reflexivity. }}')
+    # initial invariant Inv g = (g = g \/ g = f) -> left
+    lines.append(f'{indent}{{ iPureIntro. left. reflexivity. }}')
+    # body obligation: the named lemma
+    lines.append(f'{indent}{{ iApply {ws.lemma_name}. }}')
+    # closing wand: guard-false sf + Inv sf => sf = f, then continuation
+    lines.append(
+        f'{indent}{{ iIntros (sf) "%Hsf Hl %Hinv". '
+        f'assert (sf = "{f}"%string) as ->; '
+        f'[ destruct Hinv as [-> | ->]; [discriminate Hsf | reflexivity] | ]. '
+        f'unfold bind_post; simpl. pure_step. heap_load. pure_step. '
+        f'finish_pure. }}')
+    return lines
+
+
 def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
     """Emit the call-site proof for a per-loop lemma.
 
@@ -722,6 +919,8 @@ def _emit_stage_lines(nodes: list[StageNode], depth: int,
                 lines.extend(arm_lines[1:])
         elif isinstance(n, WhileInv):
             lines.extend(_emit_while_inv_stage_exn(n, indent))
+        elif isinstance(n, WhileStr):
+            lines.extend(_emit_while_str_stage_exn(n, indent))
         elif isinstance(n, ForList):
             lines.extend(_emit_for_list_stage_exn(n, indent))
     return lines
@@ -880,6 +1079,10 @@ class IrisProof:
         # Emit per-loop lemmas for WhileInv nodes
         for wi in _collect_while_invs_exn(self.stages):
             parts.append(_emit_while_inv_lemma_exn(wi))
+            parts.append("")
+        # Emit named body-obligation lemmas for WhileStr (string-guard) nodes
+        for ws in _collect_while_strs_exn(self.stages):
+            parts.append(_emit_while_str_lemma_exn(ws))
             parts.append("")
         binders = "".join(f" ({p} : Z)" for p in self.params
                            if p not in self.list_params and p not in self.dict_params)

@@ -118,6 +118,37 @@ def test_string_postcondition():
     assert ok, f"Compilation failed:\n{out}"
 
 
+# -- Phase 4b: string-guard while loop (single cell) ----------------------
+
+
+def test_string_guard_while_single_cell():
+    """A string-guard loop that terminates by FALSIFYING the guard.
+
+        c = ref("ready")
+        while load(c) == "ready":
+            store(c, "done")     # falsifies the guard
+        result = load(c)         # "done"
+
+    Verified via the wp_while_str Hoare rule (no counter, no coinduction).
+    The generator emits a NAMED body-obligation lemma
+    [one_cell_body_spec_0] proving {l ↦ "ready" * Inv "ready"} body
+    {∃ s', l ↦ s' * Inv s' * guard-false}, then applies wp_while_str and
+    discharges the body with [iApply one_cell_body_spec_0].  The path-
+    dependent invariant [Inv s := s = "ready" \\/ s = "done"] plus the
+    guard-false exit yields [result == "done"]."""
+    src = """def one_cell(x: int) -> str:
+    assert x > 0
+    c = ref("ready")
+    while load(c) == "ready":
+        store(c, "done")
+    result = load(c)
+    assert result == "done"
+    return result
+"""
+    ok, out = _verify(src, "one_cell")
+    assert ok, f"Compilation failed:\n{out}"
+
+
 # -- Phase 5: multi-cell while loop ---------------------------------------
 
 
