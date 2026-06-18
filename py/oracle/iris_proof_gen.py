@@ -125,11 +125,17 @@ _IRIS_STR_INDEX = SReturn(value=SLit(lit_type="int", value="0"))
 
 
 IRIS_BUILTINS: FunTable = {
-    # String operations (mock implementations — real bodies via String lib)
-    "s.startswith": _IRIS_STRING_COPY,
-    "s.endswith": _IRIS_STRING_COPY,
-    "s.lower": _IRIS_STRING_COPY,
-    "s.upper": _IRIS_STRING_COPY,
+    # String operations
+    "s.startswith": TransparentDef(
+        params=["s", "p"],
+        body=SBinOp(op="starts_with", left=SVar(name="s"),
+                    right=SVar(name="p"))),
+    "s.endswith": TransparentDef(
+        params=["s", "p"],
+        body=SBinOp(op="ends_with", left=SVar(name="s"),
+                    right=SVar(name="p"))),
+    "s.lower": _IRIS_STRING_COPY,  # (real impl needs case-lowering Fixpoint)
+    "s.upper": _IRIS_STRING_COPY,  # (real impl needs case-raising Fixpoint)
     # Dict operations
     "d.get": TransparentDef(
         params=["d", "k", "default"],

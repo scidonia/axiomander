@@ -63,7 +63,7 @@ Inductive sn_val :=
 Inductive binop := AddOp | SubOp | MulOp | DivOp | EqOp | LeOp | LtOp | GtOp | GeOp
   | AndOp | OrOp | NeOp | ModOp | InOp | LenOp | UnionOp | InterOp
   | AppendOp | LengthOp | DictGetOp | DictGetIntOp | MkKeyErrOp | SetAddOp
-  | StrIndexOp.
+  | StrIndexOp | StartsWithOp | EndsWithOp.
 
 Inductive sn_expr :=
   | Val (v : sn_val)
@@ -374,6 +374,14 @@ Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
       | EqOp  => LitBool (String.eqb s1 s2)
       | NeOp  => LitBool (negb (String.eqb s1 s2))
       | LenOp => LitInt (Z.of_nat (String.length s1))
+      | StartsWithOp => LitBool (String.prefix s2 s1)
+      | EndsWithOp =>
+          let l1 := String.length s1 in
+          let l2 := String.length s2 in
+          if Nat.leb l2 l1
+          then LitBool (String.prefix s2
+                          (String.substring (Nat.sub l1 l2) l2 s1))
+          else LitBool false
       | _ => LitUnit
       end
   | LitString s, v =>
