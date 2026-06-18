@@ -44,8 +44,8 @@ from oracle.py_ir import (
 )
 from oracle.py_ir_translator import PyIRTranslator
 from oracle.snakelet_ir import (
-    SAlloc, SApp, SBinOp, SDictGet, SDictSet, SExpr, SIf, SLet, SLit, SLoad, SRaise, SReturn, SStore,
-    STry, SVar, SWhile, SFor,
+    SAlloc, SApp, SBinOp, SDictGet, SDictSet, SExpr, SIf, SLet, SLit, SLoad, SRaise, SReturn, SSeq,
+    SStore, STry, SVar, SWhile, SFor,
 )
 
 # Binops supported by SnakeletLang's binop_eval on integers.
@@ -335,6 +335,76 @@ def _extract_while_invariants(stmts: list[ast.stmt], acc: list[list[str]],
                 _extract_while_invariants(h.body, acc, linter, lm)
 
 
+def _rewrite_body(e: SExpr, counter_var: str, fresh_loc: str) -> SExpr:
+    """Rewrite var refs to Load(loc) and SLet(var=...) to Store(loc,...)."""
+    if isinstance(e, SVar) and e.name == counter_var:
+        return SLoad(loc=fresh_loc)
+    if isinstance(e, SLet):
+        if e.var == counter_var:
+            return SLet(var="_",
+                       value=SStore(loc=fresh_loc,
+                                     value=_rewrite_body(e.value, counter_var, fresh_loc)),
+                       body=_rewrite_body(e.body, counter_var, fresh_loc))
+        return SLet(var=e.var,
+                    value=_rewrite_body(e.value, counter_var, fresh_loc),
+                    body=_rewrite_body(e.body, counter_var, fresh_loc))
+    if isinstance(e, SBinOp):
+        return SBinOp(op=e.op,
+                     left=_rewrite_body(e.left, counter_var, fresh_loc),
+                     right=_rewrite_body(e.right, counter_var, fresh_loc))
+    if isinstance(e, SIf):
+        return SIf(cond=_rewrite_body(e.cond, counter_var, fresh_loc),
+                  then_branch=_rewrite_body(e.then_branch, counter_var, fresh_loc),
+                  else_branch=_rewrite_body(e.else_branch, counter_var, fresh_loc))
+    if isinstance(e, SSeq):
+        return SSeq(exprs=[_rewrite_body(se, counter_var, fresh_loc) for se in e.exprs])
+    if isinstance(e, SReturn):
+        return SReturn(value=_rewrite_body(e.value, counter_var, fresh_loc))
+    return e
+
+
+def _promote_counter(cond: SExpr, body: SExpr, lw) \
+        -> Optional[tuple[str, str, SExpr, SExpr]]:
+    """Detect [while var < bound: ...] and rewrite to heap counter."""
+    if not (isinstance(cond, SBinOp) and cond.op == "lt"
+            and isinstance(cond.left, SVar)):
+        return None
+    counter_var = cond.left.name
+    fresh_loc = "l"
+    heap_cond = SBinOp(op="lt",
+                       left=SLoad(loc=fresh_loc),
+                       right=cond.right)
+    # Only promote symbolic bounds.  Concrete literal bounds are handled
+    # by _unroll_count (the old path).  Also skip when invariants reference
+    # the counter (invariant rewriting is future work).
+    if isinstance(cond.right, SLit) and cond.right.lit_type == "int":
+        return None
+    heap_body = _rewrite_body(body, counter_var, fresh_loc)
+    if not _contains_store_of(heap_body, fresh_loc):
+        return None
+    return (counter_var, fresh_loc, heap_body, heap_cond)
+
+
+def _contains_store_of(e: SExpr, loc: str) -> bool:
+    if isinstance(e, SStore) and e.loc == loc:
+        return True
+    if isinstance(e, SLet):
+        return (_contains_store_of(e.value, loc)
+                or _contains_store_of(e.body, loc))
+    if isinstance(e, SBinOp):
+        return (_contains_store_of(e.left, loc)
+                or _contains_store_of(e.right, loc))
+    if isinstance(e, SSeq):
+        return any(_contains_store_of(se, loc) for se in e.exprs)
+    if isinstance(e, SIf):
+        return (_contains_store_of(e.cond, loc)
+                or _contains_store_of(e.then_branch, loc)
+                or _contains_store_of(e.else_branch, loc))
+    if isinstance(e, SReturn):
+        return _contains_store_of(e.value, loc)
+    return False
+
+
 def _fold(stmts: list[PyStmt], lw: IrisLowerer,
            invs_iter: "object | None" = None) -> SExpr:
     """..."""
@@ -400,8 +470,26 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
         invs = next_invs()
         body = _fold(list(s.body), lw, invs_iter=invs_iter)
         rest_e = _fold(rest, lw, invs_iter=invs_iter)
+        # Promote pure-counter loops to heap cells
+        promoted = _promote_counter(cond, body, lw)
+        if promoted is not None:
+            counter_var, fresh_loc, heap_body, heap_cond = promoted
+            # Skip promotion when there are loop invariants referencing
+            # the counter variable — they aren't rewritten (later phase).
+            if invs and any(counter_var in inv for inv in invs):
+                promoted = None
+        if promoted is not None:
+            counter_var, fresh_loc, heap_body, heap_cond = promoted
+            heap_rest = _rewrite_body(rest_e, counter_var, fresh_loc)
+            return SLet(var="l",
+                        value=SAlloc(value=SLit(lit_type="int", value="0")),
+                        body=SLet(var="_",
+                                  value=SWhile(cond=heap_cond,
+                                                body=heap_body,
+                                                invariants=invs),
+                                  body=heap_rest))
         return SLet(var="_", value=SWhile(cond=cond, body=body,
-                                          invariants=invs),
+                                           invariants=invs),
                     body=rest_e)
 
     if isinstance(s, PyExprStmt):

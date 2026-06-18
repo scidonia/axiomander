@@ -942,3 +942,19 @@ def wrong_result(p: Point) -> Point:
     return result
 ''', table=_builtins_table(), func_name="wrong_result")
     assert not ok, "result.x == 0 should be rejected when p.x >= 0"
+
+
+# -- Pure-counter while loops (heap promotion) ---------------------------
+
+def test_while_symbolic_bound():
+    """while i < n: i = i + 1 with symbolic bound verified via heap promotion."""
+    ok, out = verify_exn('''
+def count_up(n: int):
+    assert n >= 0
+    i = 0
+    while i < n:
+        i += 1
+    result = i
+    return result
+''', table=_builtins_table(), func_name="count_up")
+    assert ok, out
