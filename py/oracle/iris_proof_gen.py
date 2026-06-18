@@ -930,18 +930,43 @@ def _emit_while_inv_lemma_exn(wi: WhileInv) -> str:
 
     extra_ih_vars = (" " + " ".join(f"a_{i}" for i in range(len(extra)))) if extra else ""
     extra_ih_args = (" " + " ".join(["_"] * len(extra))) if extra else ""
+
+    # -- Loop invariants: pure premises (only for promoted loops) --
+    inv_names: list[str] = []
+    inv_premises: list[str] = []
+    # Only add invariant premises for promoted loops (cell == "l").
+    # Old heap-counter loops use explicit ref/load/store and their
+    # invariants reference the heap cell directly.
+    is_promoted = (cell == "l")
+    if is_promoted and wi.invariants:
+        for j, inv in enumerate(wi.invariants):
+            name = f"Hinv{j}"
+            inv_names.append(name)
+            inv_premises.append(f"⌜({inv})⌝ -∗")
+    inv_premise_block = "    " + "\n    ".join(inv_premises) if inv_premises else ""
+
     if extra:
-        intro_pat = f'"({" & ".join(["H" + cell] + ["H" + ec for ec in extra])}) %Hz Hwand"'
-        destructs = ""
-        extra_ih_wrap = ""
+        extra_intro = " & ".join(["H" + cell] + ["H" + ec for ec in extra])
+        pure_intros = " ".join(["%Hz"] + [f"%{n}" for n in inv_names])
+        intro_pat = f'"({extra_intro}) {pure_intros} Hwand"'
     else:
-        intro_pat = f'"H{cell} %Hz Hwand"'
-        destructs = ""
-        extra_ih_wrap = ""
+        pure_intros = " ".join(["%Hz"] + [f"%{n}" for n in inv_names])
+        intro_pat = f'"H{cell} {pure_intros} Hwand"'
+
+    destructs = ""
+
+    # IH call: inv_provide has [] slots for each invariant
+    inv_provide = "".join([" []"] * len(inv_names))
+    inv_subgoals = ""
+    if inv_names:
+        for j in range(len(inv_names)):
+            inv_subgoals += f"      {{ iPureIntro. snakelet_pure_hyps. try lia. }}\n"
+
     return f"""  Lemma {wi.lemma_name} {cell_params} (bound : Z) (z : Z) {extra_params}
       (Phi : Result -> iProp Sigma) :
     {pts_premise} -∗
     ⌜Z.le z bound⌝ -∗
+{inv_premise_block}
     ({cont_premise}) -∗
     WPE (While ({cond}) ({body})) {{{{ Phi }}}}.
   Proof.
@@ -955,9 +980,9 @@ def _emit_while_inv_lemma_exn(wi: WhileInv) -> str:
 {body_proof}
       pure_step.  (* sequencing _ *)
       iApply ("IH" $! (z + 1)%Z{extra_ih_args} Phi
-        with "[$] [] Hwand").
+        with "[$] []{inv_provide} Hwand").
       {{ iPureIntro. apply (proj2 (Z.le_succ_l z bound)). exact Hcond. }}
-    - snakelet_pure_hyps.
+{inv_subgoals}    - snakelet_pure_hyps.
       assert (z = bound) by lia. subst z.
       pure_step.
       iApply wp_value. iApply "Hwand". iFrame.
@@ -1102,9 +1127,21 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
     cell_args = ("l " + " ".join(list(wi.extra_cells))) if wi.extra_cells else "l"
     extra_zeros = " ".join(["0"] * len(wi.extra_cells))
     zeros_args = (" " + extra_zeros) if extra_zeros else ""
+
+    # Invariant premises: only for promoted loops (cell == "l")
+    is_promoted = (wi.cell_name == "l")
+    inv_with_args = ""
+    inv_blocks = ""
+    if is_promoted and wi.invariants:
+        for j in range(len(wi.invariants)):
+            inv_with_args += " []"
+            inv_blocks += f'{indent}{{ iPureIntro. lia. }}\n'
+
     lines.append(
-        f'{indent}iApply ({wi.lemma_name} {cell_args} {bound} 0{zeros_args} _ with "[$] []").')
+        f'{indent}iApply ({wi.lemma_name} {cell_args} {bound} 0{zeros_args} _ with "[$] []{inv_with_args}").')
     lines.append(f'{indent}{{ iPureIntro. lia. }}')
+    if inv_blocks:
+        lines.append(inv_blocks.rstrip('\n'))
     extra = wi.extra_cells
     if extra:
         qi = " ".join(f"a_{i}" for i in range(len(extra)))
@@ -1137,9 +1174,21 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
     cell_args = ("l " + " ".join(list(wi.extra_cells))) if wi.extra_cells else "l"
     extra_zeros = " ".join(["0"] * len(wi.extra_cells))
     zeros_args = (" " + extra_zeros) if extra_zeros else ""
+
+    # Invariant premises: only for promoted loops (cell == "l")
+    is_promoted = (wi.cell_name == "l")
+    inv_with_args = ""
+    inv_blocks = ""
+    if is_promoted and wi.invariants:
+        for j in range(len(wi.invariants)):
+            inv_with_args += " []"
+            inv_blocks += f'{indent}{{ iPureIntro. lia. }}\n'
+
     lines.append(
-        f'{indent}iApply ({wi.lemma_name} {cell_args} {bound} 0{zeros_args} _ with "[$] []").')
+        f'{indent}iApply ({wi.lemma_name} {cell_args} {bound} 0{zeros_args} _ with "[$] []{inv_with_args}").')
     lines.append(f'{indent}{{ iPureIntro. lia. }}')
+    if inv_blocks:
+        lines.append(inv_blocks.rstrip('\n'))
     extra = wi.extra_cells
     if extra:
         qi = " ".join(f"a_{i}" for i in range(len(extra)))
