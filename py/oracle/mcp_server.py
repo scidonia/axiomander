@@ -5403,8 +5403,14 @@ def main():
         rid = request.get("id")
         method = request.get("method", "")
 
+        # Notifications have no "id" — must not send a response
+        if rid is None:
+            continue
+
         if method == "initialize":
             res = handle_initialize(request.get("params", {}))
+        elif method == "ping":
+            res = {}
         elif method == "tools/list":
             res = handle_list_tools()
         elif method == "tools/call":
@@ -5412,7 +5418,7 @@ def main():
         else:
             sys.stdout.write(json.dumps({
                 "jsonrpc": "2.0", "id": rid,
-                "error": {"code": -32601, "message": f"Unknown: {method}"}
+                "error": {"code": -32601, "message": f"Unknown method: {method}"}
             }) + "\n")
             sys.stdout.flush()
             continue
