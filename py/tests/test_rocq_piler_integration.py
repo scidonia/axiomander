@@ -8,6 +8,11 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
+# Every test in this module invokes the full Coq toolchain.
+pytestmark = [pytest.mark.slow]
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "py"))
 

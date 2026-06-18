@@ -6,6 +6,9 @@ import pytest
 import oracle.mcp_server as mcp
 from oracle.client import load_config
 
+# Every test in this module invokes the full Coq toolchain.
+pytestmark = [pytest.mark.slow]
+
 
 def _fresh_frame_two_calls_source() -> tuple[str, str]:
     suffix = uuid.uuid4().hex[:8]

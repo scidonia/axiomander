@@ -29,6 +29,11 @@ include = ["py", "py.*"]
 [tool.uv.sources]
 coqpyt = { git = "https://github.com/sr-lab/coqpyt.git" }
 
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests that invoke the full Coq toolchain (deselect with -m 'not slow')",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
