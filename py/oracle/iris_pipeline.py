@@ -49,7 +49,7 @@ from oracle.snakelet_ir import (
 )
 
 # Binops supported by SnakeletLang's binop_eval on integers.
-_SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge", "ne", "mod", "and", "or", "in", "append", "length"}
+_SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge", "ne", "mod", "and", "or", "in", "append", "length", "set_add"}
 
 
 # -- Contract extraction ----------------------------------------------------
@@ -534,10 +534,12 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
         if rhs is None:
             raise IrisGenError(
                 f"cannot lower assignment to '{s.target}'")
-        # Mutable empty collections need heap allocation
-        if isinstance(rhs, SLit) and rhs.lit_type in ("list", "dict", "set"):
+        # Mutable empty collections need heap allocation (sets are value types)
+        if isinstance(rhs, SLit) and rhs.lit_type in ("list", "dict"):
             if not rhs.elements:
                 rhs = SAlloc(value=rhs)
+        if isinstance(rhs, SLit) and rhs.lit_type == "set":
+            lw._set_vars.add(s.target)
         if not rest:
             return SLet(var=s.target, value=rhs, body=SVar(name=s.target))
         return SLet(var=s.target, value=rhs, body=_fold(rest, lw, invs_iter=invs_iter))
@@ -613,14 +615,11 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
         val = lw.lower_expr(s.expr)
         if val is None:
             raise IrisGenError("cannot lower expression statement")
-        # Value-type list append: SBinOp("append", SVar(xs), v) where xs
-        # is a list param.  The append produces a new value that the
-        # lowerer has already renamed; emit an SLet binding so subsequent
-        # code sees the updated list (SSA-style rebinding).
-        if (isinstance(val, SBinOp) and val.op == "append"
+        # Value-type list/set mutation: SBinOp("append"/"set_add", SVar(xs), v)
+        if (isinstance(val, SBinOp) and val.op in ("append", "set_add")
                 and isinstance(val.left, SVar)):
             root = lw._rename_root.get(val.left.name, val.left.name)
-            if root in lw._list_params:
+            if root in lw._list_params or root in lw._set_vars:
                 fresh = lw._var_renames.get(root, root)
                 # Discard the original expression's sv (it's a diagnostic
                 # node); the body uses the fresh var name.

@@ -38,6 +38,7 @@ class IrisLowerer:
         self._param_types = param_types or {}
         self._dict_params = dict_params or set()
         self._list_params = list_params or set()
+        self._set_vars: set[str] = set()   # local variables assigned a set literal
         self._vc = 0
         self._pure_conditions: list[SPure] = []
         self._var_renames: dict[str, str] = {}  # Py name → current IR name (SSA)
@@ -206,7 +207,13 @@ class IrisLowerer:
             if isinstance(arg, PyName) and v is not None:
                 return SStore(loc=arg.name, value=v)
 
-        # -- isinstance(...) --
+        # -- Collection constructors: set() / list() / dict() --
+        if expr.func == "set" and not expr.args:
+            return SLit(lit_type="set", value="{}")
+        if expr.func == "list" and not expr.args:
+            return SLit(lit_type="list", value="[]")
+        if expr.func == "dict" and not expr.args:
+            return SLit(lit_type="dict", value="{}")
         if expr.func == "isinstance" and len(expr.args) == 2:
             type_arg = expr.args[1]
             type_name = None
@@ -237,22 +244,22 @@ class IrisLowerer:
             parts = expr.func.rsplit(".", 1)
             obj_name = parts[0]
             method = parts[1]
-            if method == "append":
+            if method in ("append", "add"):
                 v = self.lower_expr(expr.args[0]) if expr.args else None
                 if v is None:
                     return None
+                op_name = "set_add" if method == "add" else "append"
                 # Value-type param (list/dict/set/tuple): compute new value
-                # via AppendOp and rebind the variable for subsequent code.
-                # The _lower_body pass wraps the rest-of-body in the SLet
-                # so the new binding is visible to all later statements.
+                # via AppendOp/SetAddOp and rebind the variable for subsequent code.
                 if (obj_name in self._list_params
+                        or obj_name in self._set_vars
                         or self._param_types.get(obj_name) in
                         ("list", "dict", "set", "tuple", "str", "string")):
-                    old_name = self._current_var(obj_name)  # name before rebind
+                    old_name = self._current_var(obj_name)
                     fresh = self._fresh_var(obj_name)
                     self._var_renames[obj_name] = fresh
                     self._rename_root[fresh] = obj_name
-                    return SBinOp(op="append",
+                    return SBinOp(op=op_name,
                                   left=SVar(name=old_name), right=v)
                 # Heap-allocated list: load, append, store.
                 tmp_var = self._fresh_var("_ap")
@@ -338,9 +345,13 @@ class IrisLowerer:
         val = self.lower_expr(stmt.value)
         if val is None:
             return None
-        # Mutable collections (empty lists/dicts/sets) need heap allocation
+        # Mutable collections (empty lists/dicts) need heap allocation
         # so that append / len / subscript work via load/store.
-        if isinstance(val, SLit) and val.lit_type in ("list", "dict", "set"):
+        # Sets are value types (in/add work via binop_eval directly).
+        if isinstance(val, SLit) and val.lit_type == "set":
+            self._set_vars.add(stmt.target)
+            return SLet(var=stmt.target, value=val, body=SVar(stmt.target))
+        if isinstance(val, SLit) and val.lit_type in ("list", "dict"):
             if not val.elements:  # empty → need allocation
                 val = SAlloc(value=val)
             else:
