@@ -414,14 +414,15 @@ def _promote_locals(cond: SExpr, body: SExpr, lw) \
     # Must include the counter variable
     if counter_var not in assigned:
         return None
-    # Allocate fresh heap cell names: counter gets "l", others get "l_0", "l_1", ...
+    # Allocate fresh heap cell names matching heap_alloc's fresh "l" pattern:
+    # counter gets "l", subsequent cells get "l0", "l1", ...
     cells: list[tuple[str, str]] = []  # (py_name, cell_name)
     extra_count = 0
     for v in sorted(assigned):
         if v == counter_var:
             cells.append((v, "l"))
         else:
-            cells.append((v, f"l_{extra_count}"))
+            cells.append((v, f"l{extra_count}"))
             extra_count += 1
     # Build cell_name → py_name map for rewriting
     cell_of = {py: cl for py, cl in cells}
@@ -599,7 +600,7 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
                                             body=heap_body,
                                             invariants=invs),
                               body=heap_rest)
-            for py_name, cell_name in reversed(cells):
+            for py_name, cell_name in cells:
                 alloc_body = SLet(var=cell_name,
                                   value=SAlloc(value=SLit(lit_type="int", value="0")),
                                   body=alloc_body)

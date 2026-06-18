@@ -908,25 +908,30 @@ def _emit_while_inv_lemma_exn(wi: WhileInv) -> str:
 
     # Points-to premise: l_counter ↦ LitInt z ∗ l_extra ↦ LitInt a_extra ...
     pts_premise = f"{cell} ↦ LitInt z"
-    for ec in extra:
-        pts_premise += f" ∗ (∃ v_{ec}, {ec} ↦ LitInt v_{ec})"
-
-    # Continuation premise and extra parameters
     extra_params = ""
+    for i, ec in enumerate(extra):
+        pts_premise += f" ∗ {ec} ↦ LitInt a_{i}"
+        extra_params += f" (a_{i} : Z)"
+
     if extra:
-        extra_cont = " ∗ ".join([f"(∃ v_{ec}, {ec} ↦ LitInt v_{ec})" for ec in extra])
-        cont_premise = f"{cell} ↦ LitInt bound ∗ {extra_cont} -∗ Phi (RVal LitUnit)"
+        cont_premise = f"∀ {' '.join(f'a_{i}' for i in range(len(extra)))}, "
+        cont_premise += f"{cell} ↦ LitInt bound"
+        for i, ec in enumerate(extra):
+            cont_premise += f" ∗ {ec} ↦ LitInt a_{i}"
+        cont_premise += f" -∗ Phi (RVal LitUnit)"
     else:
         cont_premise = f"{cell} ↦ LitInt bound -∗ Phi (RVal LitUnit)"
 
+    extra_ih_vars = (" " + " ".join(f"a_{i}" for i in range(len(extra)))) if extra else ""
+    extra_ih_args = (" " + " ".join(["_"] * len(extra))) if extra else ""
     if extra:
         intro_pat = f'"[{" ".join(["H" + cell] + ["H" + ec for ec in extra])}] %Hz Hwand"'
-        destructs = "".join(
-            f'iDestruct "H{ec}" as (v_{ec}) "H{ec}".\n    '
-            for ec in extra)
+        destructs = ""
+        extra_ih_wrap = ""
     else:
         intro_pat = f'"H{cell} %Hz Hwand"'
         destructs = ""
+        extra_ih_wrap = ""
     return f"""  Lemma {wi.lemma_name} {cell_params} (bound : Z) (z : Z) {extra_params}
       (Phi : Result -> iProp Sigma) :
     {pts_premise} -∗
@@ -934,7 +939,7 @@ def _emit_while_inv_lemma_exn(wi: WhileInv) -> str:
     ({cont_premise}) -∗
     WPE (While ({cond}) ({body})) {{{{ Phi }}}}.
   Proof.
-    iLöb as "IH" forall (z Phi).
+    iLöb as "IH" forall (z{extra_ih_vars} Phi).
     iIntros {intro_pat}.
     {destructs}iApply wp_while; iNext; simpl.
     heap_load. pure_step. case_bool.
@@ -943,7 +948,7 @@ def _emit_while_inv_lemma_exn(wi: WhileInv) -> str:
       iRename select (_ ↦ _)%I into "Hpt".
 {body_proof}
       pure_step.  (* sequencing _ *)
-      iApply ("IH" $! (z + 1)%Z Phi
+      iApply ("IH" $! (z + 1)%Z{extra_ih_args} Phi
         with "[$] [] Hwand").
       {{ iPureIntro. apply (proj2 (Z.le_succ_l z bound)). exact Hcond. }}
     - snakelet_pure_hyps.
@@ -1066,7 +1071,7 @@ def _extract_extra_cells(body_coq: str, counter_cell: str) -> list[str]:
     """Find extra heap cell variable names in the body expression."""
     import re
     out: list[str] = []
-    for m in re.finditer(r'Var\s+"(l(?:_\d+)?)"', body_coq):
+    for m in re.finditer(r'Var\s+"(l\d*)"', body_coq):
         v = m.group(1)
         if v != counter_cell and v not in out:
             out.append(v)
@@ -1089,14 +1094,16 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
     lines.append(f'{indent}iApply (wp_bind_item (LetCtx "_" _)); '
                  f'[reflexivity|].')
     cell_args = " ".join([wi.cell_name] + list(wi.extra_cells))
+    extra_zeros = " ".join(["0"] * len(wi.extra_cells))
+    zeros_args = (" " + extra_zeros) if extra_zeros else ""
     lines.append(
-        f'{indent}iApply ({wi.lemma_name} {cell_args} {bound} 0 _ with "[$] []").')
+        f'{indent}iApply ({wi.lemma_name} {cell_args} {bound} 0{zeros_args} _ with "[$] []").')
     lines.append(f'{indent}{{ iPureIntro. lia. }}')
     extra = wi.extra_cells
     if extra:
         qi = " ".join(f"a_{i}" for i in range(len(extra)))
         cells_hyps = " ".join([f"H{wi.cell_name}"] + [f"H{ec}" for ec in extra])
-        post_loop = (f'{indent}{{ iIntros ({qi}) "{cells_hyps}". '
+        post_loop = (f'{indent}{{ iIntros ({qi}) "[{cells_hyps}]". '
                      f'unfold bind_post; simpl. pure_step. '
                      f'heap_load. pure_step. finish_pure. }}')
     else:
@@ -1122,14 +1129,16 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
 
     # Build lemma application with all cell arguments and extra param zeros
     cell_args = " ".join([wi.cell_name] + list(wi.extra_cells))
+    extra_zeros = " ".join(["0"] * len(wi.extra_cells))
+    zeros_args = (" " + extra_zeros) if extra_zeros else ""
     lines.append(
-        f'{indent}iApply ({wi.lemma_name} {cell_args} {bound} 0 _ with "[$] []").')
+        f'{indent}iApply ({wi.lemma_name} {cell_args} {bound} 0{zeros_args} _ with "[$] []").')
     lines.append(f'{indent}{{ iPureIntro. lia. }}')
     extra = wi.extra_cells
     if extra:
         qi = " ".join(f"a_{i}" for i in range(len(extra)))
         cells_hyps = " ".join([f"H{wi.cell_name}"] + [f"H{ec}" for ec in extra])
-        post_loop = (f'{indent}{{ iIntros ({qi}) "{cells_hyps}". '
+        post_loop = (f'{indent}{{ iIntros ({qi}) "[{cells_hyps}]". '
                      f'unfold bind_post; simpl. pure_step. '
                      f'heap_load. pure_step. finish_pure. }}')
     else:
