@@ -203,12 +203,16 @@ class WhileInv:
     reshape_expr + wp_bind + lemma application.
     """
     lemma_name: str            # e.g. loop_inv_foo_0
-    cell_name: str             # e.g. "c" (IR variable name)
+    cell_name: str             # e.g. "l_i" (IR variable name for counter cell)
     bound_expr: str            # Coq expression for the bound (e.g. "LitInt n" or "n")
     cond_coq: str              # Coq While condition expression
     body_coq: str              # Coq While body expression
     invariants: list[str]      # Coq Props (from contract asserts)
     body_stages: list["StageNode"] = field(default_factory=list)  # per-iteration proof
+    order_hint: str = ""       # "ascending" or "descending"
+    pure_counter: bool = False  # True if counter is a local var (no heap)
+    extra_cells: list[str] = field(default_factory=list)
+    """Additional heap cell variable names tracked through the loop."""
     order_hint: str = ""       # "ascending" or "descending"
     pure_counter: bool = False  # True if counter is a local var (no heap)
 
@@ -636,6 +640,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
             else:
                 cid = 0
             lemma_name = f"loop_inv_{func_name}_{cid}"
+            extra_cells = _extract_extra_cells(body_coq, cell_name)
             return [WhileInv(
                 lemma_name=lemma_name,
                 cell_name=cell_name,
@@ -644,6 +649,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 body_coq=body_coq,
                 invariants=e.invariants,
                 body_stages=body_stages,
+                extra_cells=extra_cells,
             )]  # continuation handled by inferred Phi -- no k()
 
         def flat(nodes: list[StageNode], what: str) -> list[str]:
@@ -701,6 +707,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 body_coq=body_coq,
                 invariants=[],
                 body_stages=body_stages,
+                extra_cells=_extract_extra_cells(body_coq, cell_name),
             )]
         else:
             # Pure loop with a literal bound: unroll N times.
@@ -748,6 +755,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 body_coq=body_coq,
                 invariants=[],
                 body_stages=body_stages,
+                extra_cells=_extract_extra_cells(body_coq, cell_name),
             )]
 
     if isinstance(e, SFor):
@@ -868,42 +876,75 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
 def _emit_while_inv_lemma_exn(wi: WhileInv) -> str:
     """Generate a per-loop Coq lemma for a specific while-loop shape.
 
-    The lemma proves the Loeb induction for the given condition and body,
-    using the body stages (wi.body_stages) as the per-iteration proof.
-    The call site applies it with wp_bind_item focus + iApply."""
+    Supports multiple heap cells (wi.extra_cells) for loops that modify
+    several local variables.  The counter cell takes [z]/[bound]; other
+    cells carry through with existential final values."""
     bound = wi.bound_expr
     if bound.startswith("LitInt "):
         bound_val = bound[len("LitInt "):].strip()
     else:
         bound_val = bound
 
-    # Substitute the original cell variable with [Val (LitLoc l)] and
-    # the bound with [bound] so the per-loop lemma is self-contained.
     cell = wi.cell_name
-    cond = wi.cond_coq.replace(f'(Var "{cell}")', '(Val (LitLoc l))')
+    extra = wi.extra_cells or []
+
+    # String-substitute cell variable names with Coq [Val (LitLoc l_...)]
+    # in the condition and body.
+    cond = wi.cond_coq.replace(f'(Var "{cell}")', f'(Val (LitLoc {cell}))')
     cond = cond.replace(f'(Val (LitInt {bound_val}))', '(Val (LitInt bound))')
-    body = wi.body_coq.replace(f'(Var "{cell}")', '(Val (LitLoc l))')
+    body = wi.body_coq.replace(f'(Var "{cell}")', f'(Val (LitLoc {cell}))')
     body = body.replace(f'(Val (LitInt {bound_val}))', '(Val (LitInt bound))')
+    for ec in extra:
+        cond = cond.replace(f'(Var "{ec}")', f'(Val (LitLoc {ec}))')
+        body = body.replace(f'(Var "{ec}")', f'(Val (LitLoc {ec}))')
 
     body_lines = _emit_stage_lines(wi.body_stages, 0, "      ")
     body_proof = "\n".join(body_lines)
 
-    return f"""  Lemma {wi.lemma_name} (l : loc) (bound : Z) (z : Z) (Phi : Result -> iProp Sigma) :
-    l ↦ LitInt z -∗
+    # Cell parameter list: (l_counter : loc) (l_extra : loc) ...
+    cell_params = f"({cell} : loc)"
+    for ec in extra:
+        cell_params += f" ({ec} : loc)"
+
+    # Points-to premise: l_counter ↦ LitInt z ∗ l_extra ↦ LitInt a_extra ...
+    pts_premise = f"{cell} ↦ LitInt z"
+    for ec in extra:
+        pts_premise += f" ∗ (∃ v_{ec}, {ec} ↦ LitInt v_{ec})"
+
+    # Continuation premise and extra parameters
+    extra_params = ""
+    if extra:
+        extra_cont = " ∗ ".join([f"(∃ v_{ec}, {ec} ↦ LitInt v_{ec})" for ec in extra])
+        cont_premise = f"{cell} ↦ LitInt bound ∗ {extra_cont} -∗ Phi (RVal LitUnit)"
+    else:
+        cont_premise = f"{cell} ↦ LitInt bound -∗ Phi (RVal LitUnit)"
+
+    if extra:
+        intro_pat = f'"[{" ".join(["H" + cell] + ["H" + ec for ec in extra])}] %Hz Hwand"'
+        destructs = "".join(
+            f'iDestruct "H{ec}" as (v_{ec}) "H{ec}".\n    '
+            for ec in extra)
+    else:
+        intro_pat = f'"H{cell} %Hz Hwand"'
+        destructs = ""
+    return f"""  Lemma {wi.lemma_name} {cell_params} (bound : Z) (z : Z) {extra_params}
+      (Phi : Result -> iProp Sigma) :
+    {pts_premise} -∗
     ⌜Z.le z bound⌝ -∗
-    (l ↦ LitInt bound -∗ Phi (RVal LitUnit)) -∗
+    ({cont_premise}) -∗
     WPE (While ({cond}) ({body})) {{{{ Phi }}}}.
   Proof.
     iLöb as "IH" forall (z Phi).
-    iIntros "Hc %Hz Hwand".
-    iApply wp_while; iNext; simpl.
+    iIntros {intro_pat}.
+    {destructs}iApply wp_while; iNext; simpl.
     heap_load. pure_step. case_bool.
     - snakelet_pure_hyps.
       pure_step.
       iRename select (_ ↦ _)%I into "Hpt".
 {body_proof}
       pure_step.  (* sequencing _ *)
-      iApply ("IH" $! (z + 1)%Z Phi with "[$] [] Hwand").
+      iApply ("IH" $! (z + 1)%Z Phi
+        with "[$] [] Hwand").
       {{ iPureIntro. apply (proj2 (Z.le_succ_l z bound)). exact Hcond. }}
     - snakelet_pure_hyps.
       assert (z = bound) by lia. subst z.
@@ -1021,12 +1062,22 @@ def _emit_while_str_stage_exn(ws: WhileStr, indent: str) -> list[str]:
     return lines
 
 
+def _extract_extra_cells(body_coq: str, counter_cell: str) -> list[str]:
+    """Find extra heap cell variable names in the body expression."""
+    import re
+    out: list[str] = []
+    for m in re.finditer(r'Var\s+"(l(?:_\d+)?)"', body_coq):
+        v = m.group(1)
+        if v != counter_cell and v not in out:
+            out.append(v)
+    return out
+
+
 def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
     """Emit the call-site proof for a per-loop lemma.
 
     Focuses the While with wp_bind_item, then applies the pre-proved
-    per-loop lemma.  The lemma is generated separately by
-    _emit_while_inv_lemma_exn."""
+    per-loop lemma."""
     bound = wi.bound_expr
     if bound.startswith("LitInt "):
         bound = bound[len("LitInt "):].strip()
@@ -1037,11 +1088,55 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
             "pure-counter while loop: needs a Loeb lemma (later phase)")
     lines.append(f'{indent}iApply (wp_bind_item (LetCtx "_" _)); '
                  f'[reflexivity|].')
+    cell_args = " ".join([wi.cell_name] + list(wi.extra_cells))
     lines.append(
-        f'{indent}iApply ({wi.lemma_name} l {bound} 0 _ with "[$] []").')
+        f'{indent}iApply ({wi.lemma_name} {cell_args} {bound} 0 _ with "[$] []").')
     lines.append(f'{indent}{{ iPureIntro. lia. }}')
-    lines.append(f'{indent}{{ iIntros "Hl". unfold bind_post; simpl. '
-                 f'pure_step. heap_load. pure_step. finish_pure. }}')
+    extra = wi.extra_cells
+    if extra:
+        qi = " ".join(f"a_{i}" for i in range(len(extra)))
+        cells_hyps = " ".join([f"H{wi.cell_name}"] + [f"H{ec}" for ec in extra])
+        post_loop = (f'{indent}{{ iIntros ({qi}) "{cells_hyps}". '
+                     f'unfold bind_post; simpl. pure_step. '
+                     f'heap_load. pure_step. finish_pure. }}')
+    else:
+        post_loop = (f'{indent}{{ iIntros "H{wi.cell_name}". '
+                     f'unfold bind_post; simpl. pure_step. '
+                     f'heap_load. pure_step. finish_pure. }}')
+    lines.append(post_loop)
+    return lines
+    """Emit the call-site proof for a per-loop lemma.
+
+    Focuses the While with wp_bind_item, then applies the pre-proved
+    per-loop lemma."""
+    bound = wi.bound_expr
+    if bound.startswith("LitInt "):
+        bound = bound[len("LitInt "):].strip()
+
+    lines: list[str] = []
+    if "Load" not in wi.cond_coq:
+        raise IrisGenError(
+            "pure-counter while loop: needs a Loeb lemma (later phase)")
+    lines.append(f'{indent}iApply (wp_bind_item (LetCtx "_" _)); '
+                 f'[reflexivity|].')
+
+    # Build lemma application with all cell arguments and extra param zeros
+    cell_args = " ".join([wi.cell_name] + list(wi.extra_cells))
+    lines.append(
+        f'{indent}iApply ({wi.lemma_name} {cell_args} {bound} 0 _ with "[$] []").')
+    lines.append(f'{indent}{{ iPureIntro. lia. }}')
+    extra = wi.extra_cells
+    if extra:
+        qi = " ".join(f"a_{i}" for i in range(len(extra)))
+        cells_hyps = " ".join([f"H{wi.cell_name}"] + [f"H{ec}" for ec in extra])
+        post_loop = (f'{indent}{{ iIntros ({qi}) "{cells_hyps}". '
+                     f'unfold bind_post; simpl. pure_step. '
+                     f'heap_load. pure_step. finish_pure. }}')
+    else:
+        post_loop = (f'{indent}{{ iIntros "H{wi.cell_name}". '
+                     f'unfold bind_post; simpl. pure_step. '
+                     f'heap_load. pure_step. finish_pure. }}')
+    lines.append(post_loop)
     return lines
 
 

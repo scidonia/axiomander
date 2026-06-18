@@ -395,32 +395,100 @@ def _collect_var_names(e: SExpr) -> set[str]:
     return out
 
 
-def _promote_counter(cond: SExpr, body: SExpr, lw) \
-        -> Optional[tuple[str, str, SExpr, SExpr]]:
-    """Detect [while var < bound: ...] and rewrite to heap counter."""
+def _promote_locals(cond: SExpr, body: SExpr, lw) \
+        -> Optional[tuple[str, list[tuple[str, str]], SExpr, SExpr]]:
+    """Promote ALL local variables modified in the while body to heap cells.
+
+    Returns (counter_var, [(py_name, cell_name)], heap_body, heap_cond)
+    or None if not a promotable while loop.
+    """
     if not (isinstance(cond, SBinOp) and cond.op == "lt"
             and isinstance(cond.left, SVar)):
         return None
     counter_var = cond.left.name
-    fresh_loc = "l"
-    heap_cond = SBinOp(op="lt",
-                       left=SLoad(loc=fresh_loc),
-                       right=cond.right)
-    # Only promote symbolic bounds.  Concrete literal bounds are handled
-    # by _unroll_count (the old path).  Also skip when invariants reference
-    # the counter (invariant rewriting is future work).
+    # Only promote symbolic bounds
     if isinstance(cond.right, SLit) and cond.right.lit_type == "int":
         return None
-    # Only promote when the body only references the counter variable
-    # (no other local variables that would need to be passed to the
-    # per-loop lemma — multi-variable bodies are a future phase).
-    other_vars = _collect_var_names(body) - {counter_var}
-    if other_vars:
+    # Collect all variables assigned (SLet LHS) in the body
+    assigned = _collect_assigned_vars(body)
+    # Must include the counter variable
+    if counter_var not in assigned:
         return None
-    heap_body = _rewrite_body(body, counter_var, fresh_loc)
-    if not _contains_store_of(heap_body, fresh_loc):
+    # Allocate fresh heap cell names: counter gets "l", others get "l_0", "l_1", ...
+    cells: list[tuple[str, str]] = []  # (py_name, cell_name)
+    extra_count = 0
+    for v in sorted(assigned):
+        if v == counter_var:
+            cells.append((v, "l"))
+        else:
+            cells.append((v, f"l_{extra_count}"))
+            extra_count += 1
+    # Build cell_name → py_name map for rewriting
+    cell_of = {py: cl for py, cl in cells}
+    # Rewrite condition: counter becomes load from its cell
+    heap_cond = SBinOp(op="lt",
+                       left=SLoad(loc=cell_of[counter_var]),
+                       right=cond.right)
+    # Rewrite body: all assigned vars become load/store to their cells
+    heap_body = _rewrite_multi_body(body, cell_of)
+    if not any(_contains_store_of(heap_body, cl) for _, cl in cells):
         return None
-    return (counter_var, fresh_loc, heap_body, heap_cond)
+    return (counter_var, cells, heap_body, heap_cond)
+
+
+def _collect_assigned_vars(e: SExpr) -> set[str]:
+    """Collect all variable names that appear on the LHS of an SLet."""
+    out: set[str] = set()
+    if isinstance(e, SLet):
+        out.add(e.var)
+        out.update(_collect_assigned_vars(e.value))
+        out.update(_collect_assigned_vars(e.body))
+    elif isinstance(e, SBinOp):
+        out.update(_collect_assigned_vars(e.left))
+        out.update(_collect_assigned_vars(e.right))
+    elif isinstance(e, SIf):
+        out.update(_collect_assigned_vars(e.cond))
+        out.update(_collect_assigned_vars(e.then_branch))
+        out.update(_collect_assigned_vars(e.else_branch))
+    elif isinstance(e, SSeq):
+        for se in e.exprs:
+            out.update(_collect_assigned_vars(se))
+    elif isinstance(e, SReturn):
+        out.update(_collect_assigned_vars(e.value))
+    return out
+
+
+def _rewrite_multi_body(e: SExpr, cell_of: dict[str, str]) -> SExpr:
+    """Rewrite all var refs in [cell_of] to Load/Store."""
+    if isinstance(e, SVar) and e.name in cell_of:
+        return SLoad(loc=cell_of[e.name])
+    if isinstance(e, SLet):
+        if e.var in cell_of:
+            cl = cell_of[e.var]
+            return SLet(var="_",
+                       value=SStore(loc=cl,
+                                     value=_rewrite_multi_body(e.value, cell_of)),
+                       body=_rewrite_multi_body(e.body, cell_of))
+        return SLet(var=e.var,
+                    value=_rewrite_multi_body(e.value, cell_of),
+                    body=_rewrite_multi_body(e.body, cell_of))
+    if isinstance(e, SBinOp):
+        return SBinOp(op=e.op,
+                     left=_rewrite_multi_body(e.left, cell_of),
+                     right=_rewrite_multi_body(e.right, cell_of))
+    if isinstance(e, SIf):
+        return SIf(cond=_rewrite_multi_body(e.cond, cell_of),
+                  then_branch=_rewrite_multi_body(e.then_branch, cell_of),
+                  else_branch=_rewrite_multi_body(e.else_branch, cell_of))
+    if isinstance(e, SSeq):
+        return SSeq(exprs=[_rewrite_multi_body(se, cell_of) for se in e.exprs])
+    if isinstance(e, SReturn):
+        rv = _rewrite_multi_body(e.value, cell_of)
+        if isinstance(rv, SLoad):
+            tmp = "_ret"
+            return SLet(var=tmp, value=rv, body=SReturn(value=SVar(name=tmp)))
+        return SReturn(value=rv)
+    return e
 
 
 def _contains_store_of(e: SExpr, loc: str) -> bool:
@@ -508,29 +576,34 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
         invs = next_invs()
         body = _fold(list(s.body), lw, invs_iter=invs_iter)
         rest_e = _fold(rest, lw, invs_iter=invs_iter)
-        # Promote pure-counter loops to heap cells
-        promoted = _promote_counter(cond, body, lw)
+        # Promote ALL local variables in the body to heap cells
+        promoted = _promote_locals(cond, body, lw)
         if promoted is not None:
-            counter_var, fresh_loc, heap_body, heap_cond = promoted
-            # Skip promotion when there are loop invariants referencing
-            # the counter variable — they aren't rewritten (later phase).
-            if invs and any(counter_var in inv for inv in invs):
+            counter_var, cells, heap_body, heap_cond = promoted
+            # Skip when invariants reference any promoted var
+            if invs and any(v in str(invs) for v, _ in cells):
                 promoted = None
         if promoted is not None:
-            counter_var, fresh_loc, heap_body, heap_cond = promoted
-            heap_rest = _rewrite_body(rest_e, counter_var, fresh_loc)
+            counter_var, cells, heap_body, heap_cond = promoted
+            cell_of = {py: cl for py, cl in cells}
+            # Rewrite rest of function too
+            heap_rest = _rewrite_multi_body(rest_e, cell_of)
             # Wrap naked Load in a Let for proper proof context
             if isinstance(heap_rest, SLoad):
-                tmp = f"_ret_{fresh_loc}"
-                heap_rest = SLet(var=tmp, value=heap_rest,
-                                 body=SVar(name=tmp))
-            return SLet(var="l",
-                        value=SAlloc(value=SLit(lit_type="int", value="0")),
-                        body=SLet(var="_",
-                                  value=SWhile(cond=heap_cond,
-                                                body=heap_body,
-                                                invariants=invs),
-                                  body=heap_rest))
+                tmp = "_ret"
+                heap_rest = SLet(var=tmp, value=heap_rest, body=SVar(name=tmp))
+            # Build: Let cell_1 = Alloc init_1 in Let cell_2 = Alloc init_2 in
+            #        Let "_" = While ... in rest
+            alloc_body = SLet(var="_",
+                              value=SWhile(cond=heap_cond,
+                                            body=heap_body,
+                                            invariants=invs),
+                              body=heap_rest)
+            for py_name, cell_name in reversed(cells):
+                alloc_body = SLet(var=cell_name,
+                                  value=SAlloc(value=SLit(lit_type="int", value="0")),
+                                  body=alloc_body)
+            return alloc_body
         return SLet(var="_", value=SWhile(cond=cond, body=body,
                                            invariants=invs),
                     body=rest_e)
