@@ -125,11 +125,15 @@ _IRIS_STR_INDEX = SReturn(value=SLit(lit_type="int", value="0"))
 
 
 IRIS_BUILTINS: FunTable = {
-    # String operations (return the string itself — mock for now)
+    # String operations (mock implementations — real bodies via String lib)
     "s.startswith": _IRIS_STRING_COPY,
     "s.endswith": _IRIS_STRING_COPY,
     "s.lower": _IRIS_STRING_COPY,
     "s.upper": _IRIS_STRING_COPY,
+    # Dict operations (mock — return default as-is)
+    "d.get": TransparentDef(
+        params=["d", "k", "default"],
+        body=SVar(name="default")),
 }
 
 
@@ -1164,6 +1168,8 @@ class IrisProof:
     dict_params: dict[str, str] = field(default_factory=dict)
     raises: dict[str, str] = field(default_factory=dict)
     """Exception contracts: exc_type -> Coq condition Prop (the RExn arm)."""
+    param_types: dict[str, str] = field(default_factory=dict)
+    """Parameter type annotations: param_name -> python type (int|str|bool|dict|list|...)."""
 
     def stage_list(self) -> list[Stage]:
         """Flattened stages (for trace/cache consumers)."""
@@ -1219,8 +1225,15 @@ class IrisProof:
         for ws in _collect_while_strs_exn(self.stages):
             parts.append(_emit_while_str_lemma_exn(ws))
             parts.append("")
-        binders = "".join(f" ({p} : Z)" for p in self.params
-                           if p not in self.list_params and p not in self.dict_params)
+        # Coq binder types: Z for int/bool (bool is 0/1 encoded),
+        # string for str, sn_val for dict/list/set/tuple.
+        _COQ_PARAM_TYPES = {"int": "Z", "bool": "Z", "str": "sn_val",
+                             "float": "Z", "dict": "sn_val", "list": "sn_val",
+                             "set": "sn_val", "tuple": "sn_val"}
+        binders = "".join(
+            f" ({p} : {_COQ_PARAM_TYPES.get(self.param_types.get(p, 'int'), 'Z')})"
+            for p in self.params
+            if p not in self.list_params and p not in self.dict_params)
         # List-typed params are split into a value binder [xs : sn_val] and
         # its model [M_xs : list sn_val], tied by the premise xs = LitList M_xs.
         for lp, mv in self.list_params.items():
@@ -1272,16 +1285,17 @@ class IrisProof:
 
 
 def generate(name: str,
-             body: SExpr,
-             post: str,
-             table: FunTable,
-             params: Optional[list[str]] = None,
-             pre: Optional[str] = None,
-             axioms: Optional[list[str]] = None,
-              pre_overrides: Optional[dict[str, str]] = None,
-              list_params: Optional[dict[str, str]] = None,
-              dict_params: Optional[dict[str, str]] = None,
-              raises: Optional[dict[str, str]] = None) -> IrisProof:
+              body: SExpr,
+              post: str,
+              table: FunTable,
+              params: Optional[list[str]] = None,
+              pre: Optional[str] = None,
+              axioms: Optional[list[str]] = None,
+               pre_overrides: Optional[dict[str, str]] = None,
+               list_params: Optional[dict[str, str]] = None,
+               dict_params: Optional[dict[str, str]] = None,
+               raises: Optional[dict[str, str]] = None,
+               param_types: Optional[dict[str, str]] = None) -> IrisProof:
     """Generate a staged Iris proof for a SnakeletIR body.
 
     name: function name (theorem is <name>_correct).
@@ -1315,4 +1329,5 @@ def generate(name: str,
         list_params=list_params or {},
         dict_params=dict_params or {},
         raises=raises or {},
+        param_types=param_types or {},
     )

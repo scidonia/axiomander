@@ -216,7 +216,7 @@ class IrisLowerer:
                                   left=SLoad(loc=arg.name),
                                   right=SLit(lit_type="int", value="0"))
 
-        # -- Method calls: xs.append(v) --
+        # -- Method calls: xs.append(v) / s.startswith(p) / d.get(k, d) --
         if expr.is_method and "." in expr.func:
             parts = expr.func.rsplit(".", 1)
             obj_name = parts[0]
@@ -231,6 +231,14 @@ class IrisLowerer:
                                     value=SBinOp(op="append",
                                         left=SVar(tmp_var),
                                         right=v)))
+            # Other method calls: pass the object as first argument
+            # so the callee table entry (params=[obj, ...]) matches.
+            obj_expr = SVar(name=obj_name)
+            args = [obj_expr] + [a for a in (
+                self.lower_expr(a) for a in expr.args) if a is not None]
+            if None in args:
+                return None
+            return SApp(func=expr.func, args=args)
 
         # -- Opaque: call to unknown / user function --
         args = [a for a in (self.lower_expr(a) for a in expr.args) if a is not None]

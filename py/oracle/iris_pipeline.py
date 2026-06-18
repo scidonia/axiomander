@@ -510,9 +510,9 @@ def _subst_params(e: SExpr, params: set[str], bound: set[str],
             if e.name in lp:
                 return SLit(lit_type="val", value=e.name)
             ptype = pt.get(e.name, "int")
-            lit_map = {"int": "int", "str": "string", "bool": "bool",
-                        "list": "val", "dict": "dict",
-                        "set": "set", "tuple": "tuple"}
+            lit_map = {"int": "int", "str": "val", "bool": "int",
+                        "list": "val", "dict": "val", "float": "int",
+                        "set": "val", "tuple": "val"}
             return SLit(lit_type=lit_map.get(ptype, "int"), value=e.name)
         return e
     if isinstance(e, SLit):
@@ -919,9 +919,10 @@ def python_to_iris_proof(source: str,
     # Body: PyIR -> SnakeletIR -> ANF
     fn = PyIRTranslator().translate_function(target)
 
+    param_types = _param_type_map(target)
     lw = IrisLowerer(loc_map={}, func_name=fn.name, dict_params=user_dict,
                       list_params=ann_list_params,
-                      param_types=_param_type_map(target))
+                      param_types=param_types)
     invs_iter = iter(contracts.loop_invariants) if contracts.loop_invariants else None
     body = _fold(fn.body, lw, invs_iter=iter(contracts.loop_invariants))
     list_params = _detect_list_params(body, set(fn.params))
@@ -933,7 +934,7 @@ def python_to_iris_proof(source: str,
             merged_lp[lp] = f"M_{lp}"
     body = _subst_params(body, set(fn.params), set(),
                           set(merged_lp.keys()) | set(detected_dict.keys()),
-                          param_types=_param_type_map(target))
+                          param_types=param_types)
     body = _anf(body, [0])
     _validate_ops(body)
 
@@ -949,4 +950,5 @@ def python_to_iris_proof(source: str,
         list_params=merged_lp,
         dict_params=detected_dict,
         raises=contracts.raises,
+        param_types=param_types,
     )
