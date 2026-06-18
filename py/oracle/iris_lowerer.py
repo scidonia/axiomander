@@ -223,14 +223,23 @@ class IrisLowerer:
             method = parts[1]
             if method == "append":
                 v = self.lower_expr(expr.args[0]) if expr.args else None
-                if v is not None:
-                    tmp_var = self._fresh_var("_ap")
-                    return SLet(var=tmp_var,
-                                value=SLoad(loc=obj_name),
-                                body=SStore(loc=obj_name,
-                                    value=SBinOp(op="append",
-                                        left=SVar(tmp_var),
-                                        right=v)))
+                if v is None:
+                    return None
+                # Value-type param (list/dict/set/tuple): construct
+                # new value via AppendOp, no heap access needed.
+                if (obj_name in self._list_params
+                        or self._param_types.get(obj_name) in
+                        ("list", "dict", "set", "tuple", "str", "string")):
+                    return SBinOp(op="append",
+                                  left=SVar(name=obj_name), right=v)
+                # Heap-allocated list: load, append, store.
+                tmp_var = self._fresh_var("_ap")
+                return SLet(var=tmp_var,
+                            value=SLoad(loc=obj_name),
+                            body=SStore(loc=obj_name,
+                                value=SBinOp(op="append",
+                                    left=SVar(tmp_var),
+                                    right=v)))
             # Other method calls: pass the object as first argument
             # so the callee table entry (params=[obj, ...]) matches.
             obj_expr = SVar(name=obj_name)
