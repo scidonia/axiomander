@@ -925,7 +925,7 @@ def _emit_while_inv_lemma_exn(wi: WhileInv) -> str:
     extra_ih_vars = (" " + " ".join(f"a_{i}" for i in range(len(extra)))) if extra else ""
     extra_ih_args = (" " + " ".join(["_"] * len(extra))) if extra else ""
     if extra:
-        intro_pat = f'"[{" ".join(["H" + cell] + ["H" + ec for ec in extra])}] %Hz Hwand"'
+        intro_pat = f'"({" & ".join(["H" + cell] + ["H" + ec for ec in extra])}) %Hz Hwand"'
         destructs = ""
         extra_ih_wrap = ""
     else:
@@ -1093,7 +1093,7 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
             "pure-counter while loop: needs a Loeb lemma (later phase)")
     lines.append(f'{indent}iApply (wp_bind_item (LetCtx "_" _)); '
                  f'[reflexivity|].')
-    cell_args = " ".join([wi.cell_name] + list(wi.extra_cells))
+    cell_args = ("l " + " ".join(list(wi.extra_cells))) if wi.extra_cells else "l"
     extra_zeros = " ".join(["0"] * len(wi.extra_cells))
     zeros_args = (" " + extra_zeros) if extra_zeros else ""
     lines.append(
@@ -1102,8 +1102,8 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
     extra = wi.extra_cells
     if extra:
         qi = " ".join(f"a_{i}" for i in range(len(extra)))
-        cells_hyps = " ".join([f"H{wi.cell_name}"] + [f"H{ec}" for ec in extra])
-        post_loop = (f'{indent}{{ iIntros ({qi}) "[{cells_hyps}]". '
+        cells_hyps = " & ".join([f"H{wi.cell_name}"] + [f"H{ec}" for ec in extra])
+        post_loop = (f'{indent}{{ iIntros ({qi}) "({cells_hyps})". '
                      f'unfold bind_post; simpl. pure_step. '
                      f'heap_load. pure_step. finish_pure. }}')
     else:
@@ -1128,7 +1128,7 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
                  f'[reflexivity|].')
 
     # Build lemma application with all cell arguments and extra param zeros
-    cell_args = " ".join([wi.cell_name] + list(wi.extra_cells))
+    cell_args = ("l " + " ".join(list(wi.extra_cells))) if wi.extra_cells else "l"
     extra_zeros = " ".join(["0"] * len(wi.extra_cells))
     zeros_args = (" " + extra_zeros) if extra_zeros else ""
     lines.append(
@@ -1137,8 +1137,8 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
     extra = wi.extra_cells
     if extra:
         qi = " ".join(f"a_{i}" for i in range(len(extra)))
-        cells_hyps = " ".join([f"H{wi.cell_name}"] + [f"H{ec}" for ec in extra])
-        post_loop = (f'{indent}{{ iIntros ({qi}) "[{cells_hyps}]". '
+        cells_hyps = " & ".join([f"H{wi.cell_name}"] + [f"H{ec}" for ec in extra])
+        post_loop = (f'{indent}{{ iIntros ({qi}) "({cells_hyps})". '
                      f'unfold bind_post; simpl. pure_step. '
                      f'heap_load. pure_step. finish_pure. }}')
     else:
