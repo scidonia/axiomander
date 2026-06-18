@@ -909,3 +909,36 @@ def good(x: int):
 '''
     residual = capture_residual(src, {}, func_name="good")
     assert residual is None, "should return None for verified function"
+
+
+# -- Structured result.attr in postconditions ----------------------------
+
+def test_result_field_in_post():
+    """result.x on a model-returning function: structural projection
+    on the raw WP binder v, no int existential wrapper."""
+    ok, out = verify_exn('''
+from pydantic import BaseModel, Field
+class Point(BaseModel):
+    x: int = Field(ge=0)
+def identity(p: Point) -> Point:
+    assert p.x >= 0
+    result = p
+    assert result.x == p.x
+    return result
+''', table=_builtins_table(), func_name="identity")
+    assert ok, out
+
+
+def test_result_field_wrong_rejected():
+    """result.x == 0 on a model with p.x >= 0: correctly rejected."""
+    ok, out = verify_exn('''
+from pydantic import BaseModel, Field
+class Point(BaseModel):
+    x: int = Field(ge=0)
+def wrong_result(p: Point) -> Point:
+    assert p.x >= 0
+    result = p
+    assert result.x == 0
+    return result
+''', table=_builtins_table(), func_name="wrong_result")
+    assert not ok, "result.x == 0 should be rejected when p.x >= 0"

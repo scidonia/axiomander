@@ -502,11 +502,14 @@ class ContractLinter(ast.NodeVisitor):
         if isinstance(node.value, ast.Call):
             from .contract_ir import OpaqueTerm
             return OpaqueTerm(name=self._get_call_name(node.value) or "?")
-        # result.attr (e.g. result.status) — structured return values
-        # are deferred to the shape model.  Compile as OpaqueTerm for now.
+        # result.attr (e.g. result.status) — structural field projection
+        # on the return value.  Emit FieldAccess with obj="result"; in the
+        # postcondition compilation, the obj is mapped to the raw WP binder
+        # "v" (not the unpacked Z/bool/string bound variable) so that
+        # model_field_Z v "attr" extracts the field from the return value.
         if isinstance(node.value, ast.Name) and node.value.id == "result":
-            from .contract_ir import OpaqueTerm
-            return OpaqueTerm(name=f"result.{node.attr}")
+            from .contract_ir import FieldAccess
+            return FieldAccess(obj="result", field=node.attr)
         path = self._attribute_path(node)
         # Always normalise dots to underscores with _escape_field convention:
         # precondition: bare var  e.g. item_value  (Coq param name)

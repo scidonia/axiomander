@@ -86,6 +86,14 @@ def extract_contracts(
     params = [a.arg for a in fn_node.args.args]
     param_type_hint = _param_type_map(fn_node)
     float_params = {p for p, t in param_type_hint.items() if t == "float"}
+    # Detect return type: if returns a model (shape-registered type), use
+    # "sn_val" result kind so the postcondition uses v directly.
+    result_kind: str | None = None
+    if fn_node.returns:
+        from oracle.shape_ir import lookup_shape
+        if isinstance(fn_node.returns, ast.Name):
+            if lookup_shape(fn_node.returns.id) is not None:
+                result_kind = "sn_val"
     from oracle.contract_ir_iris import _FLOAT_PARAMS
     _FLOAT_PARAMS.clear()
     _FLOAT_PARAMS.update(float_params)
@@ -163,6 +171,7 @@ def extract_contracts(
                 # Single assert: use the standard wrapper.
                 linted = post_linter.lint_expression(post_asserts[0].test)
                 post = compile_postcondition(linted.ir, ret_var, list_model=lm,
+                                               result_kind=result_kind,
                                                ghost_resolver=ghost_resolver)
             elif posts:
                 # Shared existential: exists z, v = LitInt z /\ P1 /\ P2.

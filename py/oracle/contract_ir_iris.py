@@ -308,8 +308,12 @@ def _placeholder(n, ps, pv):
 
 
 def _field_access(n, ps, pv):
-    """Structural field projection for Pydantic model fields."""
-    return f'model_field_Z {n.obj} "{n.field}"'
+    """Structural field projection for Pydantic model fields.
+    In postcondition context (pv non-empty), 'result' is renamed
+    to the raw WP binder 'v' (not the unpacked Z/bool/string bound
+    variable)."""
+    obj = "v" if (pv and n.obj == "result") else n.obj
+    return f'model_field_Z {obj} "{n.field}"'
 
 
 # -- Convenience: compile contracts from the linter ---------------------------
@@ -390,6 +394,7 @@ _RESULT_KIND_WRAPPER = {
     "int": ("Z", "LitInt", "z"),
     "bool": ("bool", "LitBool", "b"),
     "string": ("string", "LitString", "s"),
+    "sn_val": ("sn_val", "id", "v"),  # model/dict return — use v directly
 }
 
 
@@ -412,6 +417,16 @@ def compile_postcondition(node: Expr, ret_var: str,
     invariant/ownership model (next layer).
     """
     kind = result_kind or _result_value_kind(node, ret_var)
+    # sn_val result kind: no unpacking, v is used directly
+    if kind == "sn_val":
+        gh = ghost_resolver or {}
+        ghost_vars_used = sorted(_collect_vars(node).intersection(gh.values()))
+        ghost_binders = "".join(
+            f"(exists ({gv} : Z), " for gv in ghost_vars_used)
+        ghost_closers = "".join(")" for _ in ghost_vars_used)
+        prop = iris_prop(node, post_var=ret_var, list_model=list_model,
+                         post_bound="v")
+        return f"({ghost_binders} ({prop}){ghost_closers})"
     binder_ty, ctor, bound = _RESULT_KIND_WRAPPER.get(
         kind, _RESULT_KIND_WRAPPER["int"])
     # Ghost vars referenced in the postcondition — nested inside the
