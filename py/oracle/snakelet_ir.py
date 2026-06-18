@@ -42,7 +42,8 @@ class SBinOp:
                   "append": "AppendOp", "length": "LengthOp",
                   "dict_get": "DictGetOp", "mk_key_err": "MkKeyErrOp",
                   "dict_get_int": "DictGetIntOp",
-                  "set_add": "SetAddOp"}
+                  "set_add": "SetAddOp",
+                  "str_index": "StrIndexOp"}
         coq_op = op_map.get(self.op, "AddOp")
         return f"(BinOp {coq_op} {self.left.to_coq()} {self.right.to_coq()})"
 

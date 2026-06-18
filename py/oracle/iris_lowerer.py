@@ -160,6 +160,11 @@ class IrisLowerer:
         if self._param_types.get(obj_name) == "dict":
             return SApp(func="dict_index",
                         args=[SVar(name=obj_name), key])
+        # String indexing: text[i] -> StrIndexOp
+        if self._param_types.get(obj_name) in ("str", "string"):
+            return SBinOp(op="str_index",
+                          left=SVar(name=self._current_var(obj_name)),
+                          right=key)
         # Field access: box.value → load from l__box_value
         loc = self._loc_of(obj_name)
         return SLoad(loc=loc)

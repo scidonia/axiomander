@@ -62,7 +62,8 @@ Inductive sn_val :=
 (** * Expressions *)
 Inductive binop := AddOp | SubOp | MulOp | DivOp | EqOp | LeOp | LtOp | GtOp | GeOp
   | AndOp | OrOp | NeOp | ModOp | InOp | LenOp | UnionOp | InterOp
-  | AppendOp | LengthOp | DictGetOp | DictGetIntOp | MkKeyErrOp | SetAddOp.
+  | AppendOp | LengthOp | DictGetOp | DictGetIntOp | MkKeyErrOp | SetAddOp
+  | StrIndexOp.
 
 Inductive sn_expr :=
   | Val (v : sn_val)
@@ -375,9 +376,15 @@ Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
       | LenOp => LitInt (Z.of_nat (String.length s1))
       | _ => LitUnit
       end
-  | LitString s, _ =>
+  | LitString s, v =>
       match op with
       | LenOp => LitInt (Z.of_nat (String.length s))
+      | StrIndexOp =>
+          match v with
+          | LitInt n =>
+              LitString (String.substring (Z.to_nat n) 1 s)
+          | _ => LitUnit
+          end
       | _ => LitUnit
       end
   (* --- set operations --- *)

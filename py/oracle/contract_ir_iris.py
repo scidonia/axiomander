@@ -99,8 +99,15 @@ def iris_prop(node: Expr, *,
     return dispatch[kind](node, param_set, post_var)
 
 
+_STRING_PARAMS: set[str] = set()
+
+
 def _list_len(n, ps, pv, list_model):
-    """len(x) for a list parameter: use Coq model [M_x]."""
+    """len(x) for a list or string parameter."""
+    if n.name in _FLOAT_PARAMS:
+        return "0"
+    if n.name in _STRING_PARAMS:
+        return f"Z.of_nat (String.length (match {n.name} with LitString s => s | _ => \"\"%string end))"
     if n.name in _LIST_MODEL:
         return f"Z.of_nat (List.length {_LIST_MODEL[n.name]})"
     return f"Z.of_nat (List.length {n.name})"

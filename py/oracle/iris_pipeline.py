@@ -49,7 +49,7 @@ from oracle.snakelet_ir import (
 )
 
 # Binops supported by SnakeletLang's binop_eval on integers.
-_SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge", "ne", "mod", "and", "or", "in", "append", "length", "set_add"}
+_SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge", "ne", "mod", "and", "or", "in", "append", "length", "set_add", "str_index"}
 
 
 # -- Contract extraction ----------------------------------------------------
@@ -86,6 +86,7 @@ def extract_contracts(
     params = [a.arg for a in fn_node.args.args]
     param_type_hint = _param_type_map(fn_node)
     float_params = {p for p, t in param_type_hint.items() if t == "float"}
+    string_params = {p for p, t in param_type_hint.items() if t in ("str", "string")}
     # Detect return type: if returns a model (shape-registered type), use
     # "sn_val" result kind so the postcondition uses v directly.
     result_kind: str | None = None
@@ -94,9 +95,11 @@ def extract_contracts(
         if isinstance(fn_node.returns, ast.Name):
             if lookup_shape(fn_node.returns.id) is not None:
                 result_kind = "sn_val"
-    from oracle.contract_ir_iris import _FLOAT_PARAMS
+    from oracle.contract_ir_iris import _FLOAT_PARAMS, _STRING_PARAMS
     _FLOAT_PARAMS.clear()
     _FLOAT_PARAMS.update(float_params)
+    _STRING_PARAMS.clear()
+    _STRING_PARAMS.update(string_params)
     pre_linter = ContractLinter(params=params, context="precondition",
                                 ghost_resolver=ghost_resolver,
                                 param_type_hint=param_type_hint)
