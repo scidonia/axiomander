@@ -539,15 +539,18 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 # into the equality hypotheses (Hrz for the result, one
                 # per ghost var).
                 if entry.ghost_vars:
-                    gv_names = " & ".join(entry.ghost_vars.values())
+                    suf = f"_{e.func}"  # unique suffix per callee
+                    gv_names = " & ".join(
+                        f"{gv}{suf}" for gv in entry.ghost_vars.values())
                     gv_splits = "".join(
-                        f"; destruct Hr as [Hrz H_{gv}]"
+                        f"; destruct Hr as [Hrz{suf} H_{gv}{suf}]"
                         for gv in entry.ghost_vars.values())
                     result.append(_mk_stage(
                         f"destruct Hr as ({gv_names} & Hr)"
                         f"{gv_splits}",
                         "destruct_ghost",
-                        comment=f"name ghost vars: {', '.join(entry.ghost_vars.values())}"))
+                        comment=f"name ghost vars: {', '.join(entry.ghost_vars.values())}"
+                                f" (suffix {suf})"))
                 return result + k()
             elif ov is not None:
                 st = _mk_stage(f"call_opaque_pre ({ov})", "call_opaque",
@@ -1043,14 +1046,14 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
 
 
 def _emit_stage_lines(nodes: list[StageNode], depth: int,
-                      indent: str, post: str = "",
-                      active_ghost_vars: set[str] | None = None) -> list[str]:
+                       indent: str, post: str = "",
+                       active_ghost_vars: set[tuple[str, str]] | None = None) -> list[str]:
     """Render a stage tree into proof-script lines for the exception
     backend (the sole Iris backend).
 
-    active_ghost_vars: accumulated set of ghost var names from
-    destruct_ghost stages in the current branch.  Emitted as ghost_close
-    after each finish_pure stage, then cleared."""
+    active_ghost_vars: accumulated set of (gv_name, callee_suffix) pairs
+    from destruct_ghost stages.  Emitted as ghost_close after each
+    finish_pure stage, then cleared."""
     if active_ghost_vars is None:
         active_ghost_vars = set()
     lines: list[str] = []
@@ -1070,11 +1073,11 @@ def _emit_stage_lines(nodes: list[StageNode], depth: int,
             # Emit ghost_close after finish_pure -- only for ghost vars
             # that actually appear in the WP postcondition.
             if n.category == "finish_pure" and active_ghost_vars:
-                for gv in sorted(active_ghost_vars):
+                for gv, suf in sorted(active_ghost_vars):
                     if gv in post:
                         lines.append(
                             f"{indent}exists {gv}. "
-                            f"split; [exact Hrz | exact H_{gv}].")
+                            f"split; [exact Hrz{suf} | exact H_{gv}{suf}].")
                 active_ghost_vars.clear()
         elif isinstance(n, Branch):
             if depth >= len(_BULLETS):
@@ -1097,15 +1100,22 @@ def _emit_stage_lines(nodes: list[StageNode], depth: int,
     return lines
 
 
-def _parse_ghost_names(comment: str) -> list[str]:
-    """Extract ghost variable names from a destruct_ghost comment.
+def _parse_ghost_names(comment: str) -> list[tuple[str, str]]:
+    """Extract ghost var names with callee suffix from a destruct_ghost comment.
 
-    Comment format: 'name ghost vars: payment_final'
-    Returns the part after 'name ghost vars: ' split by commas."""
+    Comment format: 'name ghost vars: payment_final, commit_final (suffix _do_capture)'
+    Returns [(gv_name, suffix)] pairs."""
+    import re
     prefix = "name ghost vars: "
-    if comment.startswith(prefix):
-        return [s.strip() for s in comment[len(prefix):].split(",") if s.strip()]
-    return []
+    if not comment.startswith(prefix):
+        return []
+    rest = comment[len(prefix):]
+    # Extract suffix if present: "..., gv (suffix _func)"
+    m = re.search(r'\(suffix (_\w+)\)', rest)
+    suffix = m.group(1) if m else ""
+    names_part = rest[:m.start()].rstrip() if m else rest
+    names = [s.strip() for s in names_part.split(",") if s.strip()]
+    return [(n, suffix) for n in names]
 
 
 # -- Top-level ------------------------------------------------------------
@@ -1415,10 +1425,10 @@ def _emit_stages_up_to_id(nodes: list[StageNode], depth: int,
                 for gv in _parse_ghost_names(n.comment):
                     ghost_vars.add(gv)
             if n.category == "finish_pure" and ghost_vars:
-                for gv in sorted(ghost_vars):
+                for gv, suf in sorted(ghost_vars):
                     if gv in post:
                         parts.append(f"{indent}exists {gv}. "
-                                     f"split; [exact Hrz | exact H_{gv}].")
+                                     f"split; [exact Hrz{suf} | exact H_{gv}{suf}].")
                 ghost_vars.clear()
         elif isinstance(n, Branch):
             for arm in n.arms:
