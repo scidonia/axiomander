@@ -986,3 +986,67 @@ def python_to_iris_proof(source: str,
         raises=contracts.raises,
         param_types=param_types,
     )
+
+
+def capture_residual(source: str,
+                     table: FunTable,
+                     func_name: str | None = None,
+                     error_output: str = "",
+                     _cwd: str = ".",
+                     ) -> str | None:
+    """Generate a proof and, if verification fails, produce a residual
+    .v fragment showing the goal state at the failure point.
+
+    Returns the residual as a string, or None if the proof already
+    verifies (no residual needed).
+
+    [error_output] should be the coqc stderr from a prior verification
+    attempt; if empty, we run coqc internally and use its output to
+    locate the failure.
+    """
+    import re, tempfile, subprocess, os
+    proof = python_to_iris_proof(source, table, func_name=func_name,
+                                 _cwd=_cwd)
+    full_text = proof.emit_exn()
+    if not error_output:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.v',
+                                         delete=False) as f:
+            f.write(full_text)
+            tf = f.name
+        try:
+            r = subprocess.run(
+                ["coqc", "-R", _coq_root(), "", tf],
+                capture_output=True, text=True, timeout=60)
+        finally:
+            try:
+                os.unlink(tf)
+            except OSError:
+                pass
+        error_output = r.stderr
+        if r.returncode == 0:
+            return None  # already verified
+
+    # Parse line number from error: "File ..., line N, characters ..."
+    m = re.search(r'line (\d+)', error_output)
+    if not m:
+        return None
+    err_line = int(m.group(1))
+    emit_lines = full_text.splitlines()
+    # Find the LAST stage whose emit line is strictly before the error
+    # line.  (The error is often at Qed, not the failing tactic.)
+    stage_id = None
+    for i, el in enumerate(emit_lines):
+        if (i + 1) >= err_line:
+            break
+        s_match = re.search(r'\[\s*(\d+)\s*\]', el)
+        if s_match:
+            stage_id = int(s_match.group(1))
+    if stage_id is None:
+        return None
+    return proof.emit_residual(stage_id + 1)  # capture goal AT this stage
+
+
+def _coq_root() -> str:
+    """Return the path to the coq source root."""
+    import pathlib
+    return str(pathlib.Path(__file__).parent.parent.parent / "coq")

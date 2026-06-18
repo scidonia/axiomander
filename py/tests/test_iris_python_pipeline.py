@@ -870,3 +870,42 @@ def float_ge_check(x: float):
     return result
 ''', table=_builtins_table(), func_name="float_ge_check")
     assert ok, out
+
+
+# -- Staged proof output + residual capture --------------------------------
+
+def test_residual_capture_goal():
+    """When a proof fails, capture_residual produces a .v fragment
+    with the open goal and full hypotheses at the failure point."""
+    from oracle.iris_pipeline import capture_residual
+
+    src = '''
+def wrong(x: int):
+    assert x >= 0
+    result = x + 1
+    assert result == 0
+    return result
+'''
+    residual = capture_residual(src, {}, func_name="wrong")
+    assert residual is not None, "should capture residual on failure"
+    assert "Show." in residual
+    assert "Abort." in residual
+    assert "wrong_residual" in residual
+    # The residual must compile (Abort ensures no Qed needed)
+    ok, out = run_coqc(residual)
+    assert ok, f"residual should compile: {out}"
+
+
+def test_residual_no_capture_on_pass():
+    """capture_residual returns None for a function that verifies."""
+    from oracle.iris_pipeline import capture_residual
+
+    src = '''
+def good(x: int):
+    assert x >= 0
+    result = x + 1
+    assert result > x
+    return result
+'''
+    residual = capture_residual(src, {}, func_name="good")
+    assert residual is None, "should return None for verified function"

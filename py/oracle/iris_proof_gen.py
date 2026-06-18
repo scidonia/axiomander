@@ -164,15 +164,28 @@ IRIS_BUILTINS: FunTable = {
 }
 
 
+# -- Global stage ID counter -----------------------------------------------
+# Assigned by _mk_stage; reset per generate() call.
+
+_STAGE_ID_COUNTER: list[int] = [0]
+
+
+def _mk_stage(tactic: str, category: str, comment: str = "",
+              smt_relevant: bool = False) -> Stage:
+    _STAGE_ID_COUNTER[0] += 1
+    return Stage(tactic=tactic, category=category, comment=comment,
+                 smt_relevant=smt_relevant, stage_id=_STAGE_ID_COUNTER[0])
+
 # -- Stage tree -----------------------------------------------------------
 
 @dataclass
 class Stage:
-    """One staged tactic invocation."""
+    """One staged tactic invocation with a unique ID for trace/capture."""
     tactic: str
     category: str
     comment: str = ""
     smt_relevant: bool = False
+    stage_id: int = 0  # assigned by _gen via global counter
 
 
 @dataclass
@@ -501,7 +514,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
     if isinstance(e, SBinOp):
         def after_left():
             def after_right():
-                return [Stage("pure_step", "pure_step",
+                return [_mk_stage("pure_step", "pure_step",
                               comment=f"binop {e.op}")] + k()
             return _gen(e.right, table, overrides, after_right, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
         return _gen(e.left, table, overrides, after_left, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
@@ -516,7 +529,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
             ov = overrides.get(e.func)
             if entry.post_pred is not None:
                 # Predicate post: self-contained.
-                st = Stage(f'call_opaque_pred "{e.func}"', "call_opaque_pred",
+                st = _mk_stage(f'call_opaque_pred "{e.func}"', "call_opaque_pred",
                            comment=f"opaque, pre: "
                                    f"{entry.side or 'arity/typing'}",
                            smt_relevant=entry.side is not None)
@@ -530,25 +543,25 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                     gv_splits = "".join(
                         f"; destruct Hr as [Hrz H_{gv}]"
                         for gv in entry.ghost_vars.values())
-                    result.append(Stage(
+                    result.append(_mk_stage(
                         f"destruct Hr as ({gv_names} & Hr)"
                         f"{gv_splits}",
                         "destruct_ghost",
                         comment=f"name ghost vars: {', '.join(entry.ghost_vars.values())}"))
                 return result + k()
             elif ov is not None:
-                st = Stage(f"call_opaque_pre ({ov})", "call_opaque",
+                st = _mk_stage(f"call_opaque_pre ({ov})", "call_opaque",
                            comment=f"{e.func} (pre via SMT axiom)",
                            smt_relevant=True)
             else:
-                st = Stage(f'call_opaque "{e.func}"', "call_opaque",
+                st = _mk_stage(f'call_opaque "{e.func}"', "call_opaque",
                            comment=f"opaque, pre: "
                                    f"{entry.side or 'arity/typing'}",
                            smt_relevant=entry.side is not None)
             return [st] + k()
         # Transparent: the unfolded body's stages follow, then the
         # continuation resumes.
-        st = Stage(f'call_transparent "{e.func}"', "call_transparent",
+        st = _mk_stage(f'call_transparent "{e.func}"', "call_transparent",
                    comment="unfolds")
         return [st] + _gen(entry.body, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
 
@@ -556,10 +569,10 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         # A raise in the bound position unwinds the Let, discarding the
         # continuation: the exception propagates and terminates this path.
         if isinstance(e.value, SRaise):
-            return [Stage("raise_step", "raise_step",
+            return [_mk_stage("raise_step", "raise_step",
                           comment="raise unwinds the let")]
         def after_rhs():
-            return [Stage("pure_step", "pure_step",
+            return [_mk_stage("pure_step", "pure_step",
                           comment=f'bind "{e.var}"')] + \
                    _gen(e.body, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
         return _gen(e.value, table, overrides, after_rhs, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
@@ -659,12 +672,12 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 iter_block = "; ".join(
                     ["loop_unfold"] + flat(cond_stages, "condition")
                     + ["pure_step"] + flat(body_stages, "body") + ["pure_step"])
-                return ([Stage(f"repeat ({iter_block})", "loop_iterations",
+                return ([_mk_stage(f"repeat ({iter_block})", "loop_iterations",
                                comment="concrete heap loop: all full iterations")]
-                        + [Stage("loop_unfold", "loop_unfold",
+                        + [_mk_stage("loop_unfold", "loop_unfold",
                                  comment="exit iteration")]
                         + cond_stages
-                        + [Stage("pure_step", "pure_step", comment="exit branch")]
+                        + [_mk_stage("pure_step", "pure_step", comment="exit branch")]
                         ) + k()
             # Symbolic heap loop: generate WhileInv with trivial invariant
             cell_name = _extract_while_cell(e.cond)
@@ -694,21 +707,21 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 stages = []
                 for _ in range(unroll):
                     stages += [
-                        Stage("loop_unfold", "loop_unfold",
+                        _mk_stage("loop_unfold", "loop_unfold",
                               comment="iteration"),
                         ] + cond_stages + [
-                        Stage("pure_step", "pure_step",
+                        _mk_stage("pure_step", "pure_step",
                               comment="enter body"),
-                        ] + [Stage(t, "pure_step", comment="body")
+                        ] + [_mk_stage(t, "pure_step", comment="body")
                              for t in block] + [
-                        Stage("pure_step", "pure_step",
+                        _mk_stage("pure_step", "pure_step",
                               comment="step ;;"),
                         ]
                 return stages + [
-                    Stage("loop_unfold", "loop_unfold",
+                    _mk_stage("loop_unfold", "loop_unfold",
                           comment="exit iteration"),
                     ] + cond_stages + [
-                    Stage("pure_step", "pure_step",
+                    _mk_stage("pure_step", "pure_step",
                           comment="exit branch"),
                     ] + k()
             # Symbolic loop without invariants: still generate a WhileInv
@@ -782,17 +795,17 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         )]  # continuation handled by inferred Phi via wp_for_list' or wp_for_list_forall
 
     if isinstance(e, SAlloc):
-        return [Stage("heap_alloc", "heap_alloc",
+        return [_mk_stage("heap_alloc", "heap_alloc",
                       comment="fresh location"),
                 ] + k()
 
     if isinstance(e, SStore):
-        return [Stage("heap_store", "heap_store",
+        return [_mk_stage("heap_store", "heap_store",
                       comment=f"write {e.loc}"),
                 ] + k()
 
     if isinstance(e, SLoad):
-        return [Stage("heap_load", "heap_load",
+        return [_mk_stage("heap_load", "heap_load",
                       comment=f"read {e.loc}"),
                 ] + k()
 
@@ -800,33 +813,33 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         if isinstance(e.cond, SLit) and e.cond.lit_type == "bool":
             chosen = (e.then_branch if e.cond.value.lower() == "true"
                       else e.else_branch)
-            return ([Stage("pure_step", "pure_step",
+            return ([_mk_stage("pure_step", "pure_step",
                            comment="literal conditional")] +
                     _gen(chosen, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp))
 
         def after_cond():
-            then_arm = ([Stage("pure_step", "pure_step",
+            then_arm = ([_mk_stage("pure_step", "pure_step",
                                 comment="select then-branch")] +
                         _gen(e.then_branch, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp))
-            else_arm = ([Stage("pure_step", "pure_step",
+            else_arm = ([_mk_stage("pure_step", "pure_step",
                                 comment="select else-branch")] +
                         _gen(e.else_branch, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp))
-            return [Stage("case_bool", "case_bool", comment="path fork"),
+            return [_mk_stage("case_bool", "case_bool", comment="path fork"),
                     Branch([then_arm, else_arm])]
         return _gen(e.cond, table, overrides, after_cond, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
 
     if isinstance(e, SDictGet):
         def after_key():
-            return [Stage("pure_step", "pure_step",
+            return [_mk_stage("pure_step", "pure_step",
                           comment=f"dict lookup {e.loc}[key]")] + k()
         return _gen(e.key, table, overrides, after_key, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
 
     if isinstance(e, SDictSet):
         def after_dictset_key():
             def after_dictset_value():
-                return [Stage("pure_step", "pure_step",
+                return [_mk_stage("pure_step", "pure_step",
                               comment=f"dict insert {e.loc}[key]=val"),
-                        Stage("pure_step", "pure_step",
+                        _mk_stage("pure_step", "pure_step",
                               comment="dict set: unit return")] + k()
             return _gen(e.value, table, overrides, after_dictset_value, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
         return _gen(e.key, table, overrides, after_dictset_key, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
@@ -834,14 +847,14 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
     if isinstance(e, SRaise):
         # A raise terminates the path with an exception result; the
         # continuation k() is unreachable.
-        return [Stage("raise_step", "raise_step",
+        return [_mk_stage("raise_step", "raise_step",
                       comment="raise exception (terminal)")]
 
     if isinstance(e, STry):
         # ANF ensures the body is an atom (value or variable), so after
         # substitution/sub-reduction it becomes Try (Val v) handler.
         # pure_step_redex handles Try (Val _) _ via wp_try_val.
-        return [Stage("pure_step", "pure_step",
+        return [_mk_stage("pure_step", "pure_step",
                        comment="try/except: body returned normally")] + k()
 
     raise IrisGenError(
@@ -1044,8 +1057,11 @@ def _emit_stage_lines(nodes: list[StageNode], depth: int,
     for n in nodes:
         if isinstance(n, Stage):
             text = f"{indent}{n.tactic}."
+            cid = f"[{n.stage_id}]" if n.stage_id else ""
             if n.comment:
-                text += f"  (* {n.comment} *)"
+                text += f"  (* {cid} {n.comment} *)"
+            elif cid:
+                text += f"  (* {cid} *)"
             lines.append(text)
             # Track ghost vars from destruct_ghost stages
             if n.category == "destruct_ghost":
@@ -1311,6 +1327,109 @@ class IrisProof:
         parts.append("End generated_proofs.")
         return "\n".join(parts) + "\n"
 
+    def emit_residual(self, stage_id: int) -> str:
+        """Generate a residual .v fragment that replays the proof up to
+        (but not including) the given [stage_id], then issues [Show.]
+        to output the goal state.  Use when a tactic at [stage_id] fails
+        and you need to inspect the open goal with its hypotheses.
+
+        Returns a complete .v file that loads the same dependencies and
+        replays the proof script up to the failing stage.
+        """
+        parts = [_HEADER_EXN]
+        parts.append(self.table_coq)
+        parts.append("")
+        parts.append("Section generated_residual.")
+        parts.append("  Context `{!snakeletExn_heapGS_gen hlc Sigma}.")
+        # Emit the lemma and proof up to the target stage
+        parts.append(f"  Lemma {self.name}_residual{self._render_binders()} :")
+        if self.list_params:
+            premises = " -> ".join(
+                f"{lp} = LitList {mv}" for lp, mv in self.list_params.items())
+            parts.append(f"    ({premises}) ->")
+        if self.pre:
+            parts.append(f"    ({self.pre}) ->")
+        parts.append(f"    {TSTILE} WPE {self.body_coq} "
+                      f"{{{{ (fun r => match r with "
+                      f"RVal v => {LCEIL}({self.post})%Z{RCEIL} | "
+                      f"RExn _ _ => False end)%I }}}}.")
+        parts.append("  Proof.")
+        for lp, _ in self.list_params.items():
+            parts.append(f"    intros H_{lp}. subst {lp}.")
+        if self.pre:
+            parts.append("    intros Hpre.")
+        parts.append("    iStartProof.")
+        # Replay stages up to the target
+        self._emit_stages_up_to(stage_id, parts, "    ")
+        parts.append("    Show.")
+        parts.append("  Abort.")
+        parts.append("End generated_residual.")
+        return "\n".join(parts) + "\n"
+
+    def _render_binders(self) -> str:
+        def _coq_type(py_type: str) -> str:
+            if py_type in ("int", "bool", "float"):
+                return "Z"
+            return "sn_val"
+        binders = "".join(
+            f" ({p} : {_coq_type(self.param_types.get(p, 'int'))})"
+            for p in self.params
+            if p not in self.list_params and p not in self.dict_params)
+        for lp, mv in self.list_params.items():
+            binders += f" ({lp} : sn_val) ({mv} : list sn_val)"
+        return binders
+
+    def _emit_stages_up_to(self, target_id: int, parts: list[str],
+                           indent: str) -> bool:
+        """Emit proof-script lines for stages with id <= target_id.
+        Returns True if we stopped at the target stage (emitted its
+        preceding context but not the tactic itself)."""
+        return _emit_stages_up_to_id(self.stages, 0, target_id, parts,
+                                     indent, set(), self.post)
+
+    def stage_trace(self) -> dict[int, Stage]:
+        """Return {stage_id: Stage} for all stages in the proof."""
+        out: dict[int, Stage] = {}
+        for s in self.stage_list():
+            out[s.stage_id] = s
+        return out
+
+
+def _emit_stages_up_to_id(nodes: list[StageNode], depth: int,
+                          target_id: int, parts: list[str],
+                          indent: str, ghost_vars: set[str],
+                          post: str) -> bool:
+    """Emit stages up to (not including) target_id.  Returns True iff
+    the target was found and emission stopped at it."""
+    for n in nodes:
+        if isinstance(n, Stage):
+            if n.stage_id >= target_id:
+                return True  # stop before this stage
+            text = f"{indent}{n.tactic}."
+            if n.comment:
+                text += f"  (* [{n.stage_id}] {n.comment} *)"
+            else:
+                text += f"  (* [{n.stage_id}] *)"
+            parts.append(text)
+            if n.category == "destruct_ghost":
+                for gv in _parse_ghost_names(n.comment):
+                    ghost_vars.add(gv)
+            if n.category == "finish_pure" and ghost_vars:
+                for gv in sorted(ghost_vars):
+                    if gv in post:
+                        parts.append(f"{indent}exists {gv}. "
+                                     f"split; [exact Hrz | exact H_{gv}].")
+                ghost_vars.clear()
+        elif isinstance(n, Branch):
+            for arm in n.arms:
+                arm_vars = set(ghost_vars)
+                found = _emit_stages_up_to_id(arm, depth + 1, target_id,
+                                              parts, indent + "  ",
+                                              arm_vars, post)
+                if found:
+                    return True
+    return False
+
 
 def generate(name: str,
               body: SExpr,
@@ -1339,8 +1458,9 @@ def generate(name: str,
     """
     overrides = pre_overrides or {}
     inv_counter = [0]
+    _STAGE_ID_COUNTER[0] = 0
     stages = _gen(body, table, overrides,
-                  lambda: [Stage("finish_pure", "finish_pure",
+                  lambda: [_mk_stage("finish_pure", "finish_pure",
                                  comment="postcondition")],
                   func_name=name, _inv_counter=inv_counter,
                   list_params=list_params or {},
