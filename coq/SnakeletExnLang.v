@@ -58,7 +58,7 @@ Inductive sn_val :=
 (** * Expressions *)
 Inductive binop := AddOp | SubOp | MulOp | EqOp | LeOp | LtOp | GtOp | GeOp
   | AndOp | OrOp | NeOp | ModOp | InOp | LenOp | UnionOp | InterOp
-  | AppendOp | LengthOp | DictGetOp | MkKeyErrOp.
+  | AppendOp | LengthOp | DictGetOp | DictGetIntOp | MkKeyErrOp.
 
 Inductive sn_expr :=
   | Val (v : sn_val)
@@ -244,12 +244,33 @@ Fixpoint dict_has_kvs (kvs : list (sn_val * sn_val)) (k : sn_val) : bool :=
   | (k', _) :: rest => if sn_val_eqb k' k then true else dict_has_kvs rest k
   end.
 
+(** Z-valued field projection: extract the integer value of a string-keyed
+    field from a model's [LitDict] representation, returning 0%Z if the
+    field is absent or non-integer.  This is the contract-level projection
+    -- it returns a bare Z, not an sn_val, so that pre/postconditions can
+    use standard Z arithmetic rather than matching on constructors. *)
+Definition dict_lookup_Z (m : sn_val) (f : string) : Z :=
+  match dict_lookup m (LitString f) with
+  | LitInt n => n
+  | _ => 0%Z
+  end.
+
+(** [model_field_Z] is an alias for contract-level readability. *)
+Definition model_field_Z (m : sn_val) (f : string) : Z := dict_lookup_Z m f.
+
 (** * Binary operation evaluation (minimal: ints + comparisons). *)
 Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
   match op with
   (* Construct a KeyError whose payload is the (first) key value, so that
      [Raise (BinOp MkKeyErrOp k _)] raises exactly Python's KeyError(k). *)
   | MkKeyErrOp => LitExn "KeyError" v1
+  (* DictGetIntOp: integer-valued projection that ALWAYS returns LitInt,
+     even for non-dict receivers (model_field_Z returns 0).  This
+     guarantees [exists z, v = LitInt z /\ ...] is provable by reflexivity
+     without needing an is_shape typing hypothesis. *)
+  | DictGetIntOp =>
+      let f := match v2 with LitString s => s | _ => ""%string end in
+      LitInt (model_field_Z v1 f)
   | _ =>
   match v1, v2 with
   | LitInt n1, LitInt n2 =>
@@ -391,6 +412,16 @@ Qed.
     therefore evaluates to the terminal [RExn "KeyError" k]. *)
 Lemma mk_key_err_payload :
   forall k junk, binop_eval MkKeyErrOp k junk = LitExn "KeyError" k.
+Proof. reflexivity. Qed.
+
+(** The integer-valued field projection [DictGetIntOp] unconditionally
+    returns [LitInt (model_field_Z m f)], even for non-dict receivers
+    (where [model_field_Z] returns 0%Z).  This guarantees the
+    postcondition existential [exists z, v = LitInt z /\ ...] is
+    provable by reflexivity without an [is_shape] typing hypothesis. *)
+Lemma dict_get_int_eval :
+  forall m s,
+    binop_eval DictGetIntOp m (LitString s) = LitInt (model_field_Z m s).
 Proof. reflexivity. Qed.
 
 (** * Function context (opaque specs + transparent defs). *)

@@ -469,6 +469,25 @@ class IsValid(BaseModel):
         return "true"
 
 
+class FieldAccess(BaseModel):
+    """model.field -- structural field projection for Pydantic/shape models.
+
+    The object stays a single sn_val (never flattened), and the field
+    value is extracted via the trusted dict_lookup_Z projection.
+    Compiles to [model_field_Z obj "field"] in Coq Props -- a bare Z,
+    so it composes naturally with arithmetic comparisons in contracts.
+    """
+    kind: Literal["field_access"] = "field_access"
+    obj: str          # e.g. "account"
+    field: str        # e.g. "balance"
+
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        return f'model_field_Z {self.obj} "{self.field}"'
+
+    def to_smt(self) -> str:
+        return "0"
+
+
 class ReMatchExpr(BaseModel):
     """s.re_match("pattern") -- regex membership contract predicate.
 
@@ -632,4 +651,4 @@ class OpaqueTerm(BaseModel):
         return "true"
 
 
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, ListEqExpr, ReMatchExpr, StringContainsExpr, StringEqualsExpr, RecursorExpr, ROwnExpr, OpaqueTerm]
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, FieldAccess, ListEqExpr, ReMatchExpr, StringContainsExpr, StringEqualsExpr, RecursorExpr, ROwnExpr, OpaqueTerm]

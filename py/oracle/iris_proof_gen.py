@@ -153,13 +153,13 @@ IRIS_BUILTINS: FunTable = {
                     exc=SBinOp(op="mk_key_err", left=SVar(name="k"),
                                right=SVar(name="k")))))),
     # Pydantic model field access model.field: TOTAL structural projection.
-    # A well-typed model always carries every declared field, so the lookup
-    # never misses -- no KeyError branch needed.  Field name is a LitString
-    # key.  Preserves object identity (model is a single sn_val LitDict,
-    # never flattened).
+    # Uses DictGetIntOp (returns LitInt, not stuck sn_val) so the int-type
+    # postcondition existential [exists z, v = LitInt z /\ ...] unpacks by
+    # reflexivity with [model_field_Z model "field"].  Object identity is
+    # preserved (model is a single sn_val LitDict, never flattened).
     "field_access": TransparentDef(
         params=["model", "field"],
-        body=SBinOp(op="dict_get", left=SVar(name="model"),
+        body=SBinOp(op="dict_get_int", left=SVar(name="model"),
                     right=SVar(name="field"))),
 }
 

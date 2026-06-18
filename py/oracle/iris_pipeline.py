@@ -84,10 +84,13 @@ def extract_contracts(
         pre-configured for the postcondition (for subsequent callee use).
     """
     params = [a.arg for a in fn_node.args.args]
+    param_type_hint = _param_type_map(fn_node)
     pre_linter = ContractLinter(params=params, context="precondition",
-                                ghost_resolver=ghost_resolver)
+                                ghost_resolver=ghost_resolver,
+                                param_type_hint=param_type_hint)
     post_linter = ContractLinter(params=params, context="postcondition",
-                                 ghost_resolver=ghost_resolver)
+                                 ghost_resolver=ghost_resolver,
+                                 param_type_hint=param_type_hint)
 
     lm = list_model or {}
 

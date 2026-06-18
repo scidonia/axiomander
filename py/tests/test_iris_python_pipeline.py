@@ -735,3 +735,65 @@ def lookup(d: dict, k):
     return result
 ''', table=_builtins_table(), func_name="lookup")
     assert not ok, "unguarded symbolic d[k] must be rejected (can raise KeyError)"
+
+
+def test_pydantic_precondition_field():
+    """assert account.balance >= 0: contract field access compiles to
+    model_field_Z structural projection, not flattened Var."""
+    ok, out = verify_exn('''
+from pydantic import BaseModel, Field
+class Account(BaseModel):
+    balance: int = Field(ge=0)
+def get_balance(account: Account) -> int:
+    assert account.balance >= 0
+    result = account.balance
+    return result
+''', table=_builtins_table(), func_name="get_balance")
+    assert ok, out
+
+
+def test_pydantic_postcondition_field():
+    """assert result == account.balance: postcondition uses structural
+    field projection, verifies by reflexivity (same field_access in body)."""
+    ok, out = verify_exn('''
+from pydantic import BaseModel, Field
+class Account(BaseModel):
+    balance: int = Field(ge=0)
+def check_balance(account: Account):
+    result = account.balance
+    assert result == account.balance
+    return result
+''', table=_builtins_table(), func_name="check_balance")
+    assert ok, out
+
+
+def test_pydantic_wrong_postcondition_rejected():
+    """assert result == 0 when body just reads the field: wrong, must reject."""
+    ok, out = verify_exn('''
+from pydantic import BaseModel, Field
+class Account(BaseModel):
+    balance: int = Field(ge=0)
+def wrong_post(account: Account) -> int:
+    assert account.balance >= 0
+    result = account.balance
+    assert result == 0
+    return result
+''', table=_builtins_table(), func_name="wrong_post")
+    assert not ok, "result == 0 is not guaranteed by the body"
+
+
+def test_pydantic_two_fields():
+    """Two distinct model fields project distinct values (identity preserved)."""
+    ok, out = verify_exn('''
+from pydantic import BaseModel, Field
+class Account(BaseModel):
+    balance: int = Field(ge=0)
+    status: int = Field(ge=0, le=5)
+def sum_fields(account: Account) -> int:
+    b = account.balance
+    s = account.status
+    result = b + s
+    assert result == account.balance + account.status
+    return result
+''', table=_builtins_table(), func_name="sum_fields")
+    assert ok, out

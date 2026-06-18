@@ -85,8 +85,9 @@ class ContractLinter(ast.NodeVisitor):
     """
 
     def __init__(self, params: list[str] | None = None, context: str = "postcondition",
-                 predicates: dict | None = None, unbound: frozenset[str] = frozenset(),
-                 ghost_resolver: dict[str, str] | None = None):
+                  predicates: dict | None = None, unbound: frozenset[str] = frozenset(),
+                  ghost_resolver: dict[str, str] | None = None,
+                  param_type_hint: dict[str, str] | None = None):
         self.violations: list[LintViolation] = []
         self.params = params or []
         self.context = context
@@ -94,6 +95,7 @@ class ContractLinter(ast.NodeVisitor):
         self.var_types: dict[str, str] = {}  # var_name → "dict" | "list" | "int" | "unknown"
         self.unbound: frozenset[str] = unbound
         self.ghost_resolver: dict[str, str] = ghost_resolver or {}
+        self.param_type_hint: dict[str, str] = param_type_hint or {}
 
     def lint_expression(self, node: ast.expr) -> LintResult:
         """Convert a Python expression to IR. Returns LintResult with coq/smt."""
@@ -478,10 +480,20 @@ class ContractLinter(ast.NodeVisitor):
             return IndexExpr(name=name, index=idx)
         # Resolve enum member references to their integer encoding
         if isinstance(node.value, ast.Name):
-            from .shape_ir import lookup_enum_value
+            from .shape_ir import lookup_enum_value, lookup_shape
             ev = lookup_enum_value(node.value.id, node.attr)
             if ev is not None:
                 return IntLit(value=ev)
+            # Model field access (Pydantic/shape): resolve the param name
+            # to its declared type, then check the shape registry.  If the
+            # type IS a shape, produce a structural FieldAccess (not a
+            # flattened Var) so that contracts like
+            # [assert account.balance >= 0] compile to Z-valued Coq Props.
+            param_name = node.value.id
+            model_type = self.param_type_hint.get(param_name)
+            if model_type and lookup_shape(model_type) is not None:
+                from .contract_ir import FieldAccess
+                return FieldAccess(obj=param_name, field=node.attr)
         # If the base is a Call (e.g. Order(order_id).status), the
         # contract language can't represent the call return value as
         # a flat variable.  Return OpaqueTerm so the comparison

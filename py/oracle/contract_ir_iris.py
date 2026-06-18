@@ -22,11 +22,11 @@ from __future__ import annotations
 from typing import Optional
 from oracle.contract_ir import (
     AllExpr, AnyExpr, BinOp, BoolLit, DictCountExpr, DictExpr,
-    DictLenExpr, Expr, FloatExpr, ImpliesExpr, IndexExpr, IntLit,
-    IsShape, IsValid, LenExpr, ListEqExpr, Logical, MaxExpr, MinExpr,
-    OpaqueTerm, RaisesExpr, ReMatchExpr, RecursorExpr, ROwnExpr, SetExpr,
-    SliceLenExpr, StrLitExpr, StringContainsExpr, StringEqualsExpr,
-    SumExpr, TupleExpr, Var,
+    DictLenExpr, Expr, FieldAccess, FloatExpr, ImpliesExpr, IndexExpr,
+    IntLit, IsShape, IsValid, LenExpr, ListEqExpr, Logical, MaxExpr,
+    MinExpr, OpaqueTerm, RaisesExpr, ReMatchExpr, RecursorExpr, ROwnExpr,
+    SetExpr, SliceLenExpr, StrLitExpr, StringContainsExpr,
+    StringEqualsExpr, SumExpr, TupleExpr, Var,
 )
 
 
@@ -83,6 +83,7 @@ def iris_prop(node: Expr, *,
         "string_eq": _string_eq,
         "recursor": _recursor, "rown": _placeholder,
         "opaque_term": _placeholder,
+        "field_access": _field_access,
     }
     # The "len" dispatch captures lm via closure.  For "binop" and
     # "logical" which recurse into iris_prop, the inner call does NOT
@@ -259,6 +260,11 @@ def _recursor(n, ps, pv):
 
 def _placeholder(n, ps, pv):
     return "True"
+
+
+def _field_access(n, ps, pv):
+    """Structural field projection for Pydantic model fields."""
+    return f'model_field_Z {n.obj} "{n.field}"'
 
 
 # -- Convenience: compile contracts from the linter ---------------------------
