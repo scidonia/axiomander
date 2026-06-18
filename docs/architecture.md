@@ -1,215 +1,150 @@
-# Axiomander Architecture
+# Architecture
 
-```mermaid
-%%{init: {'theme': 'dark', 'themeVariables': {
-  'fontSize': '13px',
-  'primaryColor': '#7c3aed',
-  'primaryTextColor': '#f5f3ff',
-  'primaryBorderColor': '#a78bfa',
-  'lineColor': '#8b5cf6',
-  'secondaryColor': '#1e1b4b',
-  'tertiaryColor': '#312e81',
-  'noteBkgColor': '#1e293b',
-  'noteTextColor': '#e2e8f0',
-  'actorBkg': '#7c3aed',
-  'actorBorder': '#a78bfa',
-  'actorTextColor': '#f5f3ff',
-  'signalColor': '#94a3b8',
-  'signalTextColor': '#e2e8f0',
-  'labelBoxBkgColor': '#1e293b',
-  'labelBoxBorderColor': '#475569',
-  'labelTextColor': '#cbd5e1',
-  'loopTextColor': '#e2e8f0',
-  'activationBkgColor': '#312e81',
-  'activationBorderColor': '#6366f1'
-}}}%%
+## Overview
 
-flowchart TB
-    subgraph SOURCE["🐍 Python Source"]
-        PY["<pre style='text-align:left;white-space:pre;margin:0'><span style='color:#c084fc'>def</span> <b>withdraw</b>(acct, amount):
-    <span style='color:#34d399'>assert</span> amount >= 0
-    <span style='color:#94a3b8'># ghost: old = acct.balance</span>
-    <span style='color:#c084fc'>if</span> amount > acct.balance + acct.overdraft:
-        result = 0
-        <span style='color:#34d399'>assert</span> result == 0
-        <span style='color:#c084fc'>return</span> result
-    acct.balance -= amount
-    result = 1
-    <span style='color:#34d399'>assert</span> acct.balance + acct.overdraft >= 0
-    <span style='color:#34d399'>assert</span> result == 1
-    <span style='color:#c084fc'>return</span> result</pre>"]
-    end
+Axiomander is a verification pipeline for Python. Users annotate Python functions with Hoare-logic contracts using decorators. The pipeline translates these into proof obligations formalised in Coq, dispatches them through SMT solvers, and falls back to an LLM oracle for the hard cases.
 
-    subgraph IR["🔬 Intermediate Representations"]
-        direction LR
-        PYIR["<div style='text-align:left'><b>Faithful Python Core IR</b><br/>PyAssign, PyCall, PyFor,<br/>PyWhile, PyIf, PyReturn<br/><br/><i>ast → PyIRTranslator</i></div>"]
-        IMPIR["<div style='text-align:left'><b>Verification IR</b><br/>CAss, CSeq, CIf, CWhile,<br/>CCall, CHavoc, CListAppend,<br/>CDictSet, CAssume, …<br/><br/><i>PyToImpLowerer</i></div>"]
-        COQ["<div style='text-align:left'><b>Coq IMP AST</b><br/>com, aexp, bexp, value<br/>state ≜ { ls; hs }<br/><br/><i>to_coq() serialisation</i></div>"]
-    end
+## Pipeline Stages
 
-    subgraph CONTRACTS["📜 Contract Linter"]
-        direction LR
-        ASSERT["<div style='text-align:left'><b>extracted from source</b><br/><br/><span style='color:#34d399'>assert</span> amount &gt;= 0<br/><span style='color:#34d399'>assert</span> acct.balance + acct.overdraft &gt;= 0<br/><span style='color:#34d399'>assert</span> result == 1</div>"]
-        LINT["<div style='text-align:left'><b>ContractLinter</b><br/>classify → lint → IR<br/>pre / post / invariant<br/><br/><i>position-based<br/>classification</i></div>"]
-        IR_EXPR["<div style='text-align:left'><b>Contract IR</b><br/>BinOp, Var, IntLit,<br/>LenExpr, IndexExpr, …<br/><br/><i>to_smt() → SMT-LIB<br/>to_coq() → Coq Prop</i></div>"]
-    end
+### Stage 1: Annotation (Python)
 
-    subgraph WP["📐 Weakest Precondition Calculus"]
-        direction LR
-        WP_RULES["<pre style='text-align:left;white-space:pre;margin:0'><b>WP Calculus (Imp.v / Wp.v)</b>
+The user writes Python with three decorator types:
 
-wp(CAss x a, Q) = Q[ s{x ↦ ⟦a⟧} ]
-wp(CSeq c1 c2, Q) = wp(c1, wp(c2, Q))
-wp(CIf b c1 c2, Q) = (⟦b⟧ → wp(c1,Q)) ∧ (¬⟦b⟧ → wp(c2,Q))
-wp(CWhile b I c, Q) = I ∧
-  (I ∧ ¬⟦b⟧ → Q) ∧ (I ∧ ⟦b⟧ → wp(c, I))
-wp(CCall f a Q) = pre ∧ ∀r. post[r/result] →
-  clobber(v′, writes) → Q</pre>"]
-        WP_VC["<div style='text-align:left'><b>Verification Condition</b><br/><br/>∀ params st.<br/>  pre(st) →<br/>  wp(body, post)(st)</div>"]
-        PROOF["<div style='text-align:left'><b>Coq Theorem</b><br/><br/>Theorem f_correct:<br/>  ∀ params st,<br/>  pre st →<br/>  wp body post st</div>"]
-    end
-
-    subgraph PIPELINE["⚡ Proof Pipeline (3 Tiers)"]
-        direction TB
-        L1["<div style='text-align:left'><b>Level 1 — Ltac</b><br/>wp_reduce / wp_prove<br/>Structural + linear arithmetic<br/><br/><span style='color:#22d3ee'>Handles ~80% of goals</span><br/>assignments, conditionals,<br/>reflexivity, lia</div>"]
-        L1_CHECK{"Dispatched?"}
-        L1_DONE["✅ <b>LEVEL1_LTAC</b>"]
-
-        L2["<div style='text-align:left'><b>Level 2 — SMT</b><br/>coq-hammer → cvc4 / eprover<br/>Z arithmetic, first-order logic<br/><br/><span style='color:#22d3ee'>Non-linear, division,<br/>boolean combinations</span></div>"]
-        L2_CHECK{"Dispatched?"}
-        L2_DONE["✅ <b>LEVEL2_SMT</b>"]
-
-        L3["<div style='text-align:left'><b>Level 3 — LLM Oracle</b><br/>DeepSeek via coqpyt<br/>interactive proof search<br/><br/><span style='color:#fbbf24'>Loop invariants, induction,<br/>complex data structures</span></div>"]
-        L3_CHECK{"Dispatched?"}
-        L3_DONE["✅ <b>LEVEL3_LLM</b>"]
-        L3_FAIL["❌ <b>UNPROVED</b><br/><span style='color:#f87171'>SMT counterexample,<br/>suggested action</span>"]
-    end
-
-    subgraph SOUNDNESS["🏛️ Trust Base"]
-        WP_SOUND["<div style='text-align:left'><b>wp_sound</b> — Admitted<br/>wp c Q s → ceval c s s' → Q s'</div>"]
-    end
-
-    SOURCE --> PYIR
-    SOURCE --> ASSERT
-    PYIR --> IMPIR
-    IMPIR --> COQ
-    ASSERT --> LINT
-    LINT --> IR_EXPR
-    COQ --> WP_RULES
-    IR_EXPR --> WP_RULES
-    WP_RULES --> WP_VC
-    WP_VC --> PROOF
-
-    PROOF --> L1
-    L1 --> L1_CHECK
-    L1_CHECK -- "yes" --> L1_DONE
-    L1_CHECK -- "no" --> L2
-    L2 --> L2_CHECK
-    L2_CHECK -- "yes" --> L2_DONE
-    L2_CHECK -- "no" --> L3
-    L3 --> L3_CHECK
-    L3_CHECK -- "yes" --> L3_DONE
-    L3_CHECK -- "no" --> L3_FAIL
-
-    L1_DONE -.-> WP_SOUND
-    L2_DONE -.-> WP_SOUND
-    L3_DONE -.-> WP_SOUND
-    L3_FAIL -.-> WP_SOUND
-
-    style SOURCE fill:#0f172a,stroke:#7c3aed,stroke-width:2px,color:#e2e8f0
-    style IR fill:#0f172a,stroke:#6366f1,stroke-width:2px,color:#e2e8f0
-    style CONTRACTS fill:#0f172a,stroke:#06b6d4,stroke-width:2px,color:#e2e8f0
-    style WP fill:#0f172a,stroke:#8b5cf6,stroke-width:2px,color:#e2e8f0
-    style PIPELINE fill:#0f172a,stroke:#22d3ee,stroke-width:2px,color:#e2e8f0
-    style SOUNDNESS fill:#0f172a,stroke:#f59e0b,stroke-width:2px,color:#e2e8f0
-
-    style PY fill:#1e1b4b,stroke:#7c3aed,color:#e2e8f0
-    style PYIR fill:#1e293b,stroke:#818cf8,color:#cbd5e1
-    style IMPIR fill:#1e293b,stroke:#818cf8,color:#cbd5e1
-    style COQ fill:#1e293b,stroke:#818cf8,color:#cbd5e1
-    style ASSERT fill:#1e1b4b,stroke:#06b6d4,color:#e2e8f0
-    style LINT fill:#1e293b,stroke:#22d3ee,color:#cbd5e1
-    style IR_EXPR fill:#1e293b,stroke:#22d3ee,color:#cbd5e1
-    style WP_RULES fill:#1e1b4b,stroke:#a78bfa,color:#e2e8f0
-    style WP_VC fill:#1e293b,stroke:#a78bfa,color:#cbd5e1
-    style PROOF fill:#1e1b4b,stroke:#c084fc,color:#e2e8f0
-
-    style L1 fill:#1e1b4b,stroke:#22d3ee,color:#e2e8f0
-    style L1_CHECK fill:#1e293b,stroke:#475569,color:#cbd5e1
-    style L1_DONE fill:#052e16,stroke:#22c55e,color:#86efac
-    style L2 fill:#1e1b4b,stroke:#a78bfa,color:#e2e8f0
-    style L2_CHECK fill:#1e293b,stroke:#475569,color:#cbd5e1
-    style L2_DONE fill:#052e16,stroke:#22c55e,color:#86efac
-    style L3 fill:#1e1b4b,stroke:#fbbf24,color:#e2e8f0
-    style L3_CHECK fill:#1e293b,stroke:#475569,color:#cbd5e1
-    style L3_DONE fill:#052e16,stroke:#22c55e,color:#86efac
-    style L3_FAIL fill:#450a0a,stroke:#ef4444,color:#fca5a5
-
-    style WP_SOUND fill:#1e1b4b,stroke:#f59e0b,color:#fde68a
-    style SOUNDNESS fill:#0f172a,stroke:#f59e0b,stroke-width:2px,color:#e2e8f0
+```python
+@requires(lambda x: x > 0)           # precondition
+@ensures(lambda x, result: result > 0)  # postcondition
+@invariant(lambda i, acc: acc == i * (i+1)//2)  # loop invariant
+def my_function(...):
+    ...
 ```
 
-## Pipeline Flow
+These decorators are purely metadata at runtime — they don't enforce anything. They store the contracts for the WP transformer to read.
 
-```
-Python Source
-    │
-    ├─► PyIRTranslator ──► Faithful Python Core IR (PyIR)
-    │                           │
-    │                    PyToImpLowerer
-    │                           │
-    │                           ▼
-    ├─► ContractLinter ──► Contract IR ◄── Verification IR (ImpIR)
-    │         │                    │              │
-    │    pre / post /        to_smt()       to_coq()
-    │    invariant               │              │
-    │         │                    │              ▼
-    │         ▼                    ▼         Coq IMP AST
-    │    Coq predicates      SMT-LIB v2     (com, aexp, bexp, value)
-    │         │                    │              │
-    │         └────────────────────┼──────────────┘
-    │                              │
-    │                         WP Calculus
-    │                              │
-    │                    Verification Condition
-    │                              │
-    │                        Coq Theorem
-    │                              │
-    └──────────────────────────────┘
-                                   │
-                          ┌────────┴────────┐
-                          ▼                  ▼
-                    Level 1: Ltac      Level 2: SMT
-                    wp_reduce/prove    cvc4 / eprover
-                          │                  │
-                          └────────┬─────────┘
-                                   ▼
-                            Level 3: LLM
-                            DeepSeek oracle
+### Stage 2: WP Transformer (Python)
+
+Python's `ast` module parses the annotated source. The WP transformer:
+
+1. Walks the AST of each decorated function
+2. Extracts the contracts from the decorator AST nodes
+3. Computes the weakest precondition of the function body with respect to the postcondition
+4. Generates the proof obligation: `∀ args. P(args) → wp(body, Q(args, result))`
+5. Emits a Coq `.v` file with the obligation as a theorem
+
+For a function `f(x)` with `@requires P` and `@ensures Q` and body `c`:
+
+```coq
+Theorem f_correct : forall x, P x -> wp c (fun y => Q x y).
+Proof.
+  (* proof to be filled *)
+Admitted.
 ```
 
-## Key Types
+### Stage 3: SMT Hammering (Coq)
 
-| Type | Role |
-|------|------|
-| `state` | Record `{ ls: var → value; hs: (var×var) → value }` |
-| `value` | `VZ Z \| VString string \| VFloat R \| VNone \| VTuple list \| VList list \| VDict list \| …` |
-| `com` | IMP commands: `CSkip \| CAss \| CSeq \| CIf \| CWhile \| CCall \| CHavoc \| CAssume \| …` |
-| `assertion` | `state → Prop` |
-| `wp` | `com → assertion → assertion` |
+The generated Coq file is processed by:
 
-## File Map
+1. **coq-hammer** — tries external ATPs (Z3, CVC5, Eprover) via `sauto` or the hammer tactic
+2. **SMTCoq** — direct Z3/CVC4 integration for arithmetic, bitvectors
+3. **lia / nia** — Presburger / non-linear integer arithmetic tactics
+
+If any of these close the goal, the theorem is `Qed`-ed. Remaining goals advance to Stage 4.
+
+### Stage 4: LLM Oracle
+
+Unproven goals are sent to an LLM (via HTTP API). The prompt includes:
+
+- The Coq goal statement
+- The definitions of all relevant functions and predicates
+- The current proof context (hypotheses available)
+- Examples of similar proofs from the codebase
+
+The LLM returns a Coq proof script. The pipeline:
+
+1. Writes the script into the `.v` file
+2. Runs `coqc` on it
+3. If it compiles → `Qed`. If not → extracts the error, feeds it back to the LLM with a retry prompt
+4. Retries up to N times (configurable)
+
+## IMP Language
+
+We verify a subset of Python that maps cleanly to a simple imperative language (IMP):
 
 ```
-coq/Imp.v          State model, aeval/beval, ceval, clobber
-coq/Wp.v           Weakest-precondition calculus, wp_sound
-coq/WpTactics.v    wp_reduce, wp_prove, clobber lemmas, ccall_simpl
-py/oracle/
-  py_ir.py         PyIR nodes (PyAssign, PyCall, PyFor, …)
-  py_ir_translator.py  ast → PyIR
-  imp_ir.py        ImpIR nodes (CAss, CCall, CListAppend, …)
-  py_to_imp.py     PyIR → ImpIR lowerer
-  contract_ir.py   Contract expressions + to_coq() / to_smt()
-  contract_linter.py   Lint + classify assert statements
-  mcp_server.py    Pipeline orchestration, Coq generation, SMT export
+e ::= n | x | e1 + e2 | e1 - e2 | e1 * e2 | e1 == e2 | e1 < e2 | not e | ...
+c ::= skip
+    | x := e
+    | c1 ; c2
+    | if e then c1 else c2
+    | while e with invariant I do c
+    | assert P
 ```
+
+State is a map from variable names to integer values. All variables are integers (for now).
+
+The WP transformer maps Python to IMP:
+- Python `if/else` → IMP `if`
+- Python `while` → IMP `while` (invariant extracted from `@invariant`)
+- Python assignments → IMP `:=`
+- Python `for i in range(n)` → IMP `while` with counter variable
+- Python `return e` → `result := e`
+
+## Coq Theory Structure
+
+```
+Imp.v          Syntax, state, big-step semantics
+Wp.v           Weakest precondition definition, wp laws
+Soundness.v    {P} c {Q} ↔ (∀ s. P s → wp c Q s)
+VcGen.v        Verification condition generator, automation tactics
+```
+
+## SMT Integration
+
+Two paths:
+
+### Path A: coq-hammer
+
+```coq
+From Hammer Require Import Hammer.
+Goal wp (Seq (Assign "x" (Plus (Var "x") (Const 1))) (Assign "y" (Var "x"))) 
+        (fun s => s "y" = 42).
+Proof.
+  hammer.
+Qed.
+```
+
+coq-hammer calls external provers (Z3, CVC5, Eprover) and reconstructs proofs.
+
+### Path B: SMT-LIB export
+
+Export the proof obligation to SMT-LIB format, call Z3 directly, then trust the result as an axiom in Coq. Faster but adds a trust boundary.
+
+## LLM Oracle Protocol
+
+```
+INPUT:
+  goal: "∀ s, s "x" = 5 → wp (Assign "y" (Var "x")) (fun s => s "y" = 5) s"
+  context: [definition of wp, definition of Assign, upd syntax]
+  examples: [similar proved theorems]
+
+→ LLM generates Coq proof script
+
+OUTPUT:
+  success: "Proof. intros s H. unfold wp. simpl. rewrite H. reflexivity. Qed."
+  failure: error message from coqc → retry
+```
+
+## Web Dashboard (Dream)
+
+The OCaml Dream server provides:
+
+- `POST /verify` — submit a Python file, get back proof status per function
+- `GET /status/:id` — poll for proof progress
+- `GET /` — web UI for file upload and result display
+
+## Future: Coq Extraction of the Pipeline
+
+Once the WP calculus is proven sound in Coq, the pipeline itself can be extracted to OCaml:
+
+- The WP transformer becomes verified Coq → extracted OCaml
+- The VCG becomes verified Coq → extracted OCaml
+- The trust boundary shrinks to: the Python→IMP translator and the SMT/LLM results
