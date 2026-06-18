@@ -85,6 +85,10 @@ def extract_contracts(
     """
     params = [a.arg for a in fn_node.args.args]
     param_type_hint = _param_type_map(fn_node)
+    float_params = {p for p, t in param_type_hint.items() if t == "float"}
+    from oracle.contract_ir_iris import _FLOAT_PARAMS
+    _FLOAT_PARAMS.clear()
+    _FLOAT_PARAMS.update(float_params)
     pre_linter = ContractLinter(params=params, context="precondition",
                                 ghost_resolver=ghost_resolver,
                                 param_type_hint=param_type_hint)
@@ -533,7 +537,9 @@ def _subst_params(e: SExpr, params: set[str], bound: set[str],
             if e.name in lp:
                 return SLit(lit_type="val", value=e.name)
             ptype = pt.get(e.name, "int")
-            if ptype in ("int", "bool", "float"):
+            if ptype == "float":
+                return SLit(lit_type="float_param", value=e.name)
+            if ptype in ("int", "bool"):
                 return SLit(lit_type="int", value=e.name)
             return SLit(lit_type="val", value=e.name)
         return e

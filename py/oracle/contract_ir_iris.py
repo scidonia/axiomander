@@ -42,12 +42,18 @@ _LIST_MODEL: dict[str, str] = {}
 # LitString/LitBool constructor.
 _POST_BOUND: str = "z"
 
+# Module-level set of float parameter names — _var wraps them with z2float
+# so contract comparisons like x >= 0.0 compile to
+# z2float x >= 0.0%float instead of the type-error Z >= float.
+_FLOAT_PARAMS: set[str] = set()
+
 
 def iris_prop(node: Expr, *,
               param_set: frozenset[str] = frozenset(),
               post_var: str = "",
               list_model: dict[str, str] | None = None,
-              post_bound: str | None = None) -> str:
+              post_bound: str | None = None,
+              float_params: set[str] | None = None) -> str:
     """Compile a contract_ir Expr to a pure Coq Prop for Iris.
 
     param_set: variable names that are NOT Iris context binders.
@@ -103,6 +109,8 @@ def _list_len(n, ps, pv, list_model):
 def _var(n, ps, pv):
     if n.name == pv:
         return _POST_BOUND
+    if n.name in _FLOAT_PARAMS:
+        return f"z2float {n.name}"
     return n.name
 
 
@@ -127,16 +135,49 @@ def _opaque_p(n: Expr) -> bool:
     return False
 
 
+def _float_p(n: Expr) -> bool:
+    """Check if an Expr represents a float value (literal or float-typed var)."""
+    if getattr(n, "kind", None) == "float":
+        return True
+    if getattr(n, "kind", None) == "var":
+        return getattr(n, "name", "") in _FLOAT_PARAMS
+    return False
+
+
 def _binop(n, ps, pv):
     z_scope = bool(pv)
     # Short-circuit: if either operand is an opaque DB observer, the whole
     # comparison is unknowable from local state; compile to True (identity).
     if _opaque_p(n.left) or _opaque_p(n.right):
         return "True"
-    # Recurse with list_model from the outer iris_prop (passed via a
-    # module-level thread or just default — _list_len handles missing
-    # model gracefully by using the raw variable name).
-    def ch(node): return iris_prop(node, param_set=ps, post_var=pv)
+    # --- Float-aware comparison / arithmetic ---
+    is_float = _float_p(n.left) or _float_p(n.right)
+    if is_float:
+        left = iris_prop(n.left, param_set=ps, post_var=pv)
+        right = iris_prop(n.right, param_set=ps, post_var=pv)
+        # Ensure both sides are float: wrap Z vars with z2float
+        if not _float_p(n.left):
+            left = f"z2float ({left})"
+        if not _float_p(n.right):
+            right = f"z2float ({right})"
+        float_cmp = {
+            "=": "PrimFloat.eqb", "<>": "(fun a b => negb (PrimFloat.eqb a b))",
+            "<": "PrimFloat.ltb", "<=": "PrimFloat.leb",
+            ">": "(fun a b => PrimFloat.ltb b a)",
+            ">=": "(fun a b => PrimFloat.leb b a)",
+        }
+        float_arith = {
+            "+": "PrimFloat.add", "-": "PrimFloat.sub",
+            "*": "PrimFloat.mul", "/": "PrimFloat.div",
+        }
+        if n.op in float_cmp:
+            if z_scope:
+                return f"({float_cmp[n.op]} ({left}) ({right})) = true"
+            return f"({float_cmp[n.op]} ({left}) ({right}))"
+        if n.op in float_arith:
+            return f"({float_arith[n.op]} ({left}) ({right}))"
+        # Fall through for unsupported float ops
+    # --- Integer comparison / arithmetic (original code) ---
     if z_scope:
         if n.op == ">":
             left = iris_prop(n.left, param_set=ps, post_var=pv)
@@ -223,7 +264,11 @@ def _max(n, ps, pv):
 
 
 def _float(n, ps, pv):
-    return str(n.value)
+    # Float literal: Z-encoded (value * 100).  Convert to Coq float
+    # without relying on float_scope (which would shadow Z literals).
+    v = float(n.value) / 100
+    return f"(z2float ({int(n.value // 100)}))" if n.value % 100 == 0 else \
+           f"(PrimFloat.div (z2float ({n.value})) (z2float (100)))"
 
 
 def _str_lit(n, ps, pv):

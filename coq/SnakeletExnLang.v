@@ -1,6 +1,9 @@
 From stdpp Require Export strings gmap.
 From stdpp Require Import countable decidable.
+From Stdlib Require Import PrimFloat.
+From Stdlib Require Import Uint63.
 Open Scope Z_scope.
+Open Scope float_scope.
 
 (** SnakeletExnLang -- parallel development of SnakeletLang with first-class
     exceptions, following van Collem / de Vilhena / Krebbers, "Backwards-
@@ -47,6 +50,7 @@ Inductive sn_val :=
   | LitInt (n : Z)
   | LitBool (b : bool)
   | LitString (s : string)
+  | LitFloat (f : float)
   | LitLoc (l : loc)
   | LitUnit
   | LitExn (label : string) (payload : sn_val)    (* exception object: label + value *)
@@ -56,7 +60,7 @@ Inductive sn_val :=
   | LitSet (vs : list sn_val).                    (* immutable set value *)
 
 (** * Expressions *)
-Inductive binop := AddOp | SubOp | MulOp | EqOp | LeOp | LtOp | GtOp | GeOp
+Inductive binop := AddOp | SubOp | MulOp | DivOp | EqOp | LeOp | LtOp | GtOp | GeOp
   | AndOp | OrOp | NeOp | ModOp | InOp | LenOp | UnionOp | InterOp
   | AppendOp | LengthOp | DictGetOp | DictGetIntOp | MkKeyErrOp.
 
@@ -199,6 +203,7 @@ Definition sn_val_eqb (a b : sn_val) : bool :=
   | LitInt n1, LitInt n2 => Z.eqb n1 n2
   | LitBool b1, LitBool b2 => Bool.eqb b1 b2
   | LitString s1, LitString s2 => String.eqb s1 s2
+  | LitFloat f1, LitFloat f2 => PrimFloat.eqb f1 f2
   | LitUnit, LitUnit => true
   | _, _ => false
   end.
@@ -258,6 +263,16 @@ Definition dict_lookup_Z (m : sn_val) (f : string) : Z :=
 (** [model_field_Z] is an alias for contract-level readability. *)
 Definition model_field_Z (m : sn_val) (f : string) : Z := dict_lookup_Z m f.
 
+(** * Z to float conversion (Python int → float coercion).
+
+    IEEE 754 double-precision; integers > 2^63-1 lose precision but our
+    uint63-based conversion matches [PrimFloat.of_uint63 (of_Z z)] for
+    non-negative z and [PrimFloat.opp] for negative z. *)
+Definition z2float (z : Z) : float :=
+  if Z.ltb z 0
+  then PrimFloat.opp (PrimFloat.of_uint63 (of_Z (Z.abs z)))
+  else PrimFloat.of_uint63 (of_Z z).
+
 (** * Binary operation evaluation (minimal: ints + comparisons). *)
 Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
   match op with
@@ -273,6 +288,51 @@ Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
       LitInt (model_field_Z v1 f)
   | _ =>
   match v1, v2 with
+  (* --- float arithmetic --- *)
+  | LitFloat f1, LitFloat f2 =>
+      match op with
+      | AddOp => LitFloat (PrimFloat.add f1 f2)
+      | SubOp => LitFloat (PrimFloat.sub f1 f2)
+      | MulOp => LitFloat (PrimFloat.mul f1 f2)
+      | DivOp => LitFloat (PrimFloat.div f1 f2)
+      | EqOp  => LitBool (PrimFloat.eqb f1 f2)
+      | LeOp  => LitBool (PrimFloat.leb f1 f2)
+      | LtOp  => LitBool (PrimFloat.ltb f1 f2)
+      | GtOp  => LitBool (PrimFloat.ltb f2 f1)
+      | GeOp  => LitBool (PrimFloat.leb f2 f1)
+      | NeOp  => LitBool (negb (PrimFloat.eqb f1 f2))
+      | _ => LitUnit
+      end
+  (* --- int+float → float (Python coercion) --- *)
+  | LitInt n, LitFloat f =>
+      match op with
+      | AddOp => LitFloat (PrimFloat.add (z2float n) f)
+      | SubOp => LitFloat (PrimFloat.sub (z2float n) f)
+      | MulOp => LitFloat (PrimFloat.mul (z2float n) f)
+      | DivOp => LitFloat (PrimFloat.div (z2float n) f)
+      | EqOp  => LitBool (PrimFloat.eqb (z2float n) f)
+      | LeOp  => LitBool (PrimFloat.leb (z2float n) f)
+      | LtOp  => LitBool (PrimFloat.ltb (z2float n) f)
+      | GtOp  => LitBool (PrimFloat.ltb f (z2float n))
+      | GeOp  => LitBool (PrimFloat.leb f (z2float n))
+      | NeOp  => LitBool (negb (PrimFloat.eqb (z2float n) f))
+      | _ => LitUnit
+      end
+  (* --- float+int → float (Python coercion) --- *)
+  | LitFloat f, LitInt n =>
+      match op with
+      | AddOp => LitFloat (PrimFloat.add f (z2float n))
+      | SubOp => LitFloat (PrimFloat.sub f (z2float n))
+      | MulOp => LitFloat (PrimFloat.mul f (z2float n))
+      | DivOp => LitFloat (PrimFloat.div f (z2float n))
+      | EqOp  => LitBool (PrimFloat.eqb f (z2float n))
+      | LeOp  => LitBool (PrimFloat.leb f (z2float n))
+      | LtOp  => LitBool (PrimFloat.ltb f (z2float n))
+      | GtOp  => LitBool (PrimFloat.ltb (z2float n) f)
+      | GeOp  => LitBool (PrimFloat.leb (z2float n) f)
+      | NeOp  => LitBool (negb (PrimFloat.eqb f (z2float n)))
+      | _ => LitUnit
+      end
   | LitInt n1, LitInt n2 =>
       match op with
       | AddOp => LitInt (n1 + n2)

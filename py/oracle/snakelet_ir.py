@@ -35,6 +35,7 @@ class SBinOp:
 
     def to_coq(self) -> str:
         op_map = {"add": "AddOp", "sub": "SubOp", "mul": "MulOp",
+                  "div": "DivOp",
                   "eq": "EqOp", "le": "LeOp", "lt": "LtOp", "gt": "GtOp", "ge": "GeOp",
                   "ne": "NeOp", "mod": "ModOp", "and": "AndOp", "or": "OrOp",
                   "len": "LenOp", "in": "InOp", "union": "UnionOp", "inter": "InterOp",
@@ -145,7 +146,8 @@ class SLit:
                 return f"(LitInt ({v}))"
             return f"(LitInt {self.value})"
         if self.lit_type == "bool": return f"(LitBool {'true' if self.value.lower() == 'true' else 'false'})"
-        if self.lit_type == "float": return f"(LitFloat (PrimFloat.of_uint63 (of_Z {self.value})))"
+        if self.lit_type == "float": return f"(LitFloat {self.value}%float)"
+        if self.lit_type == "float_param": return f"(LitFloat (z2float {self.value}))"
         if self.lit_type == "string": return f'(LitString "{self.value}")'
         if self.lit_type == "exn": return f'(LitExn "{self.value}" LitUnit)'
         if self.lit_type == "unit": return "LitUnit"
@@ -175,7 +177,8 @@ class SLit:
             return f"(Val {self.to_coq_val()})"
         if self.lit_type == "int": return f"(Val (LitInt {self.value}))"
         if self.lit_type == "bool": return f"(Val (LitBool {'true' if self.value.lower() == 'true' else 'false'}))"
-        if self.lit_type == "float": return f"(Val (LitFloat (PrimFloat.of_uint63 (of_Z {self.value}))))"
+        if self.lit_type == "float": return f"(Val (LitFloat {self.value}%float))"
+        if self.lit_type == "float_param": return f"(Val (LitFloat (z2float {self.value})))"
         if self.lit_type == "string": return f'(Val (LitString "{self.value}"))'
         if self.lit_type == "exn": return f'(Val (LitExn "{self.value}" LitUnit))'
         if self.lit_type == "unit": return "(Val LitUnit)"

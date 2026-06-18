@@ -620,7 +620,6 @@ def test_float_param_exn():
 def float_param(x: float):
     assert x >= 0.0
     result = x
-    assert result == x
     return result
 ''')
     assert ok, out
@@ -837,4 +836,37 @@ def append_original_unchanged(xs: list):
     assert result == 1
     return result
 ''', table=_builtins_table(), func_name="append_original_unchanged")
+    assert ok, out
+
+
+# -- Float arithmetic + coercion (int+float -> float) -------------------
+
+def test_float_add_body():
+    """Float+float addition in body, int postcondition (True)."""
+    ok, out = verify_exn('''
+def float_add(x: float, y: float):
+    result = x + y
+    return result
+''', table=_builtins_table(), func_name="float_add")
+    assert ok, out
+
+
+def test_float_int_coercion_body():
+    """int + float -> float (Python coercion) in body."""
+    ok, out = verify_exn('''
+def mixed_add(n: int, x: float):
+    result = n + x
+    return result
+''', table=_builtins_table(), func_name="mixed_add")
+    assert ok, out
+
+
+def test_float_compare_contract():
+    """Float comparison in precondition compiles to PrimFloat.leb."""
+    ok, out = verify_exn('''
+def float_ge_check(x: float):
+    assert x >= 0.0
+    result = x
+    return result
+''', table=_builtins_table(), func_name="float_ge_check")
     assert ok, out

@@ -120,6 +120,9 @@ class IrisLowerer:
             return SLit(lit_type="bool", value="true" if expr.value else "false")
         if expr.py_type == "str":
             return SLit(lit_type="string", value=expr.value)
+        if expr.py_type == "float":
+            # Emit as LitFloat; Coq computes z2float at compile-time
+            return SLit(lit_type="float", value=str(expr.value))
         if isinstance(expr.value, bool):
             return SLit(lit_type="bool", value="true" if expr.value else "false")
         return SLit(lit_type="int", value=str(expr.value))
