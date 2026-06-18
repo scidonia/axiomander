@@ -58,7 +58,7 @@ Inductive sn_val :=
 (** * Expressions *)
 Inductive binop := AddOp | SubOp | MulOp | EqOp | LeOp | LtOp | GtOp | GeOp
   | AndOp | OrOp | NeOp | ModOp | InOp | LenOp | UnionOp | InterOp
-  | AppendOp | LengthOp.
+  | AppendOp | LengthOp | DictGetOp | MkKeyErrOp.
 
 Inductive sn_expr :=
   | Val (v : sn_val)
@@ -187,8 +187,70 @@ Fixpoint subst_list (xs : list string) (vs : list sn_val) (e : sn_expr) : sn_exp
   | _, _ => e
   end.
 
+(** * Structural value equality on scalar keys.
+
+    Dict/field keys in practice are scalar literals (strings for model
+    field names, ints/strings for dict keys).  Compound keys (lists,
+    dicts, sets) are not hashable in Python and never appear as keys, so
+    [sn_val_eqb] returns [false] for them -- a sound under-approximation
+    of structural equality restricted to the hashable domain. *)
+Definition sn_val_eqb (a b : sn_val) : bool :=
+  match a, b with
+  | LitInt n1, LitInt n2 => Z.eqb n1 n2
+  | LitBool b1, LitBool b2 => Bool.eqb b1 b2
+  | LitString s1, LitString s2 => String.eqb s1 s2
+  | LitUnit, LitUnit => true
+  | _, _ => false
+  end.
+
+(** * Dictionary / model field projection.
+
+    [dict_lookup d k] walks the key-value list of an immutable [LitDict]
+    and returns the value paired with the first key structurally equal to
+    [k].  A missing key (or a non-dict receiver) yields [LitUnit].
+
+    NOTE on partiality.  [dict_lookup] is the TOTAL projection: it is the
+    correct semantics for Pydantic model field access ([field_access]),
+    because a well-typed model always carries every declared field, so the
+    lookup never misses.  Python subscript [d[k]], by contrast, is PARTIAL:
+    a miss must [raise KeyError(k)] (the key value is the exception
+    payload).  That partial behaviour is modelled at the expression level
+    by [dict_index]'s body, which branches on [dict_has] and emits
+    [Raise (LitExn "KeyError" k)] on a miss -- see the IRIS_BUILTINS table.
+    [dict_lookup_kvs]'s [LitUnit] on [nil] is therefore only ever reached
+    on the hit path (guarded by [dict_has]) or for the total [field_access].
+
+    The projection preserves object identity: [d] is a single [sn_val],
+    never flattened, so whole-object operations and nested projections
+    compose without loss of semantics. *)
+Fixpoint dict_lookup_kvs (kvs : list (sn_val * sn_val)) (k : sn_val) : sn_val :=
+  match kvs with
+  | nil => LitUnit
+  | (k', v') :: rest =>
+      if sn_val_eqb k' k then v' else dict_lookup_kvs rest k
+  end.
+
+Definition dict_lookup (d k : sn_val) : sn_val :=
+  match d with
+  | LitDict kvs => dict_lookup_kvs kvs k
+  | _ => LitUnit
+  end.
+
+(** Membership: does the model carry key [k]?  Drives the KeyError branch
+    in [dict_index]: [k in d] is true iff [d[k]] succeeds. *)
+Fixpoint dict_has_kvs (kvs : list (sn_val * sn_val)) (k : sn_val) : bool :=
+  match kvs with
+  | nil => false
+  | (k', _) :: rest => if sn_val_eqb k' k then true else dict_has_kvs rest k
+  end.
+
 (** * Binary operation evaluation (minimal: ints + comparisons). *)
 Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
+  match op with
+  (* Construct a KeyError whose payload is the (first) key value, so that
+     [Raise (BinOp MkKeyErrOp k _)] raises exactly Python's KeyError(k). *)
+  | MkKeyErrOp => LitExn "KeyError" v1
+  | _ =>
   match v1, v2 with
   | LitInt n1, LitInt n2 =>
       match op with
@@ -217,6 +279,13 @@ Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
       | LengthOp => LitInt (Z.of_nat (List.length vs))
       | _ => LitUnit
       end
+  | LitDict kvs, k =>
+      match op with
+      | DictGetOp => dict_lookup_kvs kvs k
+      | InOp => LitBool (dict_has_kvs kvs k)
+      | LenOp | LengthOp => LitInt (Z.of_nat (List.length kvs))
+      | _ => LitUnit
+      end
   | LitString s1, LitString s2 =>
       match op with
       | AddOp => LitString (String.append s1 s2)
@@ -231,7 +300,98 @@ Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
       | _ => LitUnit
       end
   | _, _ => LitUnit
+  end
   end.
+
+(** ** Soundness of the structural field/dict projection.
+
+    These lemmas pin the semantics of [DictGetOp]: it is the structural
+    [dict_lookup] over the model's key-value list, and it distinguishes
+    distinct fields rather than collapsing them (the failure mode of naive
+    flattening).  They guard against regressing [field_access]/[dict_index]
+    back to a mock. *)
+
+Lemma dict_get_eval :
+  forall kvs k, binop_eval DictGetOp (LitDict kvs) k = dict_lookup_kvs kvs k.
+Proof. reflexivity. Qed.
+
+Lemma dict_get_hit :
+  forall kvs k v, binop_eval DictGetOp (LitDict ((k, v) :: kvs)) k
+                  = (if sn_val_eqb k k then v else dict_lookup_kvs kvs k).
+Proof. reflexivity. Qed.
+
+Lemma dict_get_string_hit :
+  forall kvs s v,
+    binop_eval DictGetOp (LitDict ((LitString s, v) :: kvs)) (LitString s) = v.
+Proof.
+  intros. simpl. rewrite String.eqb_refl. reflexivity.
+Qed.
+
+Lemma dict_get_string_miss :
+  forall kvs s s' v, s <> s' ->
+    binop_eval DictGetOp (LitDict ((LitString s, v) :: kvs)) (LitString s')
+      = dict_lookup_kvs kvs (LitString s').
+Proof.
+  intros kvs s s' v Hne. simpl.
+  destruct (String.eqb s s') eqn:E.
+  - apply String.eqb_eq in E. contradiction.
+  - reflexivity.
+Qed.
+
+(** Distinct string fields project distinct values: identity is preserved,
+    not flattened away. *)
+Lemma dict_get_distinct_fields :
+  forall a b va vb, a <> b ->
+    let m := LitDict ((LitString a, va) :: (LitString b, vb) :: nil) in
+    binop_eval DictGetOp m (LitString a) = va /\
+    binop_eval DictGetOp m (LitString b) = vb.
+Proof.
+  intros a b va vb Hne. simpl.
+  rewrite String.eqb_refl. split; [reflexivity|].
+  destruct (String.eqb a b) eqn:E.
+  - apply String.eqb_eq in E. contradiction.
+  - rewrite String.eqb_refl. reflexivity.
+Qed.
+
+(** ** KeyError semantics for subscript [d[k]].
+
+    [InOp] decides membership; the [dict_index] body branches on it and
+    raises [KeyError k] on a miss.  These lemmas pin both arms. *)
+
+Lemma dict_in_eval :
+  forall kvs k, binop_eval InOp (LitDict kvs) k = LitBool (dict_has_kvs kvs k).
+Proof. reflexivity. Qed.
+
+(** A present key reports membership and projects to its value (success
+    arm of [d[k]]). *)
+Lemma dict_in_hit :
+  forall kvs s v,
+    dict_has_kvs ((LitString s, v) :: kvs) (LitString s) = true.
+Proof. intros. simpl. rewrite String.eqb_refl. reflexivity. Qed.
+
+(** An absent key reports non-membership: the [dict_index] body then takes
+    the [Raise (LitExn "KeyError" k)] branch.  The exception payload IS the
+    looked-up key [k], matching Python's [KeyError(k)]. *)
+Lemma dict_in_miss_nil :
+  forall k, dict_has_kvs nil k = false.
+Proof. reflexivity. Qed.
+
+Lemma dict_has_lookup_consistent :
+  forall kvs k, dict_has_kvs kvs k = false -> dict_lookup_kvs kvs k = LitUnit.
+Proof.
+  induction kvs as [|[k' v'] rest IH]; intros k H.
+  - reflexivity.
+  - simpl in *. destruct (sn_val_eqb k' k).
+    + discriminate H.
+    + apply IH, H.
+Qed.
+
+(** The KeyError raised on a miss carries the looked-up key as its payload,
+    exactly like Python's [KeyError(k)].  [Raise (BinOp MkKeyErrOp k _)]
+    therefore evaluates to the terminal [RExn "KeyError" k]. *)
+Lemma mk_key_err_payload :
+  forall k junk, binop_eval MkKeyErrOp k junk = LitExn "KeyError" k.
+Proof. reflexivity. Qed.
 
 (** * Function context (opaque specs + transparent defs). *)
 Inductive fun_entry :=

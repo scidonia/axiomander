@@ -134,13 +134,33 @@ IRIS_BUILTINS: FunTable = {
     "d.get": TransparentDef(
         params=["d", "k", "default"],
         body=SVar(name="default")),
+    # Dict indexing d[k]: PARTIAL Python subscript semantics.  Branch on
+    # membership (InOp -> dict_has_kvs): a hit projects via DictGetOp
+    # (dict_lookup_kvs); a miss raises KeyError(k) -- the looked-up key IS
+    # the exception payload (MkKeyErrOp builds LitExn "KeyError" k), exactly
+    # like CPython.  This makes a wrong access observable as RExn, not a
+    # silently-wrong value.
     "dict_index": TransparentDef(
         params=["d", "k"],
-        body=SLit(lit_type="int", value="0")),  # mock: always returns 0
-    # Pydantic model field access (mock: returns 0)
+        body=SLet(
+            var="__has",
+            value=SBinOp(op="in", left=SVar(name="d"), right=SVar(name="k")),
+            body=SIf(
+                cond=SVar(name="__has"),
+                then_branch=SBinOp(op="dict_get", left=SVar(name="d"),
+                                   right=SVar(name="k")),
+                else_branch=SRaise(
+                    exc=SBinOp(op="mk_key_err", left=SVar(name="k"),
+                               right=SVar(name="k")))))),
+    # Pydantic model field access model.field: TOTAL structural projection.
+    # A well-typed model always carries every declared field, so the lookup
+    # never misses -- no KeyError branch needed.  Field name is a LitString
+    # key.  Preserves object identity (model is a single sn_val LitDict,
+    # never flattened).
     "field_access": TransparentDef(
         params=["model", "field"],
-        body=SLit(lit_type="int", value="0")),
+        body=SBinOp(op="dict_get", left=SVar(name="model"),
+                    right=SVar(name="field"))),
 }
 
 

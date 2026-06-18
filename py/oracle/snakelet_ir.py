@@ -38,7 +38,8 @@ class SBinOp:
                   "eq": "EqOp", "le": "LeOp", "lt": "LtOp", "gt": "GtOp", "ge": "GeOp",
                   "ne": "NeOp", "mod": "ModOp", "and": "AndOp", "or": "OrOp",
                   "len": "LenOp", "in": "InOp", "union": "UnionOp", "inter": "InterOp",
-                  "append": "AppendOp", "length": "LengthOp"}
+                  "append": "AppendOp", "length": "LengthOp",
+                  "dict_get": "DictGetOp", "mk_key_err": "MkKeyErrOp"}
         coq_op = op_map.get(self.op, "AddOp")
         return f"(BinOp {coq_op} {self.left.to_coq()} {self.right.to_coq()})"
 

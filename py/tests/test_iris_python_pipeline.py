@@ -690,3 +690,48 @@ def simple_append(x: int):
     return result
 ''')
     assert ok, out
+
+
+# -- Structural object projection (DictGetOp / dict_lookup) ---------------
+# Pydantic model field access and dict indexing lower to a sound structural
+# projection over LitDict (binop_eval DictGetOp -> dict_lookup_kvs), NOT to
+# flattened scalar variables.  The object stays a single sn_val, preserving
+# identity and composing for nested/whole-object use.
+
+from oracle.iris_proof_gen import IRIS_BUILTINS
+
+
+def _builtins_table(extra=None):
+    t = dict(IRIS_BUILTINS)
+    if extra:
+        t.update(extra)
+    return t
+
+
+def test_pydantic_field_access_exn():
+    """account.balance lowers to field_access -> DictGetOp projection,
+    keeping `account` a single sn_val (no flattening)."""
+    ok, out = verify_exn('''
+from pydantic import BaseModel, Field
+class Account(BaseModel):
+    balance: int = Field(ge=0)
+def get_balance(account: Account) -> int:
+    result = account.balance
+    return result
+''', table=_builtins_table(), func_name="get_balance")
+    assert ok, out
+
+
+def test_dict_index_unguarded_rejected():
+    """d[k] is PARTIAL: a miss raises KeyError(k).  With a symbolic dict and
+    NO membership guarantee, the function genuinely can raise, so it must NOT
+    verify against a total (exception-free) postcondition.  Rejection here is
+    soundness, not a limitation -- the KeyError branch (RExn) cannot meet the
+    RVal-only postcondition.  (To verify, supply `assert k in d` or use a
+    concrete dict; precondition-driven branch elimination is future work.)"""
+    ok, out = verify_exn('''
+def lookup(d: dict, k):
+    result = d[k]
+    return result
+''', table=_builtins_table(), func_name="lookup")
+    assert not ok, "unguarded symbolic d[k] must be rejected (can raise KeyError)"
