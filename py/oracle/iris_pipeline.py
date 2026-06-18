@@ -359,8 +359,40 @@ def _rewrite_body(e: SExpr, counter_var: str, fresh_loc: str) -> SExpr:
     if isinstance(e, SSeq):
         return SSeq(exprs=[_rewrite_body(se, counter_var, fresh_loc) for se in e.exprs])
     if isinstance(e, SReturn):
-        return SReturn(value=_rewrite_body(e.value, counter_var, fresh_loc))
+        rv = _rewrite_body(e.value, counter_var, fresh_loc)
+        # Wrap Load at return position in a Let for proper proof context
+        if isinstance(rv, SLoad):
+            tmp = f"_ret_{fresh_loc}"
+            return SLet(var=tmp, value=rv, body=SReturn(value=SVar(name=tmp)))
+        return SReturn(value=rv)
     return e
+
+
+def _collect_var_names(e: SExpr) -> set[str]:
+    """Collect all SVar names in an expression tree."""
+    out: set[str] = set()
+    if isinstance(e, SVar):
+        out.add(e.name)
+    elif isinstance(e, SLet):
+        out.update(_collect_var_names(e.value))
+        out.update(_collect_var_names(e.body))
+    elif isinstance(e, SBinOp):
+        out.update(_collect_var_names(e.left))
+        out.update(_collect_var_names(e.right))
+    elif isinstance(e, SIf):
+        out.update(_collect_var_names(e.cond))
+        out.update(_collect_var_names(e.then_branch))
+        out.update(_collect_var_names(e.else_branch))
+    elif isinstance(e, SSeq):
+        for se in e.exprs:
+            out.update(_collect_var_names(se))
+    elif isinstance(e, SReturn):
+        out.update(_collect_var_names(e.value))
+    elif isinstance(e, SLoad):
+        pass  # loc is a string, not a var
+    elif isinstance(e, SStore):
+        out.update(_collect_var_names(e.value))
+    return out
 
 
 def _promote_counter(cond: SExpr, body: SExpr, lw) \
@@ -378,6 +410,12 @@ def _promote_counter(cond: SExpr, body: SExpr, lw) \
     # by _unroll_count (the old path).  Also skip when invariants reference
     # the counter (invariant rewriting is future work).
     if isinstance(cond.right, SLit) and cond.right.lit_type == "int":
+        return None
+    # Only promote when the body only references the counter variable
+    # (no other local variables that would need to be passed to the
+    # per-loop lemma — multi-variable bodies are a future phase).
+    other_vars = _collect_var_names(body) - {counter_var}
+    if other_vars:
         return None
     heap_body = _rewrite_body(body, counter_var, fresh_loc)
     if not _contains_store_of(heap_body, fresh_loc):
@@ -481,6 +519,11 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
         if promoted is not None:
             counter_var, fresh_loc, heap_body, heap_cond = promoted
             heap_rest = _rewrite_body(rest_e, counter_var, fresh_loc)
+            # Wrap naked Load in a Let for proper proof context
+            if isinstance(heap_rest, SLoad):
+                tmp = f"_ret_{fresh_loc}"
+                heap_rest = SLet(var=tmp, value=heap_rest,
+                                 body=SVar(name=tmp))
             return SLet(var="l",
                         value=SAlloc(value=SLit(lit_type="int", value="0")),
                         body=SLet(var="_",

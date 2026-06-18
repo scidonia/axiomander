@@ -169,12 +169,10 @@ class ContractLinter(ast.NodeVisitor):
                     return StringContainsExpr(needle=needle, haystack=right.name, negated=True)
                 return BinOp(op="=", left=IntLit(value=1), right=IntLit(value=0))
             if left and right:
-                # Convert BoolLit to IntLit in comparison context so
-                # result == True compiles to asZ result = 1 (not = True)
-                if isinstance(left, BoolLit):
-                    left = IntLit(value=1 if left.value else 0)
-                if isinstance(right, BoolLit):
-                    right = IntLit(value=1 if right.value else 0)
+                # NOTE: BoolLit→IntLit conversion removed for Iris.
+                # BoolLit comparisons (e.g. result == True) now survive
+                # as bool so that _result_value_kind detects boolean
+                # result types and the postcondition uses the bool wrapper.
                 # String comparison: Var == "literal" → String.eqb form
                 # Only when the Var is a known string type.
                 if op in ("=", "!=") and isinstance(left, Var) and isinstance(right, StrLitExpr):

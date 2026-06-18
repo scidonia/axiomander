@@ -119,7 +119,7 @@ def _int_lit(n, ps, pv):
 
 
 def _bool_lit(n, ps, pv):
-    return "True" if n.value else "False"
+    return "true" if n.value else "false"
 
 
 def _opaque_p(n: Expr) -> bool:
@@ -352,6 +352,12 @@ def _result_value_kind(node: Expr, ret_var: str) -> str:
                     return
                 if r_is_ret and getattr(left, "kind", None) == "strlit":
                     found["kind"] = "string"
+                    return
+                if l_is_ret and getattr(right, "kind", None) == "bool":
+                    found["kind"] = "bool"
+                    return
+                if r_is_ret and getattr(left, "kind", None) == "bool":
+                    found["kind"] = "bool"
                     return
             if left is not None:
                 walk(left)
