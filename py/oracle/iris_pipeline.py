@@ -395,6 +395,27 @@ def _collect_var_names(e: SExpr) -> set[str]:
     return out
 
 
+def _rewrite_invariants(invs: list[str], counter_var: str,
+                        cells: list[tuple[str, str]],
+                        cond: SExpr) -> list[str]:
+    """Rewrite invariant Coq strings to use per-loop lemma parameter names."""
+    import re
+    sub: dict[str, str] = {counter_var: "z"}
+    if isinstance(cond.right, SVar):
+        sub[cond.right.name] = "bound"
+    extra_idx = 0
+    for py_name, _ in cells:
+        if py_name != counter_var:
+            sub[py_name] = f"a_{extra_idx}"
+            extra_idx += 1
+    out = []
+    for inv in invs:
+        for old, new in sorted(sub.items(), key=lambda x: -len(x[0])):
+            inv = re.sub(r'\b' + re.escape(old) + r'\b', new, inv)
+        out.append(inv)
+    return out
+
+
 def _promote_locals(cond: SExpr, body: SExpr, lw) \
         -> Optional[tuple[str, list[tuple[str, str]], SExpr, SExpr]]:
     """Promote ALL local variables modified in the while body to heap cells.
@@ -583,9 +604,9 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
         promoted = _promote_locals(cond, body, lw)
         if promoted is not None:
             counter_var, cells, heap_body, heap_cond = promoted
-            # Skip when invariants reference any promoted var
-            if invs and any(v in str(invs) for v, _ in cells):
-                promoted = None
+            # Rewrite invariants to reference lemma parameters
+            if invs:
+                invs = _rewrite_invariants(invs, counter_var, cells, cond)
         if promoted is not None:
             counter_var, cells, heap_body, heap_cond = promoted
             cell_of = {py: cl for py, cl in cells}
