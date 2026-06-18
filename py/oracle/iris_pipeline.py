@@ -484,11 +484,18 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
 
 def _param_type_map(fn_node: ast.FunctionDef) -> dict[str, str]:
     """Extract {param_name: python_type_name} from function annotations."""
+    from oracle.shape_ir import lookup_shape
     out: dict[str, str] = {}
     for a in fn_node.args.args:
         if a.annotation:
             if isinstance(a.annotation, ast.Name):
-                out[a.arg] = a.annotation.id
+                ptype = a.annotation.id
+                # Shape registry lookup: model types get their class name
+                # so the lowerer can find field definitions.
+                if lookup_shape(ptype) is not None:
+                    out[a.arg] = ptype  # keep class name for shape lookup
+                else:
+                    out[a.arg] = ptype
             elif isinstance(a.annotation, ast.Subscript):
                 if isinstance(a.annotation.value, ast.Name):
                     out[a.arg] = a.annotation.value.id
@@ -510,10 +517,9 @@ def _subst_params(e: SExpr, params: set[str], bound: set[str],
             if e.name in lp:
                 return SLit(lit_type="val", value=e.name)
             ptype = pt.get(e.name, "int")
-            lit_map = {"int": "int", "str": "val", "bool": "int",
-                        "list": "val", "dict": "val", "float": "int",
-                        "set": "val", "tuple": "val"}
-            return SLit(lit_type=lit_map.get(ptype, "int"), value=e.name)
+            if ptype in ("int", "bool", "float"):
+                return SLit(lit_type="int", value=e.name)
+            return SLit(lit_type="val", value=e.name)
         return e
     if isinstance(e, SLit):
         return e

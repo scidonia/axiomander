@@ -146,25 +146,32 @@ class IrisLowerer:
         key = self.lower_expr(expr.key)
         if obj_name is None or key is None:
             return None
-        # Dict access
+        # Dict access: lower to SApp call to transparent helper (not SDictGet)
         if self._param_types.get(obj_name) == "dict":
-            loc = self.loc_map.get(obj_name, f"l__{obj_name}")
-            return SDictGet(loc=loc, key=key)
+            return SApp(func="dict_index",
+                        args=[SVar(name=obj_name), key])
         # Field access: box.value → load from l__box_value
         loc = self._loc_of(obj_name)
         return SLoad(loc=loc)
 
     def _lower_attribute(self, expr: "PyAttribute") -> Optional[SExpr]:
-        """obj.attr → heap load from obj.attr location, UNLESS obj.attr is an
-        enum member (OrderStatus.READY), in which case it's an IntLit with
-        the member's integer encoding."""
+        """obj.attr → heap load from obj.attr location, UNLESS obj.attr is
+        an enum member -> IntLit, or obj is a model param -> SApp to
+        field_access transparent helper."""
         if isinstance(expr.obj, PyName):
             obj_name = expr.obj.name
             # Check for enum member resolution (IntEnum in contracts)
-            from oracle.shape_ir import lookup_enum_value
+            from oracle.shape_ir import lookup_enum_value, lookup_shape
             ev = lookup_enum_value(obj_name, expr.attr)
             if ev is not None:
                 return SLit(lit_type="int", value=str(ev))
+            # Pydantic/dataclass model param: field access via helper
+            model_type = self._param_types.get(obj_name, "")
+            if model_type and lookup_shape(model_type) is not None:
+                return SApp(func="field_access",
+                            args=[SVar(name=obj_name),
+                                  SLit(lit_type="string",
+                                       value=expr.attr)])
         else:
             obj_name = self._extract_name(expr.obj)
         if obj_name:

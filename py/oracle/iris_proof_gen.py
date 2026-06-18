@@ -130,10 +130,17 @@ IRIS_BUILTINS: FunTable = {
     "s.endswith": _IRIS_STRING_COPY,
     "s.lower": _IRIS_STRING_COPY,
     "s.upper": _IRIS_STRING_COPY,
-    # Dict operations (mock — return default as-is)
+    # Dict operations
     "d.get": TransparentDef(
         params=["d", "k", "default"],
         body=SVar(name="default")),
+    "dict_index": TransparentDef(
+        params=["d", "k"],
+        body=SLit(lit_type="int", value="0")),  # mock: always returns 0
+    # Pydantic model field access (mock: returns 0)
+    "field_access": TransparentDef(
+        params=["model", "field"],
+        body=SLit(lit_type="int", value="0")),
 }
 
 
@@ -1225,13 +1232,14 @@ class IrisProof:
         for ws in _collect_while_strs_exn(self.stages):
             parts.append(_emit_while_str_lemma_exn(ws))
             parts.append("")
-        # Coq binder types: Z for int/bool (bool is 0/1 encoded),
-        # string for str, sn_val for dict/list/set/tuple.
-        _COQ_PARAM_TYPES = {"int": "Z", "bool": "Z", "str": "sn_val",
-                             "float": "Z", "dict": "sn_val", "list": "sn_val",
-                             "set": "sn_val", "tuple": "sn_val"}
+        # Coq binder types: Z for int/bool, sn_val for everything else.
+        # Model types (Pydantic/dataclass) are also sn_val.
+        def _coq_type(py_type: str) -> str:
+            if py_type in ("int", "bool", "float"):
+                return "Z"
+            return "sn_val"
         binders = "".join(
-            f" ({p} : {_COQ_PARAM_TYPES.get(self.param_types.get(p, 'int'), 'Z')})"
+            f" ({p} : {_coq_type(self.param_types.get(p, 'int'))})"
             for p in self.params
             if p not in self.list_params and p not in self.dict_params)
         # List-typed params are split into a value binder [xs : sn_val] and
