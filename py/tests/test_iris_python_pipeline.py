@@ -797,3 +797,44 @@ def sum_fields(account: Account) -> int:
     return result
 ''', table=_builtins_table(), func_name="sum_fields")
     assert ok, out
+
+
+# -- List append with SSA rebinding (store-back semantics) ---------------
+
+def test_list_append_ssa_single():
+    """xs.append(v) on a type-annotated list param rebinds xs via SLet
+    so subsequent len(xs) sees the updated list."""
+    ok, out = verify_exn('''
+def append_and_len(xs: list):
+    xs.append(1)
+    result = len(xs)
+    return result
+''', table=_builtins_table(), func_name="append_and_len")
+    assert ok, out
+
+
+def test_list_append_ssa_multi():
+    """Multiple appends chain through SSA renames."""
+    ok, out = verify_exn('''
+def multi_append(xs: list):
+    xs.append(1)
+    xs.append(2)
+    xs.append(3)
+    result = len(xs)
+    return result
+''', table=_builtins_table(), func_name="multi_append")
+    assert ok, out
+
+
+def test_list_append_ssa_preserves_identity():
+    """Append creates a new list; the original param is unchanged."""
+    ok, out = verify_exn('''
+def append_original_unchanged(xs: list):
+    orig_len = len(xs)
+    xs.append(1)
+    new_len = len(xs)
+    result = new_len - orig_len
+    assert result == 1
+    return result
+''', table=_builtins_table(), func_name="append_original_unchanged")
+    assert ok, out

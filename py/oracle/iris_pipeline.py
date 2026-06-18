@@ -395,6 +395,19 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
         val = lw.lower_expr(s.expr)
         if val is None:
             raise IrisGenError("cannot lower expression statement")
+        # Value-type list append: SBinOp("append", SVar(xs), v) where xs
+        # is a list param.  The append produces a new value that the
+        # lowerer has already renamed; emit an SLet binding so subsequent
+        # code sees the updated list (SSA-style rebinding).
+        if (isinstance(val, SBinOp) and val.op == "append"
+                and isinstance(val.left, SVar)):
+            root = lw._rename_root.get(val.left.name, val.left.name)
+            if root in lw._list_params:
+                fresh = lw._var_renames.get(root, root)
+                # Discard the original expression's sv (it's a diagnostic
+                # node); the body uses the fresh var name.
+                rest_e = _fold(rest, lw, invs_iter=invs_iter) if rest else SVar(name=fresh)
+                return SLet(var=fresh, value=val, body=rest_e)
         if not rest:
             return val
         return SLet(var="_", value=val, body=_fold(rest, lw, invs_iter=invs_iter))
@@ -882,14 +895,20 @@ def python_to_iris_proof(source: str,
     user_dict = dict_params or set()
     ann_list_params: set[str] = set()
     for a in target.args.args:
-        if a.annotation and isinstance(a.annotation, ast.Subscript):
-            base = None
-            if isinstance(a.annotation.value, ast.Name):
-                base = a.annotation.value.id
-            if base in ("list", "List"):
-                ann_list_params.add(a.arg)
-            elif base in ("dict", "Dict"):
-                user_dict.add(a.arg)
+        if a.annotation:
+            if isinstance(a.annotation, ast.Subscript):
+                base = None
+                if isinstance(a.annotation.value, ast.Name):
+                    base = a.annotation.value.id
+                if base in ("list", "List"):
+                    ann_list_params.add(a.arg)
+                elif base in ("dict", "Dict"):
+                    user_dict.add(a.arg)
+            elif isinstance(a.annotation, ast.Name):
+                if a.annotation.id in ("list", "List"):
+                    ann_list_params.add(a.arg)
+                elif a.annotation.id in ("dict", "Dict"):
+                    user_dict.add(a.arg)
     ann_lm = {p: f"M_{p}" for p in ann_list_params}
 
     # Contracts: use ContractLinter + contract_ir_iris.

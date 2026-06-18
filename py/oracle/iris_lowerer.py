@@ -40,10 +40,16 @@ class IrisLowerer:
         self._list_params = list_params or set()
         self._vc = 0
         self._pure_conditions: list[SPure] = []
+        self._var_renames: dict[str, str] = {}  # Py name → current IR name (SSA)
+        self._rename_root: dict[str, str] = {}  # IR name → Py name (reverse)
 
     def _fresh_var(self, prefix: str = "t") -> str:
         self._vc += 1
         return f"_{prefix}{self._vc}"
+
+    def _current_var(self, name: str) -> str:
+        """Return the current IR variable name for a Python name (SSA tracking)."""
+        return self._var_renames.get(name, name)
 
     def _loc_of(self, obj: str, attr: str | None = None) -> str:
         """Resolve a Python field access to an abstract location."""
@@ -55,7 +61,7 @@ class IrisLowerer:
 
     def lower_expr(self, expr: PyExpr) -> Optional[SExpr]:
         if isinstance(expr, PyName):
-            return SVar(name=expr.name)
+            return SVar(name=self._current_var(expr.name))
         if isinstance(expr, PyConstant):
             return self._lower_constant(expr)
         if isinstance(expr, PyBinaryOp):
@@ -216,7 +222,7 @@ class IrisLowerer:
                 if (arg.name in self._list_params
                         or self._param_types.get(arg.name) in ("str", "string", "dict", "set", "tuple")):
                     return SBinOp(op="length",
-                                  left=SVar(name=arg.name),
+                                  left=SVar(name=self._current_var(arg.name)),
                                   right=SLit(lit_type="int", value="0"))
                 else:
                     return SBinOp(op="length",
@@ -232,13 +238,19 @@ class IrisLowerer:
                 v = self.lower_expr(expr.args[0]) if expr.args else None
                 if v is None:
                     return None
-                # Value-type param (list/dict/set/tuple): construct
-                # new value via AppendOp, no heap access needed.
+                # Value-type param (list/dict/set/tuple): compute new value
+                # via AppendOp and rebind the variable for subsequent code.
+                # The _lower_body pass wraps the rest-of-body in the SLet
+                # so the new binding is visible to all later statements.
                 if (obj_name in self._list_params
                         or self._param_types.get(obj_name) in
                         ("list", "dict", "set", "tuple", "str", "string")):
+                    old_name = self._current_var(obj_name)  # name before rebind
+                    fresh = self._fresh_var(obj_name)
+                    self._var_renames[obj_name] = fresh
+                    self._rename_root[fresh] = obj_name
                     return SBinOp(op="append",
-                                  left=SVar(name=obj_name), right=v)
+                                  left=SVar(name=old_name), right=v)
                 # Heap-allocated list: load, append, store.
                 tmp_var = self._fresh_var("_ap")
                 return SLet(var=tmp_var,

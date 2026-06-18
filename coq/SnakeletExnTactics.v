@@ -186,16 +186,20 @@ Ltac finish_pure :=
          | lia
          | (f_equal; nia)
          | done
-         (* Z.leb / Z.ltb goal: rewrite to Prop inequality, then nia *)
-         | (rewrite Z.leb_le; nia)
-         | (rewrite Z.ltb_lt; nia)
+          (* Z.leb / Z.ltb goal: rewrite to Prop inequality, then nia *)
+          | (rewrite Z.leb_le; nia)
+          | (rewrite Z.ltb_lt; nia)
+          (* Z.of_nat (S n) = Z.of_nat n + 1 — common after list append *)
+          | (rewrite ?Nat2Z.inj_succ; nia)
+          | (rewrite ?length_app; simpl; nia)
          (* existential value-shape postcondition.  The side-condition may
             contain Z.leb/Z.ltb goals; convert them before using nia. *)
-         | (eexists; split;
-            [ reflexivity
-            | try rewrite Z.leb_le; try rewrite Z.ltb_lt;
-              try rewrite Z.eqb_eq;
-              first [ reflexivity | nia
+          | (eexists; split;
+             [ reflexivity
+             | try rewrite Z.leb_le; try rewrite Z.ltb_lt;
+               try rewrite Z.eqb_eq; try rewrite Nat2Z.inj_succ;
+               try rewrite length_app; simpl;
+               first [ reflexivity | nia
                     (* string set-membership: pick a disjunct *)
                     | left; reflexivity | right; reflexivity
                     | (repeat first [ left; reflexivity
