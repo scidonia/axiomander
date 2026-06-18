@@ -22,13 +22,18 @@
 
 ## Iris Backend — To Retire IMP
 
+### Done (this push)
+- [x] **String param types** — `_subst_params` uses annotation to pick `LitString` vs `LitInt` vs `Val`. Lemma binders use matching Coq types (`Z` / `sn_val`).
+- [x] **String len, dict len** — value-type params (str/dict/set/tuple) use `SBinOp(length)` directly, not heap_load
+- [x] **Dict get** — `d.get(k, default)` as TransparentDef in IRIS_BUILTINS; method-call lowering prepends object as first arg
+- [x] **String methods** — `s.startswith`, `s.endswith`, `s.lower`, `s.upper` as TransparentDef (mock)
+
 ### Must-have (block retire)
 
-- [ ] **Pydantic model expansion** — `is_shape`/`is_valid` in Iris postconditions (2d)
-- [ ] **Dict operations** — `d.get`, `d[k]`, `len(d)`, `k in d` as opaque-call specs or heap ops (3d)
-- [ ] **List append** — `xs.append(x)` as opaque heap op (1d)
-- [ ] **String ops** — `startswith`, `endswith`, `len(s)`, `s[i]` (1d)
-- [ ] **Float operations** — `VFloat` with coercion rules (1d)
+- [ ] **Dict indexing** — `d[k]` as SDictGet lowering; needs heap-model wiring (1d)
+- [ ] **List append for parameter lists** — fix substitution to avoid heap_load on value params (0.5d)
+- [ ] **Float coercion rules** — binop_eval dispatches on float/int, implicit promotion (1d)
+- [ ] **Pydantic model expansion** — `is_shape`/`is_valid`/field access in Iris (2d)
 
 ### Nice-to-have
 
