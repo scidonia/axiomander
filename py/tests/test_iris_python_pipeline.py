@@ -958,3 +958,111 @@ def count_up(n: int):
     return result
 ''', table=_builtins_table(), func_name="count_up")
     assert ok, out
+
+
+# -- Multi-variable while loops (heap promotion for all locals) ----------
+
+def test_while_multi_variable():
+    """Two variables (counter + accumulator) both heap-promoted."""
+    ok, out = verify_exn('''
+def sum_to(n: int):
+    assert n >= 0
+    acc = 0
+    i = 0
+    while i < n:
+        i += 1
+        acc += i
+    result = acc
+    return result
+''', table=_builtins_table(), func_name="sum_to")
+    assert ok, out
+
+
+def test_while_with_invariant_rewritten():
+    """Invariant assert i <= n rewritten to lemma params after promotion."""
+    ok, out = verify_exn('''
+def count_with_inv(n: int):
+    assert n >= 0
+    i = 0
+    while i < n:
+        assert i <= n
+        i += 1
+    result = i
+    return result
+''', table=_builtins_table(), func_name="count_with_inv")
+    assert ok, out
+
+
+# -- Set operations (InOp, SetAddOp, value-type semantics) ---------------
+
+def test_set_add_and_in():
+    """set() + add + in as value-type ops, no heap allocation."""
+    ok, out = verify_exn('''
+def test_set():
+    seen = set()
+    seen.add(1)
+    result = 1 in seen
+    return result
+''', table=_builtins_table(), func_name="test_set")
+    assert ok, out
+
+
+def test_set_not_in():
+    """c not in seen compiles to InOp and Not check."""
+    ok, out = verify_exn('''
+def test_not_in():
+    seen = set()
+    seen.add(1)
+    result = 2 not in seen
+    return result
+''', table=_builtins_table(), func_name="test_not_in")
+    assert ok, out
+
+
+def test_set_membership_rejected_wrong():
+    """1 in empty set gives False, but contract asserts True — must reject."""
+    ok, out = verify_exn('''
+def wrong_in():
+    seen = set()
+    result = 1 in seen
+    assert result == True
+    return result
+''', table=_builtins_table(), func_name="wrong_in")
+    assert not ok, "1 in empty set gives False, contract says True"
+
+
+# -- String indexing (StrIndexOp) ---------------------------------------
+
+def test_string_index():
+    """text[i] on string param uses String.substring."""
+    ok, out = verify_exn('''
+def first_char(text: str):
+    assert len(text) > 0
+    result = text[0]
+    return result
+''', table=_builtins_table(), func_name="first_char")
+    assert ok, out
+
+
+# -- String operations (StartsWithOp, EndsWithOp) -----------------------
+
+def test_string_startswith():
+    """s.startswith(prefix) uses String.prefix."""
+    ok, out = verify_exn('''
+def starts_hello(s: str):
+    assert len(s) > 0
+    result = s.startswith("hello")
+    return result
+''', table=_builtins_table(), func_name="starts_hello")
+    assert ok, out
+
+
+def test_string_endswith():
+    """s.endswith(suffix) uses substring-based suffix check."""
+    ok, out = verify_exn('''
+def ends_world(s: str):
+    assert len(s) > 0
+    result = s.endswith("world")
+    return result
+''', table=_builtins_table(), func_name="ends_world")
+    assert ok, out
