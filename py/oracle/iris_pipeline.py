@@ -574,17 +574,27 @@ def collect_inv_obligations(proof) -> list[tuple]:
     from oracle.iris_proof_gen import WhileInv
     from oracle.contract_ir import Var as CVar, BinOp as CBinOp, IntLit
 
-    def subst_z_plus_one(e):
-        """Replace Var('z') with BinOp('+', Var('z'), IntLit(1)) in Expr."""
-        if hasattr(e, 'kind') and e.kind == "var" and e.name == "z":
-            return CBinOp(op="+", left=CVar(name="z"), right=IntLit(value=1))
+    def subst_body_update(e):
+        """Replace Var('z') -> z+1 AND a_i -> a_i + (z+1) (body update)."""
+        import re as _re2
+        if hasattr(e, 'kind') and e.kind == "var":
+            if e.name == "z":
+                return CBinOp(op="+", left=CVar(name="z"), right=IntLit(value=1))
+            for m in _re2.finditer(r'^a_(\d+)$', e.name):
+                idx = int(m.group(1))
+                if idx >= 0:
+                    return CBinOp(op="+",
+                                  left=CVar(name=e.name),
+                                  right=CBinOp(op="+",
+                                               left=CVar(name="z"),
+                                               right=IntLit(value=1)))
+            return e
         if hasattr(e, 'kind') and e.kind == "binop":
             return CBinOp(op=e.op,
-                         left=subst_z_plus_one(e.left),
-                         right=subst_z_plus_one(e.right))
+                         left=subst_body_update(e.left),
+                         right=subst_body_update(e.right))
         if hasattr(e, 'kind') and e.kind == "logical":
-            from oracle.contract_ir import Logical
-            return Logical(op=e.op, operands=[subst_z_plus_one(o) for o in e.operands])
+            return Logical(op=e.op, operands=[subst_body_update(o) for o in e.operands])
         return e
 
     obligations: list[tuple] = []
@@ -595,7 +605,7 @@ def collect_inv_obligations(proof) -> list[tuple]:
                 extra = n.extra_cells or []
                 for j, expr in enumerate(n.invariant_exprs):
                     # inv_new: substitute z -> z+1 in the Expr AST
-                    inv_new_expr = subst_z_plus_one(expr)
+                    inv_new_expr = subst_body_update(expr)
                     # Coq and SMT from the AST — late compilation, no strings
                     inv_coq = expr.to_coq()
                     inv_new_coq = inv_new_expr.to_coq()

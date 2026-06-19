@@ -981,12 +981,8 @@ def _emit_while_inv_lemma_exn(wi: WhileInv) -> str:
         for j, name in enumerate(inv_names):
             if j < len(wi.inv_axiom_indices) and wi.inv_axiom_indices[j] >= 0:
                 axidx = wi.inv_axiom_indices[j]
-                ax_args = f"z {extra_a_args} {bound_val}".strip()
-                prior_hyps = " ".join(f"Hinv{k}" for k in range(j))
-                inv_subgoals += (f"      {{ exact (smt_ax_{axidx} (z + 1)"
-                                 f"{(' ' + extra_a_args) if extra_a_args else ''}"
-                                 f" {bound_val}"
-                                 f"{(' ' + prior_hyps) if prior_hyps else ''}). }}\n")
+                inv_subgoals += (f"      {{ iPureIntro; eapply smt_ax_{axidx}; "
+                                 f"[exact Hz | exact Hcond | exact Hinv{j}]. }}\n")
             else:
                 inv_subgoals += f"      {{ iPureIntro. snakelet_pure_hyps. first [ nia | sfirstorder | lia ]. }}\n"
 
@@ -1165,11 +1161,7 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
             inv_with_args += " []"
             if j < len(wi.inv_axiom_indices) and wi.inv_axiom_indices[j] >= 0:
                 axidx = wi.inv_axiom_indices[j]
-                extra_a_args = " ".join(f"a_{i}" for i in range(len(wi.extra_cells)))
-                inv_hyps = " ".join(f"Hinv{k}" for k in range(j + 1))
-                ax_args = f"z {extra_a_args} {bound}".strip()
-                inv_blocks += (f'{indent}{{ exact (smt_ax_{axidx} {ax_args}'
-                               f'{" " + inv_hyps if inv_hyps else ""}). }}\n')
+                inv_blocks += f'{indent}{{ iPureIntro; try nia; try lia; simpl; reflexivity. }}\n'
             else:
                 inv_blocks += (f'{indent}{{ iPureIntro. snakelet_pure_hyps. '
                                f'first [ nia | sfirstorder | lia ]. }}\n')
@@ -1220,12 +1212,8 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
         for j in range(len(wi.invariants)):
             inv_with_args += " []"
             if j < len(wi.inv_axiom_indices) and wi.inv_axiom_indices[j] >= 0:
-                axidx = wi.inv_axiom_indices[j]
-                extra_a_args = " ".join(f"a_{i}" for i in range(len(wi.extra_cells)))
-                inv_hyps = " ".join(f"Hinv{k}" for k in range(j + 1))
-                ax_args = f"z {extra_a_args} {bound}".strip()
-                inv_blocks += (f'{indent}{{ exact (smt_ax_{axidx} {ax_args}'
-                               f'{" " + inv_hyps if inv_hyps else ""}). }}\n')
+                inv_blocks += f'{indent}{{ iPureIntro; try nia; try lia; simpl; reflexivity. }}\n'
+                inv_blocks += f'{indent}{{ iPureIntro; try nia; try lia; simpl; reflexivity. }}\n'
             else:
                 inv_blocks += (f'{indent}{{ iPureIntro. snakelet_pure_hyps. '
                                f'first [ nia | sfirstorder | lia ]. }}\n')
