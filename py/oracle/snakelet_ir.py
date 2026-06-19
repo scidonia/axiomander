@@ -46,9 +46,10 @@ class SBinOp:
                   "str_index": "StrIndexOp",
                   "starts_with": "StartsWithOp",
                   "ends_with": "EndsWithOp",
-                  "to_lower": "ToLowerOp",
-                  "to_upper": "ToUpperOp",
-                  "dict_set": "DictSetOp"}
+                   "to_lower": "ToLowerOp",
+                   "to_upper": "ToUpperOp",
+                   "dict_set": "DictSetOp",
+                   "tuple": "TupleOp"}
         coq_op = op_map.get(self.op, "AddOp")
         return f"(BinOp {coq_op} {self.left.to_coq()} {self.right.to_coq()})"
 
@@ -144,6 +145,8 @@ class SLit:
 
     def to_coq_val(self) -> str:
         """Generate just the val part (no Val wrapper), for use inside LitTuple etc."""
+        if self.lit_type == "val":
+            return f"(Val {self.value})"
         if self.lit_type == "int":
             v = self.value
             if v.startswith("-"):

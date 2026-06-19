@@ -1127,3 +1127,27 @@ def upper_test(s: str):
 # (InOp reduces, If branches on result) but the case_bool tactic + Branch
 # stage structure needs a fix for literal booleans in TransparentDef bodies.
 # Test deferred until case_bool handles literal-boolean If without failure.
+
+
+# -- Dict set (d[k] = v) -------------------------------------------------
+
+def test_dict_set_opaque():
+    """d[k] = v on opaque dict param via TupleOp + DictSetOp."""
+    ok, out = verify_exn('''
+def set_key(d: dict, k, v):
+    d[k] = v
+    result = d
+    return result
+''', table=_builtins_table(), func_name="set_key")
+    assert ok, out
+
+
+def test_dict_set_with_arithmetic():
+    """d[x+1] = y*2 with expression key/value, lowered via ANF."""
+    ok, out = verify_exn('''
+def set_expr(d: dict, x, y):
+    d[x + 1] = y * 2
+    result = d
+    return result
+''', table=_builtins_table(), func_name="set_expr")
+    assert ok, out

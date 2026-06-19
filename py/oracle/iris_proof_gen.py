@@ -150,14 +150,13 @@ IRIS_BUILTINS: FunTable = {
                 else_branch=SVar(name="default"),
             ))),
     # Dict set d[k] = v: update a key-value pair via DictSetOp.
-    # The key and value are encoded as Val references so the Coq
-    # body constructs LitTuple [Val k; Val v] for binop_eval.
+    # Uses TupleOp to construct the (k, v) pair as a LitTuple.
     "dict_set": TransparentDef(
         params=["d", "k", "v"],
         body=SLet(var="_kv",
-                  value=SLit(lit_type="tuple", value="()",
-                             elements=[SLit(lit_type="val", value="k"),
-                                       SLit(lit_type="val", value="v")]),
+                  value=SBinOp(op="tuple",
+                               left=SVar(name="k"),
+                               right=SVar(name="v")),
                   body=SBinOp(op="dict_set",
                               left=SVar(name="d"),
                               right=SVar(name="_kv")))),

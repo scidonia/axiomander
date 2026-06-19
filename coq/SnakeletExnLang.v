@@ -63,7 +63,8 @@ Inductive sn_val :=
 Inductive binop := AddOp | SubOp | MulOp | DivOp | EqOp | LeOp | LtOp | GtOp | GeOp
   | AndOp | OrOp | NeOp | ModOp | InOp | LenOp | UnionOp | InterOp
   | AppendOp | LengthOp | DictGetOp | DictGetIntOp | MkKeyErrOp | SetAddOp
-  | StrIndexOp | StartsWithOp | EndsWithOp | ToLowerOp | ToUpperOp | DictSetOp.
+  | StrIndexOp | StartsWithOp | EndsWithOp | ToLowerOp | ToUpperOp | DictSetOp
+  | TupleOp.
 
 Inductive sn_expr :=
   | Val (v : sn_val)
@@ -315,6 +316,7 @@ Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
   (* Construct a KeyError whose payload is the (first) key value, so that
      [Raise (BinOp MkKeyErrOp k _)] raises exactly Python's KeyError(k). *)
   | MkKeyErrOp => LitExn "KeyError" v1
+  | TupleOp => LitTuple [v1; v2]
   (* DictGetIntOp: integer-valued projection that ALWAYS returns LitInt,
      even for non-dict receivers (model_field_Z returns 0).  This
      guarantees [exists z, v = LitInt z /\ ...] is provable by reflexivity
