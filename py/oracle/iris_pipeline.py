@@ -58,8 +58,10 @@ _SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge", "ne", "mod"
 class Contracts:
     pre: Optional[str]
     post: str
-    loop_invariants: list[list[str]] = field(default_factory=list)
-    """Invariants per while loop in the function body, in order."""
+    loop_invariants: list[list] = field(default_factory=list)
+    """Invariants per while loop — contract_ir.Expr AST nodes.
+    Call expr.to_coq() / expr.to_smt() at the point of use."""
+    loop_invariant_exprs: list[list] = field(default_factory=list)
     raises: dict[str, str] = field(default_factory=dict)
     """Exception contracts: exc_type -> compiled Coq condition Prop.
     Each becomes a [RExn "exc_type" _ => cond] arm of the exception
@@ -304,12 +306,13 @@ def _iterable_not_supported_msg(kind: str, var: str) -> str:
             f"to an Iris proof. {guidance}")
 
 
-def _extract_while_invariants(stmts: list[ast.stmt], acc: list[list[str]],
+def _extract_while_invariants(stmts: list[ast.stmt], acc: list[list],
                                 linter: ContractLinter,
                                 lm: dict[str, str] | None = None) -> None:
     """Walk [stmts] depth-first, collecting invariant asserts from
     [ast.While] and [ast.For] bodies.  Each loop contributes one list of
-    Coq Prop strings (in encounter order)."""
+    contract_ir.Expr nodes — NOT pre-compiled strings.  to_coq() and
+    to_smt() are called lazily from the Expr when needed."""
     for s in stmts:
         if isinstance(s, ast.While):
             invs = []
@@ -317,7 +320,7 @@ def _extract_while_invariants(stmts: list[ast.stmt], acc: list[list[str]],
                 if isinstance(b, ast.Assert):
                     linted = linter.lint_expression(b.test)
                     if linted.ir is not None:
-                        invs.append(compile_precondition(linted.ir, list_model=lm))
+                        invs.append(linted.ir)   # keep Expr, compile late
             acc.append(invs)
             _extract_while_invariants(s.body, acc, linter, lm)
         elif isinstance(s, ast.For):
@@ -326,7 +329,7 @@ def _extract_while_invariants(stmts: list[ast.stmt], acc: list[list[str]],
                 if isinstance(b, ast.Assert):
                     linted = linter.lint_expression(b.test)
                     if linted.ir is not None:
-                        invs.append(compile_precondition(linted.ir, list_model=lm))
+                        invs.append(linted.ir)
             acc.append(invs)
             _extract_while_invariants(s.body, acc, linter, lm)
         elif isinstance(s, ast.If):
@@ -398,11 +401,17 @@ def _collect_var_names(e: SExpr) -> set[str]:
     return out
 
 
-def _rewrite_invariants(invs: list[str], counter_var: str,
+def _rewrite_invariants(invs: list, counter_var: str,
                         cells: list[tuple[str, str]],
-                        cond: SExpr) -> list[str]:
-    """Rewrite invariant Coq strings to use per-loop lemma parameter names."""
-    import re
+                        cond: SExpr) -> list:
+    """Substitute variable names in invariant Expr nodes to use lemma params.
+
+    Works at the AST level — no string manipulation.
+    counter_var -> 'z', bound var -> 'bound', extras -> 'a_0', 'a_1', ...
+    """
+    from oracle.contract_ir import Var as CVar, BinOp as CBinOp, Logical, \
+        IntLit, LenExpr, AllExpr, AnyExpr, RecursorExpr
+
     sub: dict[str, str] = {counter_var: "z"}
     if isinstance(cond.right, SVar):
         sub[cond.right.name] = "bound"
@@ -411,12 +420,32 @@ def _rewrite_invariants(invs: list[str], counter_var: str,
         if py_name != counter_var:
             sub[py_name] = f"a_{extra_idx}"
             extra_idx += 1
-    out = []
-    for inv in invs:
-        for old, new in sorted(sub.items(), key=lambda x: -len(x[0])):
-            inv = re.sub(r'\b' + re.escape(old) + r'\b', new, inv)
-        out.append(inv)
-    return out
+
+    def rename_expr(e):
+        """Recursively rename Var nodes in a contract_ir.Expr."""
+        if hasattr(e, 'kind') and e.kind == "var" and e.name in sub:
+            return CVar(name=sub[e.name])
+        # Recurse into children
+        if hasattr(e, 'kind') and e.kind == "binop":
+            new_left = rename_expr(e.left)
+            new_right = rename_expr(e.right)
+            if new_left is e.left and new_right is e.right:
+                return e
+            return CBinOp(op=e.op, left=new_left, right=new_right)
+        if hasattr(e, 'kind') and e.kind == "logical":
+            new_ops = [rename_expr(o) for o in e.operands]
+            if all(a is b for a, b in zip(new_ops, e.operands)):
+                return e
+            return Logical(op=e.op, operands=new_ops)
+        if hasattr(e, 'kind') and e.kind == "len":
+            new_name = sub.get(e.name, e.name)
+            if new_name == e.name:
+                return e
+            return type(e)(name=new_name)
+        # Default: return unchanged
+        return e
+
+    return [rename_expr(inv) for inv in invs]
 
 
 def _promote_locals(cond: SExpr, body: SExpr, lw) \
@@ -534,6 +563,231 @@ def _contains_store_of(e: SExpr, loc: str) -> bool:
     if isinstance(e, SReturn):
         return _contains_store_of(e.value, loc)
     return False
+
+
+def collect_inv_obligations(proof) -> list[tuple]:
+    """Collect invariant update obligations from all WhileInv nodes.
+
+    Returns (wi, inv_idx, coq_prop, smt_hyps, smt_conc) tuples.
+    All SMT strings come from expr.to_smt() — no regex, no string parsing.
+    """
+    from oracle.iris_proof_gen import WhileInv
+    from oracle.contract_ir import Var as CVar, BinOp as CBinOp, IntLit
+
+    def subst_z_plus_one(e):
+        """Replace Var('z') with BinOp('+', Var('z'), IntLit(1)) in Expr."""
+        if hasattr(e, 'kind') and e.kind == "var" and e.name == "z":
+            return CBinOp(op="+", left=CVar(name="z"), right=IntLit(value=1))
+        if hasattr(e, 'kind') and e.kind == "binop":
+            return CBinOp(op=e.op,
+                         left=subst_z_plus_one(e.left),
+                         right=subst_z_plus_one(e.right))
+        if hasattr(e, 'kind') and e.kind == "logical":
+            from oracle.contract_ir import Logical
+            return Logical(op=e.op, operands=[subst_z_plus_one(o) for o in e.operands])
+        return e
+
+    obligations: list[tuple] = []
+
+    def walk(nodes):
+        for n in nodes:
+            if isinstance(n, WhileInv) and n.invariant_exprs and n.cell_name == "l":
+                extra = n.extra_cells or []
+                for j, expr in enumerate(n.invariant_exprs):
+                    # inv_new: substitute z -> z+1 in the Expr AST
+                    inv_new_expr = subst_z_plus_one(expr)
+                    # Coq and SMT from the AST — late compilation, no strings
+                    inv_coq = expr.to_coq()
+                    inv_new_coq = inv_new_expr.to_coq()
+                    inv_smt = expr.to_smt()
+                    inv_new_smt = inv_new_expr.to_smt()
+                    extra_params = "".join(f" (a_{i} : Z)" for i in range(len(extra)))
+                    coq_prop = (
+                        f"forall (z : Z){extra_params} (bound : Z), "
+                        f"Z.le z bound -> z < bound -> {inv_coq} -> {inv_new_coq}")
+                    smt_hyps = ["(<= z bound)", "(< z bound)", inv_smt]
+                    smt_conc = inv_new_smt
+                    obligations.append((n, j, coq_prop, smt_hyps, smt_conc))
+            if hasattr(n, 'arms'):
+                for arm in n.arms: walk(arm)
+            if hasattr(n, 'body_stages'):
+                walk(n.body_stages)
+
+    walk(proof.stages)
+    return obligations
+
+
+def discharge_inv_obligations(proof, axiom_offset: int = 0) -> list[str]:
+    """Send all invariant update obligations to SMT and populate
+    WhileInv.inv_axiom_indices.  Returns new axiom Coq Prop strings."""
+    obligations = collect_inv_obligations(proof)
+    new_axioms: list[str] = []
+    for wi, j, coq_prop, smt_hyps, smt_conc in obligations:
+        # SMT query built directly from to_smt() output — no string parsing
+        verified = _smt_check(smt_hyps, smt_conc,
+                               extra_vars=["z", "bound"] + [f"a_{i}" for i in range(len(wi.extra_cells))])
+        if not verified:
+            continue
+        axidx = axiom_offset + len(new_axioms)
+        new_axioms.append(coq_prop)
+        wi.inv_axiom_indices.extend([-1] * (j + 1 - len(wi.inv_axiom_indices)))
+        wi.inv_axiom_indices[j] = axidx
+    return new_axioms
+
+
+def _smt_check(hyps: list[str], conc: str, extra_vars: list[str] | None = None) -> bool:
+    """Check UNSAT of (hyps /\ not conc) using cvc4/z3.  All strings are
+    already SMT-LIB format (produced by contract_ir.Expr.to_smt())."""
+    import subprocess, tempfile, shutil, os
+    solver = next((s for s in ("cvc4", "z3", "cvc5") if shutil.which(s)), None)
+    if not solver:
+        return False
+    import re
+    # Collect variable names from hypotheses and conclusion
+    all_text = " ".join(hyps) + " " + conc
+    vars_found = set(re.findall(r'\b([a-z][a-z0-9_]*)\b', all_text))
+    KEYWORDS = {'and', 'or', 'not', 'true', 'false', 'mod', 'div', 'abs'}
+    vars_found -= KEYWORDS
+    if extra_vars:
+        vars_found.update(extra_vars)
+    lines = ["(set-logic QF_NIA)"]
+    for v in sorted(vars_found):
+        lines.append(f"(declare-fun {v} () Int)")
+    for h in hyps:
+        lines.append(f"(assert {h})")
+    lines.append(f"(assert (not {conc}))")
+    lines.append("(check-sat)")
+    smt_src = "\n".join(lines)
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.smt2', delete=False) as f:
+        f.write(smt_src); tf = f.name
+    try:
+        r = subprocess.run([solver, tf], capture_output=True, text=True, timeout=15)
+        return "unsat" in r.stdout
+    except Exception:
+        return False
+    finally:
+        try: os.unlink(tf)
+        except OSError: pass
+
+
+def _verify_coq_prop_with_smt(coq_prop: str) -> bool:
+    """Send a universally-quantified Coq Z implication to the SMT solver.
+    Returns True if UNSAT (i.e., the proposition is valid)."""
+    import re, subprocess, tempfile, shutil, os
+
+    solver = next((s for s in ("cvc4", "z3", "cvc5") if shutil.which(s)), None)
+    if not solver:
+        return False
+
+    # Strip forall binders
+    prop = coq_prop.strip()
+    var_names: list[str] = []
+    m = re.match(r'^forall\s+(.*?),\s*(.+)$', prop, re.DOTALL)
+    if m:
+        binders_str, body = m.group(1).strip(), m.group(2).strip()
+        for binder in re.finditer(r'\((\w+)\s*:\s*Z\)', binders_str):
+            var_names.append(binder.group(1))
+    else:
+        body = prop
+
+    # Split on -> to get hypotheses and conclusion
+    parts = [p.strip() for p in re.split(r'\s*->\s*', body)]
+    if len(parts) < 2:
+        return False
+    hyps, concl = parts[:-1], parts[-1]
+
+    def to_smt(e: str) -> str:
+        """Convert a Coq Z expression to SMT-LIB. Handles the subset
+        generated by our invariant rewriting."""
+        e = e.strip().strip('()')
+        e = e.strip()
+        # Z.le a b → (<= a b)
+        m = re.match(r'^Z\.le\s+(\S+)\s+(\S+)$', e)
+        if m:
+            return f"(<= {to_smt(m.group(1))} {to_smt(m.group(2))})"
+        # Z.lt a b → (< a b)
+        m = re.match(r'^Z\.lt\s+(\S+)\s+(\S+)$', e)
+        if m:
+            return f"(< {to_smt(m.group(1))} {to_smt(m.group(2))})"
+        # a = b (equality)
+        m = re.match(r'^(.*?)\s*=\s*(.+)$', e)
+        if m:
+            return f"(= {to_smt(m.group(1))} {to_smt(m.group(2))})"
+        # a < b
+        m = re.match(r'^(.*?)\s*<\s*(.+)$', e)
+        if m:
+            return f"(< {to_smt(m.group(1))} {to_smt(m.group(2))})"
+        # a <= b
+        m = re.match(r'^(.*?)\s*<=\s*(.+)$', e)
+        if m:
+            return f"(<= {to_smt(m.group(1))} {to_smt(m.group(2))})"
+        # (a op b) — binary arithmetic in parens
+        m = re.match(r'^\((.+)\)$', e)
+        if m:
+            return to_smt(m.group(1))
+        # a + b
+        m = re.match(r'^(.*?)\s*\+\s*(.+)$', e)
+        if m:
+            return f"(+ {to_smt(m.group(1))} {to_smt(m.group(2))})"
+        # a - b
+        m = re.match(r'^(.*?)\s*-\s*(.+)$', e)
+        if m:
+            return f"(- {to_smt(m.group(1))} {to_smt(m.group(2))})"
+        # a * b
+        m = re.match(r'^(.*?)\s*\*\s*(.+)$', e)
+        if m:
+            return f"(* {to_smt(m.group(1))} {to_smt(m.group(2))})"
+        # a / b (integer division)
+        m = re.match(r'^(.*?)\s*/\s*(.+)$', e)
+        if m:
+            return f"(div {to_smt(m.group(1))} {to_smt(m.group(2))})"
+        # Literal or variable
+        return e.strip()
+
+    from oracle.smt_export import _expr_to_smt as _old_smt
+    def convert_hyp(h: str) -> str | None:
+        h = h.strip()
+        # Z.le a b
+        m = re.match(r'^Z\.le\s+(\S+)\s+(\S+)$', h)
+        if m:
+            return f"(<= {m.group(1)} {m.group(2)})"
+        # a < b or a = b etc
+        try:
+            return _old_smt(h)
+        except Exception:
+            return None
+
+    lines = ["(set-logic QF_NIA)"]
+    for v in var_names:
+        lines.append(f"(declare-fun {v} () Int)")
+
+    # Add hypotheses
+    for h in hyps:
+        s = convert_hyp(h.strip("() "))
+        if s:
+            lines.append(f"(assert {s})")
+
+    # Negate conclusion
+    try:
+        c = _old_smt(concl.strip("() "))
+    except Exception:
+        c = None
+    if not c:
+        return False
+    lines.append(f"(assert (not {c}))")
+    lines.append("(check-sat)")
+    smt_src = "\n".join(lines)
+
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.smt2', delete=False) as f:
+        f.write(smt_src); tf = f.name
+    try:
+        r = subprocess.run([solver, tf], capture_output=True, text=True, timeout=15)
+        return "unsat" in r.stdout
+    except Exception:
+        return False
+    finally:
+        try: os.unlink(tf)
+        except OSError: pass
 
 
 def _fold(stmts: list[PyStmt], lw: IrisLowerer,
@@ -1209,20 +1463,28 @@ def python_to_iris_proof(source: str,
     body = _anf(body, [0])
     _validate_ops(body)
 
-    return generate(
+    # Build the proof first with the caller-supplied axioms
+    proof = generate(
         name=fn.name,
         body=body,
         post=contracts.post,
         table=table,
         params=list(fn.params),
         pre=contracts.pre,
-        axioms=axioms,
+        axioms=list(axioms or []),
         pre_overrides=pre_overrides,
         list_params=merged_lp,
         dict_params=detected_dict,
         raises=contracts.raises,
         param_types=param_types,
     )
+
+    # Collect invariant update obligations from all WhileInv nodes,
+    # discharge via SMT in one batch, and inject as smt_ax_N axioms.
+    inv_axs = discharge_inv_obligations(proof, axiom_offset=len(proof.axioms))
+    proof.axioms.extend(inv_axs)
+
+    return proof
 
 
 def capture_residual(source: str,

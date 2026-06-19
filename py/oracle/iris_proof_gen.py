@@ -213,14 +213,23 @@ class WhileInv:
     bound_expr: str            # Coq expression for the bound (e.g. "LitInt n" or "n")
     cond_coq: str              # Coq While condition expression
     body_coq: str              # Coq While body expression
-    invariants: list[str]      # Coq Props (from contract asserts)
-    body_stages: list["StageNode"] = field(default_factory=list)  # per-iteration proof
-    order_hint: str = ""       # "ascending" or "descending"
-    pure_counter: bool = False  # True if counter is a local var (no heap)
+    invariant_exprs: list = field(default_factory=list)
+    """contract_ir.Expr nodes — primary storage for invariants.
+    to_coq() gives the Coq Prop; to_smt() gives SMT-LIB.  Never parsed."""
+
+    @property
+    def invariants(self) -> list[str]:
+        """Coq Prop strings, compiled lazily from invariant_exprs."""
+        from oracle.contract_ir_iris import iris_prop
+        return [iris_prop(e) for e in self.invariant_exprs]
+
+    body_stages: list["StageNode"] = field(default_factory=list)
+    order_hint: str = ""
+    pure_counter: bool = False
     extra_cells: list[str] = field(default_factory=list)
     """Additional heap cell variable names tracked through the loop."""
-    order_hint: str = ""       # "ascending" or "descending"
-    pure_counter: bool = False  # True if counter is a local var (no heap)
+    inv_axiom_indices: list[int] = field(default_factory=list)
+    """Axiom indices (smt_ax_N) for invariant update obligations."""
 
 
 @dataclass
@@ -653,7 +662,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 bound_expr=bound_expr,
                 cond_coq=cond_coq,
                 body_coq=body_coq,
-                invariants=e.invariants,
+                invariant_exprs=list(e.invariants),
                 body_stages=body_stages,
                 extra_cells=extra_cells,
             )]  # continuation handled by inferred Phi -- no k()
@@ -805,7 +814,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
             lst_coq=model_coq,
             body_coq=e.body.to_coq(),
             body_stages=body_stages,
-            invariants=e.invariants,
+            invariant_exprs=list(e.invariants),
             continuation_stages=cont,
             iterable_type=iterable_type,
             forall_predicate=_make_forall_predicate(e.invariants, e.var),
@@ -959,8 +968,18 @@ def _emit_while_inv_lemma_exn(wi: WhileInv) -> str:
     inv_provide = "".join([" []"] * len(inv_names))
     inv_subgoals = ""
     if inv_names:
-        for j in range(len(inv_names)):
-            inv_subgoals += f"      {{ iPureIntro. snakelet_pure_hyps. try lia. }}\n"
+        extra_a_args = " ".join(f"a_{i}" for i in range(len(wi.extra_cells)))
+        for j, name in enumerate(inv_names):
+            if j < len(wi.inv_axiom_indices) and wi.inv_axiom_indices[j] >= 0:
+                axidx = wi.inv_axiom_indices[j]
+                ax_args = f"z {extra_a_args} {bound_val}".strip()
+                prior_hyps = " ".join(f"Hinv{k}" for k in range(j))
+                inv_subgoals += (f"      {{ exact (smt_ax_{axidx} (z + 1)"
+                                 f"{(' ' + extra_a_args) if extra_a_args else ''}"
+                                 f" {bound_val}"
+                                 f"{(' ' + prior_hyps) if prior_hyps else ''}). }}\n")
+            else:
+                inv_subgoals += f"      {{ iPureIntro. snakelet_pure_hyps. first [ nia | sfirstorder | lia ]. }}\n"
 
     return f"""  Lemma {wi.lemma_name} {cell_params} (bound : Z) (z : Z) {extra_params}
       (Phi : Result -> iProp Sigma) :
@@ -1135,7 +1154,16 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
     if is_promoted and wi.invariants:
         for j in range(len(wi.invariants)):
             inv_with_args += " []"
-            inv_blocks += f'{indent}{{ iPureIntro. lia. }}\n'
+            if j < len(wi.inv_axiom_indices) and wi.inv_axiom_indices[j] >= 0:
+                axidx = wi.inv_axiom_indices[j]
+                extra_a_args = " ".join(f"a_{i}" for i in range(len(wi.extra_cells)))
+                inv_hyps = " ".join(f"Hinv{k}" for k in range(j + 1))
+                ax_args = f"z {extra_a_args} {bound}".strip()
+                inv_blocks += (f'{indent}{{ exact (smt_ax_{axidx} {ax_args}'
+                               f'{" " + inv_hyps if inv_hyps else ""}). }}\n')
+            else:
+                inv_blocks += (f'{indent}{{ iPureIntro. snakelet_pure_hyps. '
+                               f'first [ nia | sfirstorder | lia ]. }}\n')
 
     lines.append(
         f'{indent}iApply ({wi.lemma_name} {cell_args} {bound} 0{zeros_args} _ with "[$] []{inv_with_args}").')
@@ -1182,7 +1210,16 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
     if is_promoted and wi.invariants:
         for j in range(len(wi.invariants)):
             inv_with_args += " []"
-            inv_blocks += f'{indent}{{ iPureIntro. lia. }}\n'
+            if j < len(wi.inv_axiom_indices) and wi.inv_axiom_indices[j] >= 0:
+                axidx = wi.inv_axiom_indices[j]
+                extra_a_args = " ".join(f"a_{i}" for i in range(len(wi.extra_cells)))
+                inv_hyps = " ".join(f"Hinv{k}" for k in range(j + 1))
+                ax_args = f"z {extra_a_args} {bound}".strip()
+                inv_blocks += (f'{indent}{{ exact (smt_ax_{axidx} {ax_args}'
+                               f'{" " + inv_hyps if inv_hyps else ""}). }}\n')
+            else:
+                inv_blocks += (f'{indent}{{ iPureIntro. snakelet_pure_hyps. '
+                               f'first [ nia | sfirstorder | lia ]. }}\n')
 
     lines.append(
         f'{indent}iApply ({wi.lemma_name} {cell_args} {bound} 0{zeros_args} _ with "[$] []{inv_with_args}").')
@@ -1360,6 +1397,7 @@ _HEADER_EXN = (
     "(* Generated by iris_proof_gen -- staged Iris proof (exception backend). *)\n"
     "From iris.proofmode Require Import proofmode coq_tactics reduction.\n"
     "From iris.base_logic.lib Require Import gen_heap.\n"
+    "From Hammer Require Import Hammer.\n"
     "Require Import SnakeletExnLang SnakeletExnWp SnakeletExnTactics.\n"
     "Open Scope Z_scope.\n"
 )

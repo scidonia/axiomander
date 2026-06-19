@@ -110,7 +110,7 @@ class SWhile:
     The loop value is always LitUnit; results flow through heap cells."""
     cond: "SExpr"
     body: "SExpr"
-    invariants: list[str] = field(default_factory=list)  # Coq Props from contract asserts
+    invariants: list = field(default_factory=list)  # contract_ir.Expr nodes
     kind: Literal["while"] = "while"
 
     def to_coq(self) -> str:
@@ -119,15 +119,12 @@ class SWhile:
 
 @dataclass
 class SFor:
-    """For-each loop over a list value.  Iris: For + wp_for_list fold rule.
-    Iterates [body] with [var] bound to each element of [lst]; the loop value
-    is LitUnit (results flow through heap cells), proven by induction on the
-    list model.  No iLoeb -- this is the bounded/decreasing-measure class."""
+    """For-each loop over a list value."""
     var: str
     lst: "SExpr"
     body: "SExpr"
-    invariants: list[str] = field(default_factory=list)  # Coq Props (suffix invariant)
-    iterable_type: str = "list"   # "list" | "dict" | "name" — which wp_for_* lemma to use
+    invariants: list = field(default_factory=list)  # contract_ir.Expr nodes
+    iterable_type: str = "list"
     kind: Literal["for"] = "for"
 
     def to_coq(self) -> str:
