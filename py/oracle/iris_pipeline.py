@@ -40,6 +40,7 @@ from oracle.iris_proof_gen import (
 )
 from oracle.reporting import (
     GoalStatus, ProofLevel, Action, PipelineReport,
+    classify_failure, action_guidance,
 )
 from oracle.py_ir import (
     PyAssert, PyAssign, PyAugAssign, PyCall, PyConstant, PyExprStmt,
@@ -1615,7 +1616,7 @@ def verify_iris_safe(source: str,
                 proof_method="iris_exn",
             )
         else:
-            return GoalStatus(
+            status = GoalStatus(
                 name=func_name,
                 goal_statement=proof.post,
                 level=ProofLevel.UNPROVED,
@@ -1624,16 +1625,45 @@ def verify_iris_safe(source: str,
                 elapsed_ms=elapsed_ms,
                 proof_method="iris_exn",
             )
+            # B3: fallback failure classification
+            _classify_iris_failure(status, source, func_name)
+            return status
     except Exception as exc:
         elapsed_ms = (time.monotonic() - t0) * 1000.0
-        return GoalStatus(
+        status = GoalStatus(
             name=func_name,
             goal_statement="",
             level=ProofLevel.UNPROVED,
             error_detail=f"{type(exc).__name__}: {exc}",
             elapsed_ms=elapsed_ms,
-            suggested_action=Action.REFACTOR,
         )
+        _classify_iris_failure(status, source, func_name)
+        return status
+
+
+def _classify_iris_failure(status: GoalStatus,
+                           source: str,
+                           func_name: str) -> None:
+    """B3 fallback: classify an unproved goal and set suggested_action.
+
+    Parses the source to detect loops, then calls classify_failure +
+    action_guidance.  Never overwrites an action already set.
+    """
+    if status.suggested_action is not None:
+        return
+    has_loop = False
+    try:
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.name == func_name:
+                    has_loop = _has_loop(node)
+                    break
+    except SyntaxError:
+        pass
+    action = classify_failure(func_name, status.error_detail or "", has_loop)
+    status.suggested_action = action
+    status.suggestion_text = action_guidance(action, func_name)
 
 
 # ---------------------------------------------------------------------------
@@ -1652,6 +1682,14 @@ def _enumerate_iris_functions(source: str) -> list[tuple[str, ast.FunctionDef]]:
                 if isinstance(child, ast.FunctionDef):
                     pairs.append((child.name, child))
     return pairs
+
+
+def _has_loop(func_node: ast.FunctionDef) -> bool:
+    """Return True if the function body contains any while or for loop."""
+    for node in ast.walk(func_node):
+        if isinstance(node, (ast.While, ast.For)):
+            return True
+    return False
 
 
 def run_iris_pipeline(python_file: str,
