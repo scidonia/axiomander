@@ -10,6 +10,7 @@ MCP Tool: axiomander
   Returns per-goal verification status + actionable guidance.
 """
 
+import json
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -25,6 +26,36 @@ class ProofLevel(Enum):
     LEVEL3_LLM         = "level3"       # LLM oracle
     UNPROVED           = "unproved"     # still open
     COUNTEREXAMPLE     = "counterexample"  # SMT found a model showing the property is false
+
+
+class GoalOutcome(str, Enum):
+    """Dafny-flavored outcome for a verification goal.
+
+    Maps onto ProofLevel as follows:
+      LEVEL1/LEVEL2/LEVEL2B/LEVEL3 -> verified
+      COUNTEREXAMPLE               -> counterexample
+      UNPROVED (internal error)    -> error
+      UNPROVED (normal)            -> unproved
+    """
+    VERIFIED         = "verified"
+    COUNTEREXAMPLE   = "counterexample"
+    TIMEOUT          = "timeout"
+    OUT_OF_RESOURCES = "out_of_resources"
+    ERROR            = "error"
+    UNPROVED         = "unproved"
+
+
+def _outcome_for(goal: "GoalStatus") -> GoalOutcome:
+    """Derive the GoalOutcome from a GoalStatus."""
+    if goal.level == ProofLevel.COUNTEREXAMPLE:
+        return GoalOutcome.COUNTEREXAMPLE
+    if goal.is_proved():
+        return GoalOutcome.VERIFIED
+    # Distinguish internal errors (error_detail present but no counterexample)
+    # from normal unproved goals.
+    if goal.error_detail and not goal.counterexample and not goal.theory_counterexample:
+        return GoalOutcome.ERROR
+    return GoalOutcome.UNPROVED
 
 
 class Action(Enum):
@@ -70,6 +101,31 @@ class GoalStatus:
         """
         return self.level not in (ProofLevel.UNPROVED, ProofLevel.COUNTEREXAMPLE)
 
+    def to_dict(self) -> dict:
+        """Serialize to the canonical Dafny-flavored JSON schema dict.
+
+        Schema keys (stable contract):
+          name, outcome, level, elapsed_ms, resource_count,
+          proof_method, counterexample, theory_counterexample,
+          error_detail, suggested_action, suggestion_text,
+          dependencies, obligations
+        """
+        return {
+            "name": self.name,
+            "outcome": _outcome_for(self).value,
+            "level": self.level.value if self.is_proved() else None,
+            "elapsed_ms": self.elapsed_ms,
+            "resource_count": None,
+            "proof_method": self.proof_method or None,
+            "counterexample": self.counterexample,
+            "theory_counterexample": self.theory_counterexample or None,
+            "error_detail": self.error_detail or None,
+            "suggested_action": self.suggested_action.value if self.suggested_action else None,
+            "suggestion_text": self.suggestion_text or None,
+            "dependencies": self.dependencies,
+            "obligations": [],
+        }
+
 
 @dataclass
 class PipelineReport:
@@ -85,6 +141,26 @@ class PipelineReport:
         pct = 100 * self.proved_goals // max(self.total_goals, 1)
         return f"{self.proved_goals}/{self.total_goals} proved ({pct}%) — {self.source_file}"
 
+    def to_dict(self) -> dict:
+        """Serialize to the canonical Dafny-flavored JSON schema dict."""
+        verified = sum(1 for g in self.goals if g.is_proved())
+        total = self.total_goals
+        pct = 100 * verified // max(total, 1)
+        return {
+            "source_file": self.source_file,
+            "summary": {
+                "verified": verified,
+                "total": total,
+                "percent": pct,
+            },
+            "elapsed_total_ms": self.elapsed_total_ms,
+            "goals": [g.to_dict() for g in self.goals],
+        }
+
+    def to_json(self, indent: int = 2) -> str:
+        """Serialize to a JSON string using the canonical schema."""
+        return json.dumps(self.to_dict(), indent=indent)
+
     def mcp_output(self) -> str:
         """Structured output for MCP tool consumption."""
         lines = [
@@ -95,23 +171,24 @@ class PipelineReport:
             f"|----------|--------|-------|------|----------|",
         ]
         for g in self.goals:
-            status = "✓" if g.is_proved() else "✗"
-            level = g.level.value if g.is_proved() else "—"
-            time_str = f"{g.elapsed_ms:.0f}ms" if g.elapsed_ms else "—"
-            action = g.suggested_action.value if g.suggested_action != Action.OK else "—"
+            status = "+" if g.is_proved() else "x"
+            level = g.level.value if g.is_proved() else "-"
+            time_str = f"{g.elapsed_ms:.0f}ms" if g.elapsed_ms else "-"
+            action_str = g.suggested_action.value if g.suggested_action and g.suggested_action != Action.OK else "-"
             lines.append(
-                f"| `{g.name}` | {status} | {level} | {g.proof_method or "—"} | {time_str} | {action} |"
+                f"| `{g.name}` | {status} | {level} | {g.proof_method or '-'} | {time_str} | {action_str} |"
             )
 
         lines.append("")
         lines.append("## Unproved Goals")
         unproved = [g for g in self.goals if not g.is_proved()]
         if not unproved:
-            lines.append("All goals proved. ✓")
+            lines.append("All goals proved.")
         else:
             for g in unproved:
                 lines.append(f"### `{g.name}`")
-                lines.append(f"**Action**: {g.suggested_action.value if g.suggested_action else "unknown"}")
+                action_label = g.suggested_action.value if g.suggested_action else "unknown"
+                lines.append(f"**Action**: {action_label}")
                 lines.append(f"**Detail**: {g.suggestion_text}")
                 if g.theory_counterexample:
                     lines.append("**Theory counterexample**:")

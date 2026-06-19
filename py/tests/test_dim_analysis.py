@@ -524,6 +524,11 @@ def wrong_add(revenue: float, headcount: int) -> float:
         assert "USD" in goal.error_detail
         assert "person" in goal.error_detail
 
+    @pytest.mark.slow
+    @pytest.mark.skipif(
+        not __import__("shutil").which("coqc"),
+        reason="Coq toolchain (coqc) not on PATH -- run `eval $(opam env)` first",
+    )
     def test_check_function_consistent_units_passes(self):
         """End-to-end: consistent units don't block verification."""
         import os

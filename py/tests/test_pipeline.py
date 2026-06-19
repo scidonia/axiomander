@@ -1028,6 +1028,11 @@ NEGATIVE_TESTS = {"weak_count", "missing_bound", "false_post", "weak_accum", "we
 }
 
 
+@pytest.mark.slow
+@pytest.mark.skipif(
+    not __import__("shutil").which("coqc"),
+    reason="Coq toolchain (coqc) not on PATH -- run `eval $(opam env)` first",
+)
 @pytest.mark.parametrize("name,source", EXAMPLES)
 def test_verification_passes(name, source):
     goal = run_verification(source, name)
@@ -1037,3 +1042,701 @@ def test_verification_passes(name, source):
     else:
         assert goal.is_proved(), f"Not proved ({goal.level}): {goal.error_detail[:200]}"
         assert goal.level == ProofLevel.LEVEL1_LTAC
+
+
+# ---------------------------------------------------------------------------
+# Integration tests for run_pipeline (require Coq toolchain on PATH)
+# ---------------------------------------------------------------------------
+
+import shutil
+import tempfile
+from oracle.pipeline import (
+    run_pipeline,
+    _enumerate_functions,
+    _has_loop,
+    _verify_one,
+)
+
+
+# Minimal 2-function file with assert-based contracts that prove at Level 1.
+_PIPELINE_FIXTURE = """\
+def add(a: int, b: int) -> int:
+    assert True
+    result = a + b
+    assert result == a + b
+    return result
+
+
+def clamp_pos(n: int) -> int:
+    assert n >= 0
+    result = n
+    assert result >= 0
+    return result
+"""
+
+
+def test_enumerate_functions_top_level():
+    """_enumerate_functions returns (name, node) pairs for top-level functions."""
+    tree = ast.parse(_PIPELINE_FIXTURE)
+    pairs = _enumerate_functions(tree)
+    names = [n for n, _ in pairs]
+    assert names == ["add", "clamp_pos"]
+    # Each second element is an ast.FunctionDef
+    for _, node in pairs:
+        assert isinstance(node, ast.FunctionDef)
+
+
+def test_enumerate_functions_class_methods():
+    """_enumerate_functions descends into ClassDef for methods."""
+    src = """\
+class Foo:
+    def bar(self): pass
+    def baz(self): pass
+
+def top(x): pass
+"""
+    tree = ast.parse(src)
+    pairs = _enumerate_functions(tree)
+    names = [n for n, _ in pairs]
+    assert "bar" in names
+    assert "baz" in names
+    assert "top" in names
+    # Nested inner functions inside a method should NOT appear
+    src2 = """\
+def outer():
+    def inner(): pass
+    return 1
+"""
+    tree2 = ast.parse(src2)
+    pairs2 = _enumerate_functions(tree2)
+    names2 = [n for n, _ in pairs2]
+    assert names2 == ["outer"]
+    assert "inner" not in names2
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(shutil.which("coqc") is None, reason="Coq toolchain not on PATH")
+def test_run_pipeline_proves_simple_functions():
+    """run_pipeline returns a PipelineReport with correct proved/total counts.
+
+    Uses a small 2-function inline fixture with assert contracts that are
+    provable at Level 1 (wp_reduce + lia).  Skipped when coqc is absent so
+    the unit suite stays fast and CI-portable.
+    """
+    import os
+    os.environ.setdefault(
+        "AXIOMANDER_ROOT",
+        str(Path(__file__).resolve().parent.parent.parent),
+    )
+
+    with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
+        f.write(_PIPELINE_FIXTURE)
+        tmp_path = Path(f.name)
+
+    try:
+        report = run_pipeline(tmp_path)
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    assert report.total_goals == 2, (
+        f"Expected 2 functions, got {report.total_goals}"
+    )
+    assert report.proved_goals == report.total_goals, (
+        f"Expected all proved; got {report.proved_goals}/{report.total_goals}. "
+        f"Details: {[(g.name, g.level, g.error_detail) for g in report.goals]}"
+    )
+    assert report.source_file.endswith(".py")
+    assert report.elapsed_total_ms >= 0
+
+
+# ---------------------------------------------------------------------------
+# Fast unit tests for reporting.py schema (Step C)
+# No Coq toolchain required.
+# ---------------------------------------------------------------------------
+
+from oracle.reporting import (
+    GoalStatus,
+    GoalOutcome,
+    PipelineReport,
+    ProofLevel,
+    Action,
+    build_report,
+    _outcome_for,
+)
+
+
+def _make_proved_goal(name: str = "f") -> GoalStatus:
+    return GoalStatus(
+        name=name,
+        goal_statement="",
+        level=ProofLevel.LEVEL1_LTAC,
+        elapsed_ms=42.0,
+        proof_method="wp_reduce",
+    )
+
+
+def _make_unproved_goal(name: str = "g") -> GoalStatus:
+    return GoalStatus(
+        name=name,
+        goal_statement="",
+        level=ProofLevel.UNPROVED,
+        error_detail="",
+    )
+
+
+def _make_counterexample_goal(name: str = "h") -> GoalStatus:
+    return GoalStatus(
+        name=name,
+        goal_statement="",
+        level=ProofLevel.COUNTEREXAMPLE,
+        counterexample={"x": -1},
+    )
+
+
+def _make_error_goal(name: str = "e") -> GoalStatus:
+    return GoalStatus(
+        name=name,
+        goal_statement="",
+        level=ProofLevel.UNPROVED,
+        error_detail="internal error: translation failed",
+    )
+
+
+class TestGoalOutcomeMapping:
+    """_outcome_for maps ProofLevel -> GoalOutcome correctly."""
+
+    def test_proved_level1_is_verified(self):
+        g = _make_proved_goal()
+        assert _outcome_for(g) == GoalOutcome.VERIFIED
+
+    def test_proved_level2_is_verified(self):
+        g = GoalStatus(name="f", goal_statement="", level=ProofLevel.LEVEL2_SMT)
+        assert _outcome_for(g) == GoalOutcome.VERIFIED
+
+    def test_proved_level3_is_verified(self):
+        g = GoalStatus(name="f", goal_statement="", level=ProofLevel.LEVEL3_LLM)
+        assert _outcome_for(g) == GoalOutcome.VERIFIED
+
+    def test_counterexample_level_is_counterexample(self):
+        g = _make_counterexample_goal()
+        assert _outcome_for(g) == GoalOutcome.COUNTEREXAMPLE
+
+    def test_unproved_no_error_is_unproved(self):
+        g = _make_unproved_goal()
+        assert _outcome_for(g) == GoalOutcome.UNPROVED
+
+    def test_unproved_with_error_detail_is_error(self):
+        g = _make_error_goal()
+        assert _outcome_for(g) == GoalOutcome.ERROR
+
+    def test_unproved_with_counterexample_dict_is_unproved_not_error(self):
+        # counterexample present -> not classified as ERROR even with error_detail
+        g = GoalStatus(
+            name="f", goal_statement="",
+            level=ProofLevel.UNPROVED,
+            error_detail="some detail",
+            counterexample={"x": 0},
+        )
+        assert _outcome_for(g) == GoalOutcome.UNPROVED
+
+
+class TestGoalStatusToDict:
+    """GoalStatus.to_dict() produces the canonical schema."""
+
+    REQUIRED_KEYS = {
+        "name", "outcome", "level", "elapsed_ms", "resource_count",
+        "proof_method", "counterexample", "theory_counterexample",
+        "error_detail", "suggested_action", "suggestion_text",
+        "dependencies", "obligations",
+    }
+
+    def test_all_keys_present_proved(self):
+        d = _make_proved_goal().to_dict()
+        assert self.REQUIRED_KEYS == set(d.keys())
+
+    def test_all_keys_present_unproved(self):
+        d = _make_unproved_goal().to_dict()
+        assert self.REQUIRED_KEYS == set(d.keys())
+
+    def test_proved_outcome_is_verified(self):
+        d = _make_proved_goal().to_dict()
+        assert d["outcome"] == "verified"
+
+    def test_proved_level_is_level_value(self):
+        d = _make_proved_goal().to_dict()
+        assert d["level"] == "level1"
+
+    def test_unproved_level_is_none(self):
+        d = _make_unproved_goal().to_dict()
+        assert d["level"] is None
+
+    def test_counterexample_outcome(self):
+        d = _make_counterexample_goal().to_dict()
+        assert d["outcome"] == "counterexample"
+
+    def test_error_outcome(self):
+        d = _make_error_goal().to_dict()
+        assert d["outcome"] == "error"
+
+    def test_resource_count_is_none(self):
+        d = _make_proved_goal().to_dict()
+        assert d["resource_count"] is None
+
+    def test_obligations_is_empty_list(self):
+        d = _make_proved_goal().to_dict()
+        assert d["obligations"] == []
+
+    def test_suggested_action_serializes_to_value(self):
+        g = _make_unproved_goal()
+        g.suggested_action = Action.ADD_INVARIANT
+        d = g.to_dict()
+        assert d["suggested_action"] == "add_loop_invariant"
+
+    def test_no_suggested_action_is_none(self):
+        d = _make_unproved_goal().to_dict()
+        assert d["suggested_action"] is None
+
+
+class TestPipelineReportToJson:
+    """PipelineReport.to_dict() / to_json() produce the canonical schema."""
+
+    REPORT_KEYS = {"source_file", "summary", "elapsed_total_ms", "goals"}
+    SUMMARY_KEYS = {"verified", "total", "percent"}
+
+    def _make_report(self) -> PipelineReport:
+        goals = [_make_proved_goal("f"), _make_unproved_goal("g")]
+        return build_report("demo.py", goals, elapsed_total_ms=100.0)
+
+    def test_top_level_keys(self):
+        d = self._make_report().to_dict()
+        assert self.REPORT_KEYS == set(d.keys())
+
+    def test_summary_keys(self):
+        d = self._make_report().to_dict()
+        assert self.SUMMARY_KEYS == set(d["summary"].keys())
+
+    def test_summary_counts(self):
+        d = self._make_report().to_dict()
+        assert d["summary"]["total"] == 2
+        assert d["summary"]["verified"] == 1
+        assert d["summary"]["percent"] == 50
+
+    def test_goals_list_length(self):
+        d = self._make_report().to_dict()
+        assert len(d["goals"]) == 2
+
+    def test_to_json_is_valid_json(self):
+        import json as _json
+        report = self._make_report()
+        text = report.to_json()
+        parsed = _json.loads(text)
+        assert parsed["source_file"] == "demo.py"
+
+    def test_to_json_round_trip_summary(self):
+        import json as _json
+        report = self._make_report()
+        parsed = _json.loads(report.to_json())
+        assert parsed["summary"]["verified"] == 1
+        assert parsed["summary"]["total"] == 2
+
+    def test_all_proved_report(self):
+        goals = [_make_proved_goal("a"), _make_proved_goal("b")]
+        report = build_report("x.py", goals)
+        d = report.to_dict()
+        assert d["summary"]["verified"] == 2
+        assert d["summary"]["percent"] == 100
+
+    def test_empty_report(self):
+        report = build_report("empty.py", [])
+        d = report.to_dict()
+        assert d["summary"]["total"] == 0
+        assert d["summary"]["verified"] == 0
+        assert d["goals"] == []
+
+
+# ---------------------------------------------------------------------------
+# Fast unit tests for pipeline.py CLI (Step B1)
+# Monkeypatches _verify_function so no Coq toolchain is needed.
+# ---------------------------------------------------------------------------
+
+import tempfile
+import shutil as _shutil
+from unittest.mock import patch as _patch
+from oracle.pipeline import main as _pipeline_main
+
+
+def _write_tmp(source: str) -> Path:
+    """Write source to a temp .py file and return its Path."""
+    f = tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False)
+    f.write(source)
+    f.flush()
+    f.close()
+    return Path(f.name)
+
+
+_SIMPLE_SRC = """\
+def add(a: int, b: int) -> int:
+    assert True
+    result = a + b
+    assert result == a + b
+    return result
+
+def sub(a: int, b: int) -> int:
+    assert True
+    result = a - b
+    return result
+"""
+
+
+def _proved_status(name: str) -> GoalStatus:
+    return GoalStatus(name=name, goal_statement="", level=ProofLevel.LEVEL1_LTAC)
+
+
+def _unproved_status(name: str) -> GoalStatus:
+    return GoalStatus(name=name, goal_statement="", level=ProofLevel.UNPROVED)
+
+
+class TestPipelineMainExitCodes:
+    """main() returns correct exit codes without touching the Coq toolchain."""
+
+    def test_exit_0_all_proved(self, tmp_path, capsys):
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("oracle.pipeline._verify_function",
+                    side_effect=[_proved_status("add"), _proved_status("sub")]):
+            code = _pipeline_main([str(src_file), "--quiet"])
+        assert code == 0
+
+    def test_exit_1_some_unproved(self, tmp_path, capsys):
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("oracle.pipeline._verify_function",
+                    side_effect=[_proved_status("add"), _unproved_status("sub")]):
+            code = _pipeline_main([str(src_file), "--quiet"])
+        assert code == 1
+
+    def test_exit_2_file_not_found(self, tmp_path, capsys):
+        code = _pipeline_main([str(tmp_path / "nonexistent.py")])
+        assert code == 2
+
+    def test_exit_2_no_coqc(self, tmp_path, capsys):
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+        with _patch("oracle.pipeline.shutil.which", return_value=None):
+            code = _pipeline_main([str(src_file)])
+        assert code == 2
+
+    def test_exit_2_syntax_error(self, tmp_path, capsys):
+        src_file = tmp_path / "src.py"
+        src_file.write_text("def broken(:\n    pass\n")
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"):
+            code = _pipeline_main([str(src_file)])
+        assert code == 2
+
+    def test_exit_2_unknown_function(self, tmp_path, capsys):
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"):
+            code = _pipeline_main([str(src_file), "--function", "nonexistent"])
+        assert code == 2
+
+
+class TestPipelineMainJsonFlag:
+    """--json flag emits valid JSON matching the canonical schema."""
+
+    def test_json_output_is_valid(self, tmp_path, capsys):
+        import json as _j
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("oracle.pipeline._verify_function",
+                    side_effect=[_proved_status("add"), _proved_status("sub")]):
+            code = _pipeline_main([str(src_file), "--json"])
+        assert code == 0
+        captured = capsys.readouterr()
+        parsed = _j.loads(captured.out)
+        assert "source_file" in parsed
+        assert "summary" in parsed
+        assert "goals" in parsed
+
+    def test_json_summary_counts(self, tmp_path, capsys):
+        import json as _j
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("oracle.pipeline._verify_function",
+                    side_effect=[_proved_status("add"), _unproved_status("sub")]):
+            _pipeline_main([str(src_file), "--json"])
+        captured = capsys.readouterr()
+        parsed = _j.loads(captured.out)
+        assert parsed["summary"]["total"] == 2
+        assert parsed["summary"]["verified"] == 1
+
+    def test_json_goals_have_outcome(self, tmp_path, capsys):
+        import json as _j
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("oracle.pipeline._verify_function",
+                    side_effect=[_proved_status("add"), _proved_status("sub")]):
+            _pipeline_main([str(src_file), "--json"])
+        captured = capsys.readouterr()
+        parsed = _j.loads(captured.out)
+        for g in parsed["goals"]:
+            assert "outcome" in g
+            assert g["outcome"] == "verified"
+
+
+class TestPipelineMainFunctionFilter:
+    """--function flag restricts verification to a single function."""
+
+    def test_function_filter_calls_only_that_function(self, tmp_path, capsys):
+        import json as _j
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+        called = []
+
+        def fake_verify(source, name, *a, **kw):
+            called.append(name)
+            return _proved_status(name)
+
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("oracle.pipeline._verify_function", side_effect=fake_verify):
+            code = _pipeline_main([str(src_file), "--function", "add", "--json"])
+        assert code == 0
+        assert called == ["add"]
+        captured = capsys.readouterr()
+        parsed = _j.loads(captured.out)
+        assert len(parsed["goals"]) == 1
+        assert parsed["goals"][0]["name"] == "add"
+
+
+# ---------------------------------------------------------------------------
+# Fast unit tests for B2: fault isolation + per-goal elapsed_ms
+# No Coq toolchain required.
+# ---------------------------------------------------------------------------
+
+from oracle.pipeline import _verify_one, _has_loop
+from oracle.reporting import classify_failure, action_guidance
+
+
+_LOOP_SRC = """\
+def loopy(n: int) -> int:
+    assert n >= 0
+    i = 0
+    while i < n:
+        assert i <= n
+        i += 1
+    assert i == n
+    return i
+"""
+
+_NO_LOOP_SRC = """\
+def simple(a: int, b: int) -> int:
+    assert a >= 0
+    result = a + b
+    assert result >= a
+    return result
+"""
+
+
+def _get_func_node(src: str, name: str) -> ast.FunctionDef:
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    raise ValueError(f"Function {name!r} not found")
+
+
+class TestHasLoop:
+    """_has_loop detects while/for loops in function bodies."""
+
+    def test_while_loop_detected(self):
+        node = _get_func_node(_LOOP_SRC, "loopy")
+        assert _has_loop(node) is True
+
+    def test_no_loop_returns_false(self):
+        node = _get_func_node(_NO_LOOP_SRC, "simple")
+        assert _has_loop(node) is False
+
+    def test_for_loop_detected(self):
+        src = """\
+def with_for(n: int) -> int:
+    total = 0
+    for i in range(n):
+        total += i
+    return total
+"""
+        node = _get_func_node(src, "with_for")
+        assert _has_loop(node) is True
+
+    def test_nested_loop_in_if_detected(self):
+        src = """\
+def nested(n: int) -> int:
+    if n > 0:
+        i = 0
+        while i < n:
+            i += 1
+    return n
+"""
+        node = _get_func_node(src, "nested")
+        assert _has_loop(node) is True
+
+
+class TestVerifyOneFaultIsolation:
+    """_verify_one (B2): exception in _verify_function does not propagate."""
+
+    def test_exception_returns_unproved_goal(self, tmp_path):
+        """A RuntimeError from _verify_function is caught; report is complete."""
+        func_node = _get_func_node(_SIMPLE_SRC, "add")
+        with _patch("oracle.pipeline._verify_function",
+                    side_effect=RuntimeError("coqc exploded")):
+            result = _verify_one(_SIMPLE_SRC, "add", func_node)
+        assert result.name == "add"
+        assert not result.is_proved()
+        assert "RuntimeError" in result.error_detail
+        assert "coqc exploded" in result.error_detail
+
+    def test_exception_goal_has_refactor_action(self, tmp_path):
+        """Exception path sets suggested_action=REFACTOR (not None)."""
+        func_node = _get_func_node(_SIMPLE_SRC, "add")
+        with _patch("oracle.pipeline._verify_function",
+                    side_effect=ValueError("bad input")):
+            result = _verify_one(_SIMPLE_SRC, "add", func_node)
+        assert result.suggested_action == Action.REFACTOR
+
+    def test_none_return_becomes_unproved(self):
+        """_verify_function returning None is handled gracefully."""
+        func_node = _get_func_node(_SIMPLE_SRC, "add")
+        with _patch("oracle.pipeline._verify_function", return_value=None):
+            result = _verify_one(_SIMPLE_SRC, "add", func_node)
+        assert result.name == "add"
+        assert not result.is_proved()
+        assert result.error_detail  # some detail set
+
+    def test_proved_goal_elapsed_ms_positive(self):
+        """A proved goal has elapsed_ms > 0 (timing is recorded)."""
+        func_node = _get_func_node(_SIMPLE_SRC, "add")
+        proved = GoalStatus(name="add", goal_statement="", level=ProofLevel.LEVEL1_LTAC)
+        with _patch("oracle.pipeline._verify_function", return_value=proved):
+            result = _verify_one(_SIMPLE_SRC, "add", func_node)
+        assert result.is_proved()
+        assert result.elapsed_ms >= 0.0  # monotonic, always non-negative
+
+    def test_unproved_goal_elapsed_ms_recorded(self):
+        """An unproved goal also has elapsed_ms recorded."""
+        func_node = _get_func_node(_SIMPLE_SRC, "add")
+        unproved = GoalStatus(name="add", goal_statement="", level=ProofLevel.UNPROVED)
+        with _patch("oracle.pipeline._verify_function", return_value=unproved):
+            result = _verify_one(_SIMPLE_SRC, "add", func_node)
+        assert result.elapsed_ms >= 0.0
+
+    def test_multiple_functions_all_complete_after_one_crash(self, tmp_path):
+        """run_pipeline completes all functions even if one raises."""
+        src_file = tmp_path / "src.py"
+        src_file.write_text(_SIMPLE_SRC)
+
+        call_count = [0]
+
+        def flaky_verify(source, name, *a, **kw):
+            call_count[0] += 1
+            if name == "add":
+                raise RuntimeError("add crashed")
+            return _proved_status(name)
+
+        with _patch("oracle.pipeline.shutil.which", return_value="/usr/bin/coqc"), \
+             _patch("oracle.pipeline._verify_function", side_effect=flaky_verify):
+            from oracle.pipeline import run_pipeline as _run_pipeline
+            report = _run_pipeline(src_file)
+
+        # Both functions were attempted
+        assert call_count[0] == 2
+        # Report is complete (2 goals, not 1)
+        assert report.total_goals == 2
+        # The crashing function is unproved, the other is proved
+        names = {g.name: g for g in report.goals}
+        assert not names["add"].is_proved()
+        assert names["sub"].is_proved()
+        # Overall exit code would be 1 (not all proved)
+        assert report.proved_goals == 1
+
+
+class TestVerifyOneB3FallbackClassification:
+    """_verify_one (B3): fallback classify_failure when suggested_action is None."""
+
+    def test_loop_invariant_error_gets_add_invariant(self):
+        """Unproved goal with loop + 'invariant' in error -> ADD_INVARIANT."""
+        func_node = _get_func_node(_LOOP_SRC, "loopy")
+        unproved = GoalStatus(
+            name="loopy",
+            goal_statement="",
+            level=ProofLevel.UNPROVED,
+            error_detail="could not prove loop invariant",
+            suggested_action=None,
+        )
+        with _patch("oracle.pipeline._verify_function", return_value=unproved):
+            result = _verify_one(_LOOP_SRC, "loopy", func_node)
+        assert result.suggested_action == Action.ADD_INVARIANT
+        assert result.suggestion_text  # non-empty guidance
+
+    def test_no_loop_unproved_gets_retry_llm(self):
+        """Unproved goal without loop and no keyword -> RETRY_LLM fallback."""
+        func_node = _get_func_node(_NO_LOOP_SRC, "simple")
+        unproved = GoalStatus(
+            name="simple",
+            goal_statement="",
+            level=ProofLevel.UNPROVED,
+            error_detail="",
+            suggested_action=None,
+        )
+        with _patch("oracle.pipeline._verify_function", return_value=unproved):
+            result = _verify_one(_NO_LOOP_SRC, "simple", func_node)
+        # No loop, no keyword -> classify_failure returns RETRY_LLM
+        assert result.suggested_action == Action.RETRY_LLM
+
+    def test_engine_set_action_not_clobbered(self):
+        """If engine already set suggested_action, B3 must not overwrite it."""
+        func_node = _get_func_node(_LOOP_SRC, "loopy")
+        unproved = GoalStatus(
+            name="loopy",
+            goal_statement="",
+            level=ProofLevel.UNPROVED,
+            error_detail="counterexample found",
+            suggested_action=Action.PROPERTY_FALSE,  # engine already classified
+        )
+        with _patch("oracle.pipeline._verify_function", return_value=unproved):
+            result = _verify_one(_LOOP_SRC, "loopy", func_node)
+        # Must remain PROPERTY_FALSE, not overwritten to ADD_INVARIANT
+        assert result.suggested_action == Action.PROPERTY_FALSE
+
+    def test_proved_goal_has_no_fallback_action(self):
+        """Proved goals are not touched by B3 fallback."""
+        func_node = _get_func_node(_SIMPLE_SRC, "add")
+        proved = GoalStatus(
+            name="add",
+            goal_statement="",
+            level=ProofLevel.LEVEL1_LTAC,
+            suggested_action=None,
+        )
+        with _patch("oracle.pipeline._verify_function", return_value=proved):
+            result = _verify_one(_SIMPLE_SRC, "add", func_node)
+        # Proved -> B3 branch not entered -> suggested_action stays None
+        assert result.suggested_action is None
+
+    def test_suggestion_text_populated_for_fallback(self):
+        """B3 fallback also populates suggestion_text (not just action)."""
+        func_node = _get_func_node(_LOOP_SRC, "loopy")
+        unproved = GoalStatus(
+            name="loopy",
+            goal_statement="",
+            level=ProofLevel.UNPROVED,
+            error_detail="invariant too weak",
+            suggested_action=None,
+            suggestion_text="",
+        )
+        with _patch("oracle.pipeline._verify_function", return_value=unproved):
+            result = _verify_one(_LOOP_SRC, "loopy", func_node)
+        assert result.suggestion_text  # non-empty
+        assert "loopy" in result.suggestion_text  # action_guidance includes func name

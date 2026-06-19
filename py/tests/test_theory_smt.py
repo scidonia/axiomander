@@ -566,6 +566,7 @@ class TestTheoryDispatcher:
 
 # ── 3. Pipeline integration tests ────────────────────────────────
 
+@pytest.mark.slow
 @pytest.mark.skipif(not _z3_available(), reason="z3 not available")
 class TestTheorySMTPipeline:
     """End-to-end: functions whose postconditions involve string theory

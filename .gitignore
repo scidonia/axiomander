@@ -17,3 +17,4 @@ dist/
 .axiomander/transcripts/
 .axiomander/cache/graph.json
 .axiomander/
+.clinerules
