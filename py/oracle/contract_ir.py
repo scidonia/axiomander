@@ -596,6 +596,9 @@ class FieldAccess(BaseModel):
     def to_smt(self) -> str:
         return "0"
 
+    def to_python(self) -> str:
+        return f"{self.obj}.{self.field}"
+
 
 class ReMatchExpr(BaseModel):
     """s.re_match("pattern") -- regex membership contract predicate.
