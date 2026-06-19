@@ -5732,24 +5732,66 @@ def _cli(argv: list[str] | None = None):
         file: str,
         function: str = typer.Option(..., "--function", "-f", help="Function name to verify"),
         hint: Optional[str] = typer.Option(None, "--hint", help="Tactic hint: hammer, smt, lia, auto"),
+        backend: str = typer.Option("iris", "--backend", "-b", help="Verification backend: iris (default) or imp"),
     ):
         """Verify a single function with assert contracts."""
-        opts = {"source": _Path(file).read_text(), "function_name": function}
-        if hint:
-            opts["hint"] = hint
-        typer.echo(tool_check_function(opts))
+        source = _Path(file).read_text()
+        if backend == "imp":
+            opts = {"source": source, "function_name": function}
+            if hint:
+                opts["hint"] = hint
+            typer.echo(tool_check_function(opts))
+        else:
+            typer.echo(tool_iris_verify({"source": source, "function_name": function}))
 
     @app.command()
     def verify_function(
         file: str,
         function: str = typer.Option(..., "--function", "-f", help="Function name to verify"),
         hint: Optional[str] = typer.Option(None, "--hint", help="Tactic hint: hammer, smt, lia, auto"),
+        backend: str = typer.Option("iris", "--backend", "-b", help="Verification backend: iris (default) or imp"),
     ):
-        """Verify a function with caching (alias for check-function)."""
-        opts = {"source": _Path(file).read_text(), "function_name": function}
-        if hint:
-            opts["hint"] = hint
-        typer.echo(tool_verify_function(opts))
+        """Verify a function with caching."""
+        source = _Path(file).read_text()
+        if backend == "imp":
+            opts = {"source": source, "function_name": function}
+            if hint:
+                opts["hint"] = hint
+            typer.echo(tool_verify_function(opts))
+        else:
+            from .iris_pipeline import verify_iris_safe
+            import time as _time
+            t0 = _time.monotonic()
+            status = verify_iris_safe(source, function, {}, use_cache=True)
+            cache_ms = (_time.monotonic() - t0) * 1000.0
+            cached = cache_ms < 50  # hash computation is < 10ms, coqc is > 1000ms
+            from .reporting import PipelineReport
+            report = PipelineReport(
+                source_file=file, total_goals=1,
+                proved_goals=1 if status.is_proved() else 0,
+                goals=[status], elapsed_total_ms=status.elapsed_ms)
+            from rich.console import Console
+            from rich.table import Table
+            from rich.panel import Panel
+            from rich.text import Text
+            console = Console()
+            summary = Text(report.summary(), style="bold")
+            console.print(Panel(summary, border_style="bright_black",
+                          title="verify-function (cached)", title_align="left"))
+            table = Table(show_header=True, header_style="bold", padding=(0, 1))
+            table.add_column("Function")
+            table.add_column("Status", justify="center")
+            table.add_column("Level")
+            table.add_column("Time", justify="right")
+            table.add_column("Cached")
+            for g in report.goals:
+                s = Text("PROVED", style="green bold") if g.is_proved() else Text("UNPROVED", style="red bold")
+                lvl = g.level.value if g.is_proved() else "\u2014"
+                table.add_row(g.name, s, lvl, f"{g.elapsed_ms:.0f}ms",
+                              "yes" if cached else "no")
+            with console.capture() as cap:
+                console.print(table)
+            typer.echo(cap.get())
 
     @app.command()
     def verify_changed(
@@ -5777,6 +5819,17 @@ def _cli(argv: list[str] | None = None):
             "source": _Path(file).read_text(),
             "function_name": function,
         }))
+
+    @app.command(name="frame-report")
+    def frame_report(
+        file: str,
+        function: Optional[str] = typer.Option(None, "--function", "-f", help="Report only this function"),
+    ):
+        """Report contracts and frame conditions for functions."""
+        opts: dict = {"source": _Path(file).read_text()}
+        if function:
+            opts["function_name"] = function
+        typer.echo(tool_frame_report(opts))
 
     @app.command(name="gen-tests")
     def gen_tests(

@@ -1566,6 +1566,95 @@ def _coq_root() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Verification cache (persists to .axiomander/cache/entries/)
+# ---------------------------------------------------------------------------
+
+def _iris_compute_hashes(source: str, func_name: str) -> tuple[str, str, str]:
+    """Compute (source_hash, contracts_hash, full_hash) for a function."""
+    import hashlib
+    import ast as _ast
+    from oracle.contract_linter import ContractLinter
+
+    src_hash = hashlib.sha256(source.encode()).hexdigest()[:16]
+    tree = _ast.parse(source)
+    func_node = None
+    for node in _ast.walk(tree):
+        if isinstance(node, _ast.FunctionDef) and node.name == func_name:
+            func_node = node
+            break
+    if func_node is None:
+        return src_hash, "none", src_hash
+    body_text = _ast.unparse(func_node)
+    contracts_text = ""
+    try:
+        params = [a.arg for a in func_node.args.args]
+        linter = ContractLinter(params, "precondition")
+        for stmt in _ast.walk(func_node):
+            if isinstance(stmt, _ast.Assert):
+                lr = linter.lint_expression(stmt.test)
+                if lr.ir is not None:
+                    try:
+                        contracts_text += lr.ir.to_python() + ";"
+                    except NotImplementedError:
+                        contracts_text += str(lr.ir) + ";"
+    except Exception:
+        contracts_text = body_text
+    contracts_hash = hashlib.sha256(
+        (body_text + contracts_text).encode()).hexdigest()[:16]
+    full_hash = hashlib.sha256(
+        (src_hash + contracts_hash).encode()).hexdigest()[:16]
+    return src_hash, contracts_hash, full_hash
+
+
+def _iris_cache_get(source: str, func_name: str) -> GoalStatus | None:
+    """Return cached GoalStatus if hash matches, else None."""
+    from oracle.cache import VerificationCache
+    import json
+    _, _, full_hash = _iris_compute_hashes(source, func_name)
+    store = VerificationCache()
+    entry_path = store.entries_dir / f"iris_{full_hash}.json"
+    if not entry_path.exists():
+        return None
+    try:
+        data = json.loads(entry_path.read_text())
+        if data.get("full_hash") != full_hash:
+            return None
+        level = ProofLevel(data.get("level", "unproved"))
+        return GoalStatus(
+            name=data.get("name", func_name),
+            goal_statement=data.get("goal_statement", ""),
+            level=level,
+            elapsed_ms=data.get("elapsed_ms", 0.0),
+            proof_method=data.get("proof_method", "iris_exn"),
+            error_detail=data.get("error_detail", ""),
+            suggested_action=Action(data["suggested_action"]) if data.get("suggested_action") else None,
+            suggestion_text=data.get("suggestion_text", ""),
+        )
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return None
+
+
+def _iris_cache_put(source: str, func_name: str, status: GoalStatus) -> None:
+    """Store a GoalStatus in the file-based cache."""
+    from oracle.cache import VerificationCache
+    import json
+    _, _, full_hash = _iris_compute_hashes(source, func_name)
+    store = VerificationCache()
+    entry_path = store.entries_dir / f"iris_{full_hash}.json"
+    entry_path.write_text(json.dumps({
+        "full_hash": full_hash,
+        "name": status.name,
+        "goal_statement": status.goal_statement,
+        "level": status.level.value,
+        "elapsed_ms": status.elapsed_ms,
+        "proof_method": status.proof_method,
+        "error_detail": status.error_detail,
+        "suggested_action": status.suggested_action.value if status.suggested_action else None,
+        "suggestion_text": status.suggestion_text,
+    }, indent=2))
+
+
+# ---------------------------------------------------------------------------
 # Fault-isolated verification (parity with pipeline.py: _verify_one)
 # ---------------------------------------------------------------------------
 
@@ -1573,19 +1662,28 @@ def verify_iris_safe(source: str,
                      func_name: str,
                      table: FunTable,
                      _cwd: str = ".",
+                     use_cache: bool = False,
                      **kwargs) -> GoalStatus:
     """Fault-isolated Iris verification of one function.
 
     Wraps python_to_iris_proof + coqc compilation in try/except so
     one crashing function does not abort a batch run.
     Returns a GoalStatus with elapsed_ms, error_detail, and level.
+
+    When use_cache=True, returns cached result if the source and
+    contracts have not changed since the last verification.
     """
     import time
+
+    if use_cache:
+        cached = _iris_cache_get(source, func_name)
+        if cached is not None:
+            return cached
+
+    t0 = time.monotonic()
     import subprocess
     import tempfile
     import os
-
-    t0 = time.monotonic()
     try:
         proof = python_to_iris_proof(
             source, table, func_name=func_name, _cwd=_cwd, **kwargs)
@@ -1608,7 +1706,7 @@ def verify_iris_safe(source: str,
         elapsed_ms = (time.monotonic() - t0) * 1000.0
 
         if r.returncode == 0:
-            return GoalStatus(
+            status = GoalStatus(
                 name=func_name,
                 goal_statement=proof.post,
                 level=ProofLevel.LEVEL1_LTAC,
@@ -1625,9 +1723,7 @@ def verify_iris_safe(source: str,
                 elapsed_ms=elapsed_ms,
                 proof_method="iris_exn",
             )
-            # B3: fallback failure classification
             _classify_iris_failure(status, source, func_name)
-            return status
     except Exception as exc:
         elapsed_ms = (time.monotonic() - t0) * 1000.0
         status = GoalStatus(
@@ -1638,7 +1734,10 @@ def verify_iris_safe(source: str,
             elapsed_ms=elapsed_ms,
         )
         _classify_iris_failure(status, source, func_name)
-        return status
+
+    if use_cache:
+        _iris_cache_put(source, func_name, status)
+    return status
 
 
 def _classify_iris_failure(status: GoalStatus,

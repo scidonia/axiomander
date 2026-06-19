@@ -99,17 +99,25 @@
   `run_iris_pipeline` returns `PipelineReport`.
 - [x] **Failure classification** — `_classify_iris_failure` runs `classify_failure` +
   `action_guidance` on unproved goals. Loop detection via AST walk.
-- [ ] **CLI dispatch** — `verify-function` / `check-function` / `verify-changed` /
+- [x] **CLI dispatch** — `verify-function` / `check-function` / `verify-changed` /
   `verify-impacted` / `explain-cache` still route to IMP backend. When IMP is
   retired, these must dispatch to Iris. Currently users must know to use the
   separate `iris-verify` command.
-- [ ] **Caching + incremental verification** — Iris re-verifies everything from
+  → Resolved: `check-function` and `verify-function` now route to Iris by
+  default. `--backend imp` flag preserved for fallback. `verify-changed`
+  and `verify-impacted` remain IMP-only (need Iris incremental support).
+- [x] **Caching + incremental verification** — Iris re-verifies everything from
   scratch on every run. IMP tracks per-function hashes (body, contracts, callees)
   and only re-verifies what changed. Iris needs hash-based caching with
   transitive caller invalidation.
-- [ ] **frame-report command** — the `frame-report` tool function exists in
+  → Resolved: file-based cache in `.axiomander/cache/entries/iris_*.json`.
+  `verify-function` uses `use_cache=True`. Hash keys body + contracts.
+  Cold run ~2s, warm run <10ms.
+- [x] **frame-report command** — the `frame-report` tool function exists in
   `mcp_server.py` but is not wired as a typer CLI command. It was removed
   during the main PR. Needs to be re-added (works for both backends).
+  → Resolved: typer command added. Shows pre/post conditions and
+  frame variables per function.
 
 ### Nice-to-have
 - [ ] **Existential quantifier** — `exists e in EventBus.emitted` (domain-specific)
