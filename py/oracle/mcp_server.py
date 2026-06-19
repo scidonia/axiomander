@@ -5797,27 +5797,62 @@ def _cli(argv: list[str] | None = None):
         file: str,
         hint: Optional[str] = typer.Option(None, "--hint", help="Tactic hint: hammer"),
     ):
-        """Incremental verification: re-verify only changed functions."""
-        opts = {"source": _Path(file).read_text()}
-        if hint:
-            opts["hint"] = hint
-        typer.echo(tool_verify_changed(opts))
+        """Incremental verification: re-verify only changed functions (Iris)."""
+        from .iris_pipeline import run_iris_pipeline
+        import tempfile, os as _os
+        source = _Path(file).read_text()
+        with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".py", delete=False) as f:
+            f.write(source)
+            tf = f.name
+        try:
+            report = run_iris_pipeline(tf, {}, quiet=True)
+        finally:
+            _os.unlink(tf)
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.text import Text
+        console = Console()
+        console.print(Panel(Text(report.summary(), style="bold"),
+                      border_style="bright_black", title="verify-changed"))
+        typer.echo("  (all functions re-verified; Iris caches by hash)")
 
     @app.command()
     def verify_impacted(file: str):
-        """Show which functions would be re-verified (dry-run)."""
-        typer.echo(tool_verify_impacted({"source": _Path(file).read_text()}))
+        """Show which functions would be re-verified (dry-run) (Iris)."""
+        from .iris_pipeline import _enumerate_iris_functions
+        source = _Path(file).read_text()
+        pairs = _enumerate_iris_functions(source)
+        typer.echo(f"  {len(pairs)} functions would be verified:")
+        for name, _ in pairs:
+            typer.echo(f"    - {name}")
 
     @app.command()
     def explain_cache(
         file: str,
         function: str = typer.Option(..., "--function", "-f", help="Function name to explain"),
     ):
-        """Explain the cache state for a function."""
-        typer.echo(tool_explain_cache({
-            "source": _Path(file).read_text(),
-            "function_name": function,
-        }))
+        """Explain the cache state for a function (Iris)."""
+        source = _Path(file).read_text()
+        from .iris_pipeline import _iris_compute_hashes
+        src_hash, contracts_hash, full_hash = _iris_compute_hashes(source, function)
+        from .cache import VerificationCache
+        store = VerificationCache()
+        entry_path = store.entries_dir / f"iris_{full_hash}.json"
+        if entry_path.exists():
+            import json
+            data = json.loads(entry_path.read_text())
+            typer.echo(f"  CACHE HIT for '{function}'")
+            typer.echo(f"  source_hash:  {src_hash}")
+            typer.echo(f"  contract_hash: {contracts_hash}")
+            typer.echo(f"  full_hash:    {full_hash}")
+            typer.echo(f"  result: {data.get('level', '?')} ({data.get('elapsed_ms', 0):.0f}ms)")
+            typer.echo(f"  entry: {entry_path}")
+        else:
+            typer.echo(f"  CACHE MISS for '{function}'")
+            typer.echo(f"  source_hash:  {src_hash}")
+            typer.echo(f"  contract_hash: {contracts_hash}")
+            typer.echo(f"  full_hash:    {full_hash}")
 
     @app.command(name="frame-report")
     def frame_report(
