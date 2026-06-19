@@ -63,7 +63,7 @@ Inductive sn_val :=
 Inductive binop := AddOp | SubOp | MulOp | DivOp | EqOp | LeOp | LtOp | GtOp | GeOp
   | AndOp | OrOp | NeOp | ModOp | InOp | LenOp | UnionOp | InterOp
   | AppendOp | LengthOp | DictGetOp | DictGetIntOp | MkKeyErrOp | SetAddOp
-  | StrIndexOp | StartsWithOp | EndsWithOp | ToLowerOp | ToUpperOp.
+  | StrIndexOp | StartsWithOp | EndsWithOp | ToLowerOp | ToUpperOp | DictSetOp.
 
 Inductive sn_expr :=
   | Val (v : sn_val)
@@ -261,6 +261,15 @@ Definition dict_lookup_Z (m : sn_val) (f : string) : Z :=
   | _ => 0%Z
   end.
 
+Fixpoint dict_set_kvs (kvs : list (sn_val * sn_val)) (k v : sn_val) : list (sn_val * sn_val) :=
+  match kvs with
+  | nil => (k, v) :: nil
+  | (k', v') :: rest =>
+      if sn_val_eqb k' k
+      then (k, v) :: rest
+      else (k', v') :: dict_set_kvs rest k v
+  end.
+
 (** [model_field_Z] is an alias for contract-level readability. *)
 Definition model_field_Z (m : sn_val) (f : string) : Z := dict_lookup_Z m f.
 
@@ -385,6 +394,12 @@ Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
       match op with
       | AppendOp => LitList (vs ++ [v])
       | LengthOp => LitInt (Z.of_nat (List.length vs))
+      | _ => LitUnit
+      end
+  (* --- dict set: d[k] = v encoded as DictSetOp on (LitDict, LitTuple[k;v]) --- *)
+  | LitDict kvs, LitTuple (k :: v :: nil) =>
+      match op with
+      | DictSetOp => LitDict (dict_set_kvs kvs k v)
       | _ => LitUnit
       end
   | LitDict kvs, k =>

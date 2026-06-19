@@ -149,6 +149,18 @@ IRIS_BUILTINS: FunTable = {
                                    right=SVar(name="k")),
                 else_branch=SVar(name="default"),
             ))),
+    # Dict set d[k] = v: update a key-value pair via DictSetOp.
+    # The key and value are encoded as Val references so the Coq
+    # body constructs LitTuple [Val k; Val v] for binop_eval.
+    "dict_set": TransparentDef(
+        params=["d", "k", "v"],
+        body=SLet(var="_kv",
+                  value=SLit(lit_type="tuple", value="()",
+                             elements=[SLit(lit_type="val", value="k"),
+                                       SLit(lit_type="val", value="v")]),
+                  body=SBinOp(op="dict_set",
+                              left=SVar(name="d"),
+                              right=SVar(name="_kv")))),
     # Dict indexing d[k]: PARTIAL Python subscript semantics.  Branch on
     # membership (InOp -> dict_has_kvs): a hit projects via DictGetOp
     # (dict_lookup_kvs); a miss raises KeyError(k) -- the looked-up key IS

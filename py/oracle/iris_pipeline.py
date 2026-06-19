@@ -49,7 +49,7 @@ from oracle.snakelet_ir import (
 )
 
 # Binops supported by SnakeletLang's binop_eval on integers.
-_SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge", "ne", "mod", "and", "or", "in", "append", "length", "set_add", "str_index", "starts_with", "ends_with", "to_lower", "to_upper"}
+_SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge", "ne", "mod", "and", "or", "in", "append", "length", "set_add", "str_index", "starts_with", "ends_with", "to_lower", "to_upper", "dict_set"}
 
 
 # -- Contract extraction ----------------------------------------------------
@@ -904,7 +904,7 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
         if val is None:
             raise IrisGenError("cannot lower expression statement")
         # Value-type list/set mutation: SBinOp("append"/"set_add", SVar(xs), v)
-        if (isinstance(val, SBinOp) and val.op in ("append", "set_add")
+        if (isinstance(val, SBinOp) and val.op in ("append", "set_add", "dict_set")
                 and isinstance(val.left, SVar)):
             root = lw._rename_root.get(val.left.name, val.left.name)
             if root in lw._list_params or root in lw._set_vars:

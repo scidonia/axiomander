@@ -373,15 +373,20 @@ class IrisLowerer:
         return SStore(loc=loc, value=val)
 
     def _lower_store_subscript(self, stmt: PyStoreSubscript) -> Optional[SExpr]:
-        """d[key] = val → dict set.  obj[field] = val → heap store."""
+        """d[key] = val → dict set (value-type) or heap store."""
         obj_name = self._extract_name(stmt.container)
         key = self.lower_expr(stmt.key)
         val = self.lower_expr(stmt.value)
         if obj_name is None or key is None or val is None:
             return None
-        if self._param_types.get(obj_name) == "dict":
-            loc = self.loc_map.get(obj_name, f"l__{obj_name}")
-            return SDictSet(loc=loc, key=key, value=val)
+        # Value-type dict: d[k] = v via DictSetOp with SSA rebinding
+        if (self._param_types.get(obj_name) == "dict"
+                or obj_name in self._dict_params):
+            # The key and value are lowered; the tuple encoding
+            # (LitTuple [k; v]) is constructed by the ANF pass /
+            # call_transparent unfolding of the dict_set helper.
+            return SApp(func="dict_set",
+                        args=[SVar(name=self._current_var(obj_name)), key, val])
         loc = self._loc_of(obj_name)
         return SStore(loc=loc, value=val)
 
