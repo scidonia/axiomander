@@ -5567,6 +5567,8 @@ def handle_call_tool(params: dict) -> dict:
             result = tool_frame_report(args)
         elif name == "gen-tests":
             result = tool_gen_tests(args)
+        elif name == "iris-verify":
+            result = tool_iris_verify(args)
         else:
             return {"content": [{"type": "text", "text": f"Unknown tool: {name}"}], "isError": True}
     except Exception as e:
@@ -5594,6 +5596,64 @@ def tool_gen_tests(args: dict) -> str:
     if not source:
         return "Error: source is required"
     return generate_tests(source, func_name=func_name, module_path=module_path)
+
+
+def tool_iris_verify(args: dict) -> str:
+    """Verify Python functions via the Iris backend.
+
+    Args:
+        source (str): Python source code.
+        function_name (str, optional): Verify only this function.
+        json (bool, optional): Output JSON report (default: human-readable).
+
+    Returns:
+        str: Verification report as JSON or human-readable text.
+    """
+    from .iris_pipeline import verify_iris_safe, run_iris_pipeline
+    import tempfile, os
+
+    source = args.get("source", "")
+    func_name = args.get("function_name") or None
+    as_json = args.get("json", False)
+
+    if not source:
+        return "Error: source is required"
+
+    if func_name:
+        status = verify_iris_safe(source, func_name, {})
+        from .reporting import PipelineReport
+        report = PipelineReport(
+            source_file="<inline>",
+            total_goals=1,
+            proved_goals=1 if status.is_proved() else 0,
+            goals=[status],
+            elapsed_total_ms=status.elapsed_ms,
+        )
+    else:
+        with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".py", delete=False) as f:
+            f.write(source)
+            tf = f.name
+        try:
+            report = run_iris_pipeline(tf, {}, quiet=True)
+        finally:
+            os.unlink(tf)
+
+    if as_json:
+        return report.to_json()
+    import typer as _typer
+    lines: list[str] = []
+    lines.append(_typer.style(f"{'=' * 50}", fg=_typer.colors.BRIGHT_BLACK))
+    lines.append(_typer.style(report.summary(), bold=True))
+    for g in report.goals:
+        if g.is_proved():
+            tag = _typer.style("PROVED", fg=_typer.colors.GREEN, bold=True)
+            lines.append(f"  {tag}   {g.name}  [{g.level.value}]  {g.elapsed_ms:.0f}ms")
+        else:
+            tag = _typer.style("UNPROVED", fg=_typer.colors.RED, bold=True)
+            action = g.suggested_action.value if g.suggested_action else "?"
+            lines.append(f"  {tag} {g.name}  [{action}]  {g.error_detail[:80] if g.error_detail else 'no detail'}")
+    return "\n".join(lines)
 
 
 def main():
@@ -5713,6 +5773,22 @@ def _cli(argv: list[str] | None = None):
             _Path(output).write_text(result)
             typer.echo(f"Tests written to {output}")
         else:
+            typer.echo(result)
+
+    @app.command(name="iris-verify")
+    def iris_verify(
+        file: str,
+        function: Optional[str] = typer.Option(None, "--function", "-f", help="Verify only this function"),
+        json_flag: bool = typer.Option(False, "--json", help="Output JSON report"),
+        quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress per-function status"),
+    ):
+        """Verify Python functions with the Iris backend."""
+        source = _Path(file).read_text()
+        opts: dict = {"source": source, "json": json_flag}
+        if function:
+            opts["function_name"] = function
+        result = tool_iris_verify(opts)
+        if not quiet:
             typer.echo(result)
 
     app()

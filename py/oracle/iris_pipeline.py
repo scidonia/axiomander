@@ -1695,6 +1695,7 @@ def _has_loop(func_node: ast.FunctionDef) -> bool:
 def run_iris_pipeline(python_file: str,
                       table: FunTable,
                       func_name: str | None = None,
+                      quiet: bool = False,
                       **kwargs) -> PipelineReport:
     """Batch-verify Iris-contracted functions in a Python file.
 
@@ -1722,11 +1723,12 @@ def run_iris_pipeline(python_file: str,
         result = verify_iris_safe(
             source, name, table, _cwd=str(py_file.parent), **kwargs)
         goals.append(result)
-        if result.is_proved():
-            print(f"  PROVED   {name}  [{result.level.value}]")
-        else:
-            detail = result.error_detail or ""
-            print(f"  UNPROVED {name}  {detail[:80]}")
+        if not quiet:
+            if result.is_proved():
+                print(f"  PROVED   {name}  [{result.level.value}]")
+            else:
+                detail = result.error_detail or ""
+                print(f"  UNPROVED {name}  {detail[:80]}")
 
     elapsed_ms = (time.monotonic() - t0) * 1000.0
     proved = sum(1 for g in goals if g.is_proved())
@@ -1741,78 +1743,5 @@ def run_iris_pipeline(python_file: str,
 
 
 # ---------------------------------------------------------------------------
-# CLI entry point (parity with pipeline.py: main)
+# Library entry points for Iris verification (CLI via mcp_server.py typer app)
 # ---------------------------------------------------------------------------
-
-def main(argv: list[str] | None = None) -> int:
-    """Argparse CLI for the Iris verification pipeline.
-
-    Usage:
-        python -m oracle.iris_pipeline <file> [--function F] [--json] [--quiet]
-
-    Exit codes:
-        0  all goals verified
-        1  one or more goals not verified
-        2  usage / file / toolchain error
-    """
-    import argparse
-    import shutil
-    import sys as _sys
-    from pathlib import Path
-
-    parser = argparse.ArgumentParser(
-        prog="python -m oracle.iris_pipeline",
-        description="Run Axiomander Iris verification on a Python file.",
-    )
-    parser.add_argument(
-        "file", help="Python source file to verify")
-    parser.add_argument(
-        "--function", "-f", metavar="NAME", default=None,
-        help="Verify only this function (default: all functions)")
-    parser.add_argument(
-        "--json", action="store_true", default=False,
-        help="Emit JSON report to stdout instead of human text")
-    parser.add_argument(
-        "--quiet", "-q", action="store_true", default=False,
-        help="Suppress per-function status lines")
-
-    try:
-        args = parser.parse_args(argv)
-    except SystemExit:
-        return 2
-
-    if shutil.which("coqc") is None:
-        print(
-            "ERROR: coqc not found on PATH.\n"
-            "Run `eval $(opam env)` to activate the Coq toolchain, then retry.",
-            file=_sys.stderr,
-        )
-        return 2
-
-    py_file = Path(args.file)
-    if not py_file.exists():
-        print(f"ERROR: file not found: {py_file}", file=_sys.stderr)
-        return 2
-
-    table: FunTable = {}
-
-    try:
-        report = run_iris_pipeline(str(py_file), table, func_name=args.function)
-    except Exception as exc:
-        print(f"ERROR: {exc}", file=_sys.stderr)
-        return 2
-
-    if args.json:
-        print(report.to_json())
-    elif not args.quiet:
-        print(f"\n{'=' * 50}")
-        print(report.summary())
-        print(f"Elapsed: {report.elapsed_total_ms:.0f} ms")
-
-    proved = sum(1 for g in report.goals if g.is_proved())
-    return 0 if proved == report.total_goals else 1
-
-
-if __name__ == "__main__":
-    import sys
-    sys.exit(main())
