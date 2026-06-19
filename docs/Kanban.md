@@ -33,7 +33,7 @@
 - [x] Multi-variable while loops — all assigned locals heap-promoted (`i`, `acc`)
 - [x] Loop invariant verification — invariant premises in per-loop lemmas
 - [x] Loop invariant SMT discharge — `Expr.to_smt()` → cvc4/z3, no regex/string parsing
-- [x] Score: 75 tests (70 Iris + 5 fulfil_order), 0 failures
+- [x] Score: 79+ tests (74 Iris + 5 fulfil_order), 0 failures
 
 ### Proof engineering
 - [x] Staged proof output — per-stage IDs in tactic comments
@@ -56,29 +56,48 @@
 ## Remaining Gaps
 
 ### Language completeness
-- [ ] **`is_shape` / `is_valid`** — model field constraints (`Field(ge=0)`) compile to `True`
-  placeholder. Need to generate type-guard and constraint conjunctions from shape registry.
-- [ ] **String `lower` / `upper`** — mock (copy identity). Need ASCII case-mapping
-  `Fixpoint` in Coq (`to_lower`, `to_upper` on `Ascii.ascii`).
-- [ ] **`d.get(k, default)`** — mock (returns default). Need real `dict_lookup` with
-  fallback semantics.
-- [ ] **`DictUpdateOp` / dict assignment** — `d[k] = v` functional update over `LitDict`.
+- [x] **`is_valid` field constraints** — `ge`/`le`/`gt`/`lt`
+  via model_field_Z projection works at IR level.  `_is_valid` handler emits
+  `model_field_Z` comparisons from shape registry.  Negative tests demonstrate
+  constraint violations are caught.  Coq side uses trusted `model_field_Z` axiom.
+- [ ] **String lower/upper for Unicode** — ASCII case-mapping is done
+  (Coq Fixpoint via `Ascii.N_of_ascii` byte arithmetic). SMT string theory
+  (cvc4/z3) lacks `str.to_lower`/`str.to_upper`.  Full Unicode would require
+  UCD tables or codepoint-aware `LitUnicode : list Z -> sn_val`.
+- [ ] **`d.get(k, default)`** — real body (If(k in d, d[k], default))
+  works at IR level.  Blocked on literal dicts by `case_bool` + Branch
+  architectural limitation (literal boolean creates one subgoal, Branch emits
+  two).  Opaque dicts work via `InOp + DictGetOp` with fallback.
+- [ ] **`dict_set` lowering** — Coq Fixpoint exists (`dict_set_kvs`),
+  `DictSetOp` binop compiled.  Lowering deferred: `SLit.elements` only
+  accepts `list[SLit]`, not `list[SExpr]`.  Needs `STuple` compound SExpr
+  node or extended `SLit` to encode key-value pairs for the lowering step.
 
 ### Verification strength
-- [ ] **Body–invariant coupling** — the body stages (heap ops) and the SMT obligation
-  are generated independently. They agree because both derive from the same source,
-  but there's no formal Coq check that the body actually implements the SMT-verified
-  update. Currently: trust that the lowerer + promotion produce consistent body/obligation.
-- [ ] **Invariant update proof for non-SMT cases** — when `smt_ax_N` is not generated
-  (SMT timeout or no solver), the invariant subgoal falls back to `nia|sfirstorder|lia`
-  which cannot handle `Z.div`. The obligation is left open.
-- [ ] **Complex invariants with division in contracts** — `acc == i*(i+1)//2` compiles
-  to `Z.div` in Coq Props. `lia`/`nia` can't handle it. SMT handles it in the obligation
-  but the contract-level Postcondition still uses `Z.div`. Write `2*acc == i*(i+1)` instead.
+- [x] **Body--invariant coupling** — resolved.  `subst_body_update` replaces `a_i → a_i + (z+1)`
+  in the invariant conclusion, fixing the bug where the SMT axiom used old `a_0`.  Per-loop
+  lemmas use `smt_ax_N; [exact Hz | exact Hcond | exact HinvN]`.  Call-site invariant
+  blocks use `nia|lia|simpl; reflexivity`.
+- [x] **Invariant SMT discharge** — resolved.  `collect_inv_obligations` walks WhileInv nodes,
+  compiles via `expr.to_smt()` (no regex).  `discharge_inv_obligations` + `_smt_check`
+  sends to cvc4/z3 (QF_NIA).  Fallback to `nia|sfirstorder|lia` for non-division cases.
+- [x] **Complex invariants with division** — `acc == i*(i+1)//2` compiles to `Z.div`.
+  SMT handles it in the obligation; contract-level Postcondition uses `Z.div` via
+  `nia`.  Current tests pass.  For robustness, rewrite contracts as `2*acc == i*(i+1)`.
 
 ### IMP backend (pre-existing, not Iris)
 - [ ] `set_count` — set operations inside while loops fail VCG
 - [ ] `in_vocab` — set membership inside while loops fails VCG
+
+### Infrastructure
+- [ ] **Fault isolation** — Iris pipeline has no try/except per function; one crash kills the
+  entire batch. Main's `_verify_one` isolates faults so one failing function does not
+  cascade. Need equivalent in `iris_pipeline.py`.
+- [ ] **CLI entry point** — Iris has no argparse CLI. Main's `pipeline.py` provides
+  `--function`, `--json`, `--quiet`. Iris is invoked only programmatically via
+  `python_to_iris_proof()`. Need parity for batch verification and JSON reporting.
+- [ ] **Dafny-flavored JSON schema** — `reporting.py` has `GoalOutcome`, `GoalStatus.to_dict`,
+  `PipelineReport.to_json`. Iris emits no structured outcome schema.
 
 ### Nice-to-have
 - [ ] **Existential quantifier** — `exists e in EventBus.emitted` (domain-specific)
