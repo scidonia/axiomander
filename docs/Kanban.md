@@ -64,14 +64,15 @@
   (Coq Fixpoint via `Ascii.N_of_ascii` byte arithmetic). SMT string theory
   (cvc4/z3) lacks `str.to_lower`/`str.to_upper`.  Full Unicode would require
   UCD tables or codepoint-aware `LitUnicode : list Z -> sn_val`.
-- [ ] **`d.get(k, default)`** — real body (If(k in d, d[k], default))
-  works at IR level.  Blocked on literal dicts by `case_bool` + Branch
-  architectural limitation (literal boolean creates one subgoal, Branch emits
-  two).  Opaque dicts work via `InOp + DictGetOp` with fallback.
-- [ ] **`dict_set` lowering** — Coq Fixpoint exists (`dict_set_kvs`),
-  `DictSetOp` binop compiled.  Lowering deferred: `SLit.elements` only
-  accepts `list[SLit]`, not `list[SExpr]`.  Needs `STuple` compound SExpr
-  node or extended `SLit` to encode key-value pairs for the lowering step.
+- [x] **`d.get(k, default)`** — real body (If(k in d, d[k], default))
+  works at IR level.  Now handles BOTH concrete (literal) and opaque dicts
+  via `dict_has` Definition (returns bool via LitBool wrapper, not raw
+  match).  `case_bool` destructs all booleans including literals; `focus_redex`
+  added so If is visible through Let bindings.  5 tests pass (hit, miss,
+  opaque, dict_set basic + expression).
+- [x] **`dict_set` lowering** — `TupleOp` binop constructs LitTuple [v1; v2]
+  from two values.  `dict_set` transparent helper uses `SBinOp("tuple", ...)`
+  instead of SLit tuple (which can't reference variables).  2 tests pass.
 
 ### Verification strength
 - [x] **Body--invariant coupling** — resolved.  `subst_body_update` replaces `a_i → a_i + (z+1)`
