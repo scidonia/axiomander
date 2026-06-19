@@ -273,6 +273,25 @@ def extract_function_contracts(source: str, func_name: str) -> FunctionContracts
 # Strategy narrowing
 # ---------------------------------------------------------------------------
 
+def _collect_var_names(node: Expr) -> set[str]:
+    """Collect all Var-name references in an Expr subtree."""
+    from oracle.contract_ir import Var as CIVar
+    out: set[str] = set()
+    k = getattr(node, "kind", None)
+    if k == "var":
+        out.add(node.name)
+    elif k == "binop":
+        out.update(_collect_var_names(node.left))
+        out.update(_collect_var_names(node.right))
+    elif k == "logical":
+        for o in getattr(node, "operands", []):
+            out.update(_collect_var_names(o))
+    elif k == "implies":
+        out.update(_collect_var_names(node.left))
+        out.update(_collect_var_names(node.right))
+    return out
+
+
 def _narrow_strategies(
     params: list[str],
     param_types: dict[str, str],
@@ -350,6 +369,33 @@ def _narrow_strategies(
                 strategies[n_name].derived_from = xs_name
                 strategies[n_name].derived_expr = f"len({xs_name})"
 
+        # Pattern: total == a + b  (derived from arithmetic expression)
+        elif op == "=":
+            _try_derive_arithmetic(left, right, strategies)
+
+    def _try_derive_arithmetic(lhs: Expr, rhs: Expr,
+                                strategies: dict[str, ParamStrategy]) -> None:
+        """If lhs==rhs is a Var equal to an expression involving only
+        known params, mark the Var as derived from that expression."""
+        from oracle.contract_ir import Var as CIVar
+        # lhs == f(other params)  →  lhs is derived
+        if isinstance(lhs, CIVar) and lhs.name in strategies:
+            free_vars = _collect_var_names(rhs)
+            if free_vars and free_vars.issubset(strategies):
+                s = strategies[lhs.name]
+                if s.derived_from is None:  # don't overwrite
+                    s.derived_from = next(iter(free_vars))
+                    s.derived_expr = rhs.to_python()
+                return
+        # f(other params) == rhs  →  rhs is derived
+        if isinstance(rhs, CIVar) and rhs.name in strategies:
+            free_vars = _collect_var_names(lhs)
+            if free_vars and free_vars.issubset(strategies):
+                s = strategies[rhs.name]
+                if s.derived_from is None:
+                    s.derived_from = next(iter(free_vars))
+                    s.derived_expr = lhs.to_python()
+
     def _walk_ir(ir: Expr) -> None:
         if isinstance(ir, BinOp):
             _apply_binop(ir)
@@ -397,6 +443,16 @@ def _render_assume_checks(
             if (isinstance(right, Var) and isinstance(left, IntLit)
                     and right.name in strategies
                     and strategies[right.name].derived_from is None):
+                continue
+            # Skip assumes for derived params (e.g. total == a + b
+            # where total is computed in the test body)
+            if pre.op == "=" and (
+                (isinstance(left, Var)
+                 and left.name in strategies
+                 and strategies[left.name].derived_from is not None)
+                or (isinstance(right, Var)
+                    and right.name in strategies
+                    and strategies[right.name].derived_from is not None)):
                 continue
         lines.append(f"    assume({py})")
     return lines
