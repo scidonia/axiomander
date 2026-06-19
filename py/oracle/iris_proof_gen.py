@@ -136,10 +136,19 @@ IRIS_BUILTINS: FunTable = {
                     right=SVar(name="p"))),
     "s.lower": _IRIS_STRING_COPY,  # (real impl needs case-lowering Fixpoint)
     "s.upper": _IRIS_STRING_COPY,  # (real impl needs case-raising Fixpoint)
-    # Dict operations
+    # Dict get with default: if k in d then d[k] else default
     "d.get": TransparentDef(
         params=["d", "k", "default"],
-        body=SVar(name="default")),
+        body=SLet(
+            var="__has",
+            value=SBinOp(op="in", left=SVar(name="d"),
+                         right=SVar(name="k")),
+            body=SIf(
+                cond=SVar(name="__has"),
+                then_branch=SBinOp(op="dict_get", left=SVar(name="d"),
+                                   right=SVar(name="k")),
+                else_branch=SVar(name="default"),
+            ))),
     # Dict indexing d[k]: PARTIAL Python subscript semantics.  Branch on
     # membership (InOp -> dict_has_kvs): a hit projects via DictGetOp
     # (dict_lookup_kvs); a miss raises KeyError(k) -- the looked-up key IS

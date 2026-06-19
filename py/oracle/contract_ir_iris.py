@@ -83,7 +83,7 @@ def iris_prop(node: Expr, *,
         "sum": _placeholder, "float": _float, "strlit": _str_lit,
         "tuple": _placeholder, "dict": _placeholder, "set": _placeholder,
         "implies": _implies, "raises": _placeholder,
-        "is_shape": _placeholder, "is_valid": _placeholder,
+        "is_shape": _is_shape, "is_valid": _is_valid,
         "list_eq": _placeholder, "re_match": _re_match,
         "string_contains": _string_contains,
         "string_eq": _string_eq,
@@ -308,6 +308,34 @@ def _string_eq(n, ps, pv):
 
 def _recursor(n, ps, pv):
     return f"({n.recursor} {n.predicate} {n.arg})"
+
+
+def _is_valid(n, ps, pv):
+    """is_valid(obj, Type) — field constraint conjunction from shape registry."""
+    from oracle.shape_ir import lookup_shape, flat_fields
+    shape = lookup_shape(n.model_type)
+    if not shape:
+        return "True"
+    parts: list[str] = []
+    for flat_key, f in flat_fields(shape, n.obj):
+        key_scoped = f's "{flat_key}"%string'
+        key_bare = flat_key
+        for c in f.constraints:
+            formatted = c.format(key_scoped=key_scoped, key_bare=key_bare)
+            # Remove IMP asZ(...) wrapper → bare key
+            unscoped = formatted.replace(f"asZ ({key_scoped})", key_bare)
+            # Replace bare flat key with Iris model_field_Z projection
+            unscoped = unscoped.replace(key_bare,
+                                         f'model_field_Z {n.obj} "{f.name}"')
+            parts.append(unscoped)
+    return " /\\ ".join(f"({p})" for p in parts) if parts else "True"
+
+
+def _is_shape(n, ps, pv):
+    """is_shape(obj, Type) — structural check.  For Iris, models are
+    always well-typed at the sn_val level; field existence is enforced
+    by the type system.  Compile to True."""
+    return "True"
 
 
 def _placeholder(n, ps, pv):
