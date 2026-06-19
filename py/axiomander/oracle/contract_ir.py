@@ -764,6 +764,9 @@ class ROwnExpr(BaseModel):
     def to_smt(self) -> str:
         return "true"
 
+    def to_python(self) -> str:
+        raise NotImplementedError(f"ROwnExpr 'owns({self.obj})' has no executable Python form")
+
 
 class OpaqueTerm(BaseModel):
     """A function call in a contract expression whose return value is opaque.
@@ -786,6 +789,9 @@ class OpaqueTerm(BaseModel):
 
     def to_smt(self) -> str:
         return "true"
+
+    def to_python(self) -> str:
+        raise NotImplementedError(f"OpaqueTerm '{self.name}' has no executable Python form")
 
 
 Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, FieldAccess, ListEqExpr, ReMatchExpr, StringContainsExpr, StringEqualsExpr, RecursorExpr, ROwnExpr, OpaqueTerm]

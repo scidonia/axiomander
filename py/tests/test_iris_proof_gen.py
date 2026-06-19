@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+pytestmark = pytest.mark.slow
 
 from axiomander.oracle.iris_proof_gen import (
     IrisGenError, OpaqueSpec, TransparentDef, generate,
