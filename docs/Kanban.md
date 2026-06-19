@@ -90,14 +90,15 @@
 - [ ] `in_vocab` — set membership inside while loops fails VCG
 
 ### Infrastructure
-- [ ] **Fault isolation** — Iris pipeline has no try/except per function; one crash kills the
-  entire batch. Main's `_verify_one` isolates faults so one failing function does not
-  cascade. Need equivalent in `iris_pipeline.py`.
-- [ ] **CLI entry point** — Iris has no argparse CLI. Main's `pipeline.py` provides
-  `--function`, `--json`, `--quiet`. Iris is invoked only programmatically via
-  `python_to_iris_proof()`. Need parity for batch verification and JSON reporting.
-- [ ] **Dafny-flavored JSON schema** — `reporting.py` has `GoalOutcome`, `GoalStatus.to_dict`,
-  `PipelineReport.to_json`. Iris emits no structured outcome schema.
+- [x] **Fault isolation** — `verify_iris_safe()` wraps `python_to_iris_proof` + `coqc`
+  in try/except, returns `GoalStatus`. One crashing function does not cascade.
+- [x] **CLI entry point** — `main()` with `--function`, `--json`, `--quiet`, toolchain
+  guard, exit codes 0/1/2. Parity with pipeline.py's CLI.
+- [x] **Dafny-flavored JSON schema** — `PipelineReport.to_json()` produces standard
+  schema via existing `reporting.py` types. `verify_iris_safe` returns `GoalStatus`;
+  `run_iris_pipeline` returns `PipelineReport`.
+- [x] **Failure classification** — `_classify_iris_failure` runs `classify_failure` +
+  `action_guidance` on unproved goals. Loop detection via AST walk.
 
 ### Nice-to-have
 - [ ] **Existential quantifier** — `exists e in EventBus.emitted` (domain-specific)
