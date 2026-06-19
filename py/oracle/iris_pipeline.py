@@ -38,6 +38,9 @@ from oracle.iris_lowerer import IrisLowerer
 from oracle.iris_proof_gen import (
     FunTable, IrisGenError, IrisProof, generate,
 )
+from oracle.reporting import (
+    GoalStatus, ProofLevel, Action, PipelineReport,
+)
 from oracle.py_ir import (
     PyAssert, PyAssign, PyAugAssign, PyCall, PyConstant, PyExprStmt,
     PyFor, PyIf, PyName, PyRaise, PyReturn, PyStmt, PyStoreSubscript, PyTry, PyWhile,
@@ -1559,3 +1562,219 @@ def _coq_root() -> str:
     """Return the path to the coq source root."""
     import pathlib
     return str(pathlib.Path(__file__).parent.parent.parent / "coq")
+
+
+# ---------------------------------------------------------------------------
+# Fault-isolated verification (parity with pipeline.py: _verify_one)
+# ---------------------------------------------------------------------------
+
+def verify_iris_safe(source: str,
+                     func_name: str,
+                     table: FunTable,
+                     _cwd: str = ".",
+                     **kwargs) -> GoalStatus:
+    """Fault-isolated Iris verification of one function.
+
+    Wraps python_to_iris_proof + coqc compilation in try/except so
+    one crashing function does not abort a batch run.
+    Returns a GoalStatus with elapsed_ms, error_detail, and level.
+    """
+    import time
+    import subprocess
+    import tempfile
+    import os
+
+    t0 = time.monotonic()
+    try:
+        proof = python_to_iris_proof(
+            source, table, func_name=func_name, _cwd=_cwd, **kwargs)
+        full_text = proof.emit_exn()
+
+        with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".v", delete=False) as f:
+            f.write(full_text)
+            tf = f.name
+        try:
+            r = subprocess.run(
+                ["coqc", "-R", _coq_root(), "", tf],
+                capture_output=True, text=True, timeout=120)
+        finally:
+            try:
+                os.unlink(tf)
+            except OSError:
+                pass
+
+        elapsed_ms = (time.monotonic() - t0) * 1000.0
+
+        if r.returncode == 0:
+            return GoalStatus(
+                name=func_name,
+                goal_statement=proof.post,
+                level=ProofLevel.LEVEL1_LTAC,
+                elapsed_ms=elapsed_ms,
+                proof_method="iris_exn",
+            )
+        else:
+            return GoalStatus(
+                name=func_name,
+                goal_statement=proof.post,
+                level=ProofLevel.UNPROVED,
+                error_detail=(r.stderr[:200] if r.stderr
+                              else "coqc returned non-zero"),
+                elapsed_ms=elapsed_ms,
+                proof_method="iris_exn",
+            )
+    except Exception as exc:
+        elapsed_ms = (time.monotonic() - t0) * 1000.0
+        return GoalStatus(
+            name=func_name,
+            goal_statement="",
+            level=ProofLevel.UNPROVED,
+            error_detail=f"{type(exc).__name__}: {exc}",
+            elapsed_ms=elapsed_ms,
+            suggested_action=Action.REFACTOR,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Batch verification (parity with pipeline.py: run_pipeline)
+# ---------------------------------------------------------------------------
+
+def _enumerate_iris_functions(source: str) -> list[tuple[str, ast.FunctionDef]]:
+    """Return (name, node) for top-level functions and class methods."""
+    tree = ast.parse(source)
+    pairs: list[tuple[str, ast.FunctionDef]] = []
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.FunctionDef):
+            pairs.append((node.name, node))
+        elif isinstance(node, ast.ClassDef):
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, ast.FunctionDef):
+                    pairs.append((child.name, child))
+    return pairs
+
+
+def run_iris_pipeline(python_file: str,
+                      table: FunTable,
+                      func_name: str | None = None,
+                      **kwargs) -> PipelineReport:
+    """Batch-verify Iris-contracted functions in a Python file.
+
+    Each function is verified independently via verify_iris_safe
+    (fault isolation).  Returns a PipelineReport aggregating all
+    GoalStatus results.
+    """
+    import time
+    from pathlib import Path
+
+    py_file = Path(python_file) if isinstance(python_file, str) else python_file
+    source = py_file.read_text()
+    func_pairs = _enumerate_iris_functions(source)
+
+    if func_name:
+        func_pairs = [(n, node) for n, node in func_pairs if n == func_name]
+        if not func_pairs:
+            raise IrisGenError(
+                f"function '{func_name}' not found in {py_file.name}")
+
+    t0 = time.monotonic()
+    goals: list[GoalStatus] = []
+
+    for name, _func_node in func_pairs:
+        result = verify_iris_safe(
+            source, name, table, _cwd=str(py_file.parent), **kwargs)
+        goals.append(result)
+        if result.is_proved():
+            print(f"  PROVED   {name}  [{result.level.value}]")
+        else:
+            detail = result.error_detail or ""
+            print(f"  UNPROVED {name}  {detail[:80]}")
+
+    elapsed_ms = (time.monotonic() - t0) * 1000.0
+    proved = sum(1 for g in goals if g.is_proved())
+
+    return PipelineReport(
+        source_file=str(py_file),
+        total_goals=len(goals),
+        proved_goals=proved,
+        goals=goals,
+        elapsed_total_ms=elapsed_ms,
+    )
+
+
+# ---------------------------------------------------------------------------
+# CLI entry point (parity with pipeline.py: main)
+# ---------------------------------------------------------------------------
+
+def main(argv: list[str] | None = None) -> int:
+    """Argparse CLI for the Iris verification pipeline.
+
+    Usage:
+        python -m oracle.iris_pipeline <file> [--function F] [--json] [--quiet]
+
+    Exit codes:
+        0  all goals verified
+        1  one or more goals not verified
+        2  usage / file / toolchain error
+    """
+    import argparse
+    import shutil
+    import sys as _sys
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(
+        prog="python -m oracle.iris_pipeline",
+        description="Run Axiomander Iris verification on a Python file.",
+    )
+    parser.add_argument(
+        "file", help="Python source file to verify")
+    parser.add_argument(
+        "--function", "-f", metavar="NAME", default=None,
+        help="Verify only this function (default: all functions)")
+    parser.add_argument(
+        "--json", action="store_true", default=False,
+        help="Emit JSON report to stdout instead of human text")
+    parser.add_argument(
+        "--quiet", "-q", action="store_true", default=False,
+        help="Suppress per-function status lines")
+
+    try:
+        args = parser.parse_args(argv)
+    except SystemExit:
+        return 2
+
+    if shutil.which("coqc") is None:
+        print(
+            "ERROR: coqc not found on PATH.\n"
+            "Run `eval $(opam env)` to activate the Coq toolchain, then retry.",
+            file=_sys.stderr,
+        )
+        return 2
+
+    py_file = Path(args.file)
+    if not py_file.exists():
+        print(f"ERROR: file not found: {py_file}", file=_sys.stderr)
+        return 2
+
+    table: FunTable = {}
+
+    try:
+        report = run_iris_pipeline(str(py_file), table, func_name=args.function)
+    except Exception as exc:
+        print(f"ERROR: {exc}", file=_sys.stderr)
+        return 2
+
+    if args.json:
+        print(report.to_json())
+    elif not args.quiet:
+        print(f"\n{'=' * 50}")
+        print(report.summary())
+        print(f"Elapsed: {report.elapsed_total_ms:.0f} ms")
+
+    proved = sum(1 for g in report.goals if g.is_proved())
+    return 0 if proved == report.total_goals else 1
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())
