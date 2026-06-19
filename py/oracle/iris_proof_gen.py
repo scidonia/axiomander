@@ -299,28 +299,36 @@ class ForList:
 
 def _make_forall_predicate(invariants: list[str], loop_var: str) -> str:
     """Convert body assert invariants to a Coq sn_val->Prop predicate.
-    E.g. ['(x > 0)'] -> fun v => match v with LitInt n => n > 0 | _ => False end"""
+    E.g. [(x > 0)] -> fun v => match v with LitInt n => Z.ltb 0 n = true | _ => False end
+    Supports both contract_ir.Expr nodes and legacy Coq strings."""
     if not invariants:
         return ""
-    # Extract comparison threshold from first invariant (heuristic)
-    inv = invariants[0].strip()
-    # Pattern: (x > N) or (x < N) etc
+    inv = invariants[0]
+    # New style: contract_ir.Expr AST nodes
+    from oracle.contract_ir import BinOp as CIBinOp, Var as CIVar, IntLit as CIIntLit
+    if isinstance(inv, CIBinOp) and isinstance(inv.left, CIVar) and isinstance(inv.right, CIIntLit):
+        op = inv.op
+        rhs = inv.right.value
+        if op == ">" and rhs == "0":
+            return "(fun (_v : sn_val) => match _v with LitInt n => Z.ltb 0 n = true | _ => False end)"
+        if op in (">=", "<=", "<", ">"):
+            return f"(fun (_v : sn_val) => match _v with LitInt n => Z.ltb {rhs} n = true | _ => False end)"
+        return f"(fun (_v : sn_val) => match _v with LitInt n => Z.leb {rhs} n = true | _ => False end)"
+    # Legacy style: Coq string
+    inv_str = inv.strip() if isinstance(inv, str) else ""
     import re
-    m = re.match(r'\((\w+)\s*([><=!]+)\s*(\d+)\)', inv)
+    m = re.match(r'\((\w+)\s*([><=!]+)\s*(\d+)\)', inv_str)
     if m:
         var, op, val = m.groups()
         op_map = {">": "n > 0", "<": "n < 0", ">=": "n >= 0", "<=": "n <= 0", "==": f"n = {val}", "!=": f"n <> {val}"}
         coq_op = op_map.get(op.strip(), f"n > {val}")
-        # Boolean predicate for compute-ability: Z.ltb produces bool, = true makes it Prop
         bool_pred = f"(fun (_v : sn_val) => match _v with LitInt n => Z.ltb {val} n = true | _ => False end)"
         if op == ">" and val == "0":
             return bool_pred
         if op in (">=", "<=", "<", ">"):
             return bool_pred
-        # Generic: Prop-based comparison
         return (f"(fun (_v : sn_val) => "
                 f"match _v with LitInt n => {coq_op} | _ => False end)")
-    # Fallback: generic
     return f"(fun (_ : sn_val) => True)"
 
 
@@ -741,7 +749,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 bound_expr=bound_expr,
                 cond_coq=cond_coq,
                 body_coq=body_coq,
-                invariants=[],
+                invariant_exprs=[],
                 body_stages=body_stages,
                 extra_cells=_extract_extra_cells(body_coq, cell_name),
             )]
@@ -789,7 +797,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 bound_expr=bound_expr,
                 cond_coq=cond_coq,
                 body_coq=body_coq,
-                invariants=[],
+                invariant_exprs=[],
                 body_stages=body_stages,
                 extra_cells=_extract_extra_cells(body_coq, cell_name),
             )]
@@ -830,12 +838,13 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 "for-loop over a non-literal list: needs a list contract "
                 "(is_list) to expose the model. See "
                 "docs/finite-iterable-relations.md.")
+        from oracle.contract_ir_iris import iris_prop
         return [ForList(
             var=e.var,
             lst_coq=model_coq,
             body_coq=e.body.to_coq(),
             body_stages=body_stages,
-            invariant_exprs=list(e.invariants),
+            invariants=[iris_prop(x) for x in e.invariants],
             continuation_stages=cont,
             iterable_type=iterable_type,
             forall_predicate=_make_forall_predicate(e.invariants, e.var),

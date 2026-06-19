@@ -396,15 +396,10 @@ Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
       | LengthOp => LitInt (Z.of_nat (List.length vs))
       | _ => LitUnit
       end
-  (* --- dict set: d[k] = v encoded as DictSetOp on (LitDict, LitTuple[k;v]) --- *)
-  | LitDict kvs, LitTuple (k :: v :: nil) =>
-      match op with
-      | DictSetOp => LitDict (dict_set_kvs kvs k v)
-      | _ => LitUnit
-      end
   | LitDict kvs, k =>
       match op with
       | DictGetOp => dict_lookup_kvs kvs k
+      | DictSetOp => match k with LitTuple (key :: val :: nil) => LitDict (dict_set_kvs kvs key val) | _ => LitUnit end
       | InOp => LitBool (dict_has_kvs kvs k)
       | LenOp | LengthOp => LitInt (Z.of_nat (List.length kvs))
       | _ => LitUnit
