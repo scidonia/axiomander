@@ -1066,3 +1066,64 @@ def ends_world(s: str):
     return result
 ''', table=_builtins_table(), func_name="ends_world")
     assert ok, out
+
+
+# -- Model validation (is_valid) -----------------------------------------
+
+def test_is_valid_field_constraint():
+    """is_valid generates Field(ge=0) constraint via model_field_Z."""
+    ok, out = verify_exn('''
+from pydantic import BaseModel, Field
+class Account(BaseModel):
+    balance: int = Field(ge=0)
+def constrained(account: Account) -> int:
+    assert is_valid(account, Account)
+    result = account.balance
+    return result
+''', table=_builtins_table(), func_name="constrained")
+    assert ok, out
+
+
+def test_is_valid_wrong_rejected():
+    """is_valid(acct) with Field(ge=0) — body asserts result < 0, must reject."""
+    ok, out = verify_exn('''
+from pydantic import BaseModel, Field
+class Account(BaseModel):
+    balance: int = Field(ge=0)
+def bad(account: Account) -> int:
+    assert is_valid(account, Account)
+    result = account.balance
+    assert result < 0
+    return result
+''', table=_builtins_table(), func_name="bad")
+    assert not ok, "result < 0 contradicts Field(ge=0) constraint"
+
+
+# -- String case-mapping (lower/upper) ---------------------------------
+
+def test_string_lower():
+    """s.lower() uses str_to_lower Fixpoint via ToLowerOp."""
+    ok, out = verify_exn('''
+def lower_test(s: str):
+    assert len(s) > 0
+    result = s.lower()
+    return result
+''', table=_builtins_table(), func_name="lower_test")
+    assert ok, out
+
+
+def test_string_upper():
+    """s.upper() uses str_to_upper Fixpoint via ToUpperOp."""
+    ok, out = verify_exn('''
+def upper_test(s: str):
+    result = s.upper()
+    return result
+''', table=_builtins_table(), func_name="upper_test")
+    assert ok, out
+
+
+# -- Dict get with default (d.get) --------------------------------------
+# NOTE: d.get(k, default) body works for concrete dicts at the IR level
+# (InOp reduces, If branches on result) but the case_bool tactic + Branch
+# stage structure needs a fix for literal booleans in TransparentDef bodies.
+# Test deferred until case_bool handles literal-boolean If without failure.
