@@ -118,12 +118,6 @@ FunTable = dict[str, FunEntry]
 # the Iris pipeline doesn't have native primitives for yet.
 # Each is a simple Coq-level function body that computes the result.
 
-_IRIS_STRING_COPY = TransparentDef(
-    params=["s"],
-    body=SLit(lit_type="string", value="s"))
-_IRIS_STR_INDEX = SReturn(value=SLit(lit_type="int", value="0"))
-
-
 IRIS_BUILTINS: FunTable = {
     # String operations
     "s.startswith": TransparentDef(
@@ -134,8 +128,14 @@ IRIS_BUILTINS: FunTable = {
         params=["s", "p"],
         body=SBinOp(op="ends_with", left=SVar(name="s"),
                     right=SVar(name="p"))),
-    "s.lower": _IRIS_STRING_COPY,  # (real impl needs case-lowering Fixpoint)
-    "s.upper": _IRIS_STRING_COPY,  # (real impl needs case-raising Fixpoint)
+    "s.lower": TransparentDef(
+        params=["s"],
+        body=SBinOp(op="to_lower", left=SVar(name="s"),
+                    right=SLit(lit_type="int", value="0"))),
+    "s.upper": TransparentDef(
+        params=["s"],
+        body=SBinOp(op="to_upper", left=SVar(name="s"),
+                    right=SLit(lit_type="int", value="0"))),
     # Dict get with default: if k in d then d[k] else default
     "d.get": TransparentDef(
         params=["d", "k", "default"],

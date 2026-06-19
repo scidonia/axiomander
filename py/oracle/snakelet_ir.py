@@ -45,7 +45,9 @@ class SBinOp:
                   "set_add": "SetAddOp",
                   "str_index": "StrIndexOp",
                   "starts_with": "StartsWithOp",
-                  "ends_with": "EndsWithOp"}
+                  "ends_with": "EndsWithOp",
+                  "to_lower": "ToLowerOp",
+                  "to_upper": "ToUpperOp"}
         coq_op = op_map.get(self.op, "AddOp")
         return f"(BinOp {coq_op} {self.left.to_coq()} {self.right.to_coq()})"
 

@@ -63,7 +63,7 @@ Inductive sn_val :=
 Inductive binop := AddOp | SubOp | MulOp | DivOp | EqOp | LeOp | LtOp | GtOp | GeOp
   | AndOp | OrOp | NeOp | ModOp | InOp | LenOp | UnionOp | InterOp
   | AppendOp | LengthOp | DictGetOp | DictGetIntOp | MkKeyErrOp | SetAddOp
-  | StrIndexOp | StartsWithOp | EndsWithOp.
+  | StrIndexOp | StartsWithOp | EndsWithOp | ToLowerOp | ToUpperOp.
 
 Inductive sn_expr :=
   | Val (v : sn_val)
@@ -264,6 +264,32 @@ Definition dict_lookup_Z (m : sn_val) (f : string) : Z :=
 (** [model_field_Z] is an alias for contract-level readability. *)
 Definition model_field_Z (m : sn_val) (f : string) : Z := dict_lookup_Z m f.
 
+(** ASCII case mapping via byte-value arithmetic on [Ascii.N_of_ascii].
+    Characters outside the A-Z / a-z ranges are left unchanged. *)
+Definition ascii_to_lower (c : Ascii.ascii) : Ascii.ascii :=
+  let n := Ascii.N_of_ascii c in
+  if (65 <=? n)%N && (n <=? 90)%N
+  then Ascii.ascii_of_N (n + 32)%N
+  else c.
+
+Definition ascii_to_upper (c : Ascii.ascii) : Ascii.ascii :=
+  let n := Ascii.N_of_ascii c in
+  if (97 <=? n)%N && (n <=? 122)%N
+  then Ascii.ascii_of_N (n - 32)%N
+  else c.
+
+Fixpoint str_to_lower (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c rest => String (ascii_to_lower c) (str_to_lower rest)
+  end.
+
+Fixpoint str_to_upper (s : string) : string :=
+  match s with
+  | EmptyString => EmptyString
+  | String c rest => String (ascii_to_upper c) (str_to_upper rest)
+  end.
+
 (** * Z to float conversion (Python int → float coercion).
 
     IEEE 754 double-precision; integers > 2^63-1 lose precision but our
@@ -393,6 +419,8 @@ Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
               LitString (String.substring (Z.to_nat n) 1 s)
           | _ => LitUnit
           end
+      | ToLowerOp => LitString (str_to_lower s)
+      | ToUpperOp => LitString (str_to_upper s)
       | _ => LitUnit
       end
   (* --- set operations --- *)
