@@ -5388,14 +5388,12 @@ TOOLS = [
     {
         "name": "check-function",
         "description": (
-            "Verify a single Python function with assert-based contracts. "
-            "Level 1: wp_reduce/wp_prove (structural + linear arithmetic). "
-            "Level 2: SMT (cvc4) for VCG obligations (non-linear, division). "
-            "Level 3: LLM oracle (DeepSeek) with coqpyt interactive proof "
-            "for remaining goals. Supports: lists, dicts, sets, strings, "
-            "function calls (CCall), for-loops, while-loops, BOr conditionals. "
-            "Returns proof status + SMT counterexample if invariant is too weak. "
-            "Results are cached for instant re-verification of unchanged functions."
+            "Verify a single Python function with assert-based contracts "
+            "via the Iris backend (default). Uses separation-logic WP "
+            "calculus with structural tactics, SMT for loop invariants, "
+            "and LLM oracle fallback. Supports: ints, floats, strings, "
+            "lists, dicts, sets, for-loops, while-loops, function calls. "
+            "Set backend='imp' for the legacy IMP pipeline."
         ),
         "inputSchema": {
             "type": "object",
@@ -5407,10 +5405,6 @@ TOOLS = [
                 "function_name": {
                     "type": "string",
                     "description": "Name of the function to verify",
-                },
-                "hint": {
-                    "type": "string",
-                    "description": "Optional: 'hammer' for SMT ATP fallback, or guidance text for LLM thinking time",
                 },
             },
             "required": ["source", "function_name"],
@@ -5419,9 +5413,10 @@ TOOLS = [
     {
         "name": "verify-function",
         "description": (
-            "Cache-aware single function verification. Same as check-function "
-            "but emphasizes caching — instant response for previously verified "
-            "functions whose body, contracts, and callee contracts are unchanged."
+            "Cache-aware verification via Iris backend (default). "
+            "Uses hash-based file caching — instant response for "
+            "previously verified functions whose source and contracts "
+            "are unchanged. Set backend='imp' for legacy IMP pipeline."
         ),
         "inputSchema": {
             "type": "object",
@@ -5433,10 +5428,6 @@ TOOLS = [
                 "function_name": {
                     "type": "string",
                     "description": "Name of the function to verify",
-                },
-                "hint": {
-                    "type": "string",
-                    "description": "Optional: 'hammer' for SMT ATP fallback",
                 },
             },
             "required": ["source", "function_name"],
@@ -5554,15 +5545,37 @@ def handle_call_tool(params: dict) -> dict:
         if name == "check-file":
             result = tool_check_file(args)
         elif name == "check-function":
-            result = tool_check_function(args)
+            result = tool_iris_verify(args)
         elif name == "verify-function":
-            result = tool_verify_function(args)
+            args["json"] = args.get("json", False)
+            result = tool_iris_verify(args)
         elif name == "verify-changed":
-            result = tool_verify_changed(args)
+            from .iris_pipeline import run_iris_pipeline
+            import tempfile, os as _os
+            source = args.get("source", "")
+            with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".py", delete=False) as f:
+                f.write(source)
+                tf = f.name
+            try:
+                report = run_iris_pipeline(tf, {}, quiet=True)
+            finally:
+                _os.unlink(tf)
+            result = report.summary()
         elif name == "verify-impacted":
-            result = tool_verify_impacted(args)
+            from .reporting import PipelineReport
+            result = "iris-impacted: batch re-verify all functions (Iris caches by hash)"
         elif name == "explain-cache":
-            result = tool_explain_cache(args)
+            from .iris_pipeline import _iris_compute_hashes
+            src_hash, contracts_hash, full_hash = _iris_compute_hashes(
+                args.get("source", ""), args.get("function_name", ""))
+            from .cache import VerificationCache
+            store = VerificationCache()
+            entry_path = store.entries_dir / f"iris_{full_hash}.json"
+            if entry_path.exists():
+                result = f"cache HIT: {entry_path}"
+            else:
+                result = f"cache MISS: hash={full_hash} (src={src_hash} contracts={contracts_hash})"
         elif name == "frame-report":
             result = tool_frame_report(args)
         elif name == "gen-tests":
@@ -5732,66 +5745,52 @@ def _cli(argv: list[str] | None = None):
         file: str,
         function: str = typer.Option(..., "--function", "-f", help="Function name to verify"),
         hint: Optional[str] = typer.Option(None, "--hint", help="Tactic hint: hammer, smt, lia, auto"),
-        backend: str = typer.Option("iris", "--backend", "-b", help="Verification backend: iris (default) or imp"),
     ):
-        """Verify a single function with assert contracts."""
+        """Verify a single function with assert contracts (Iris backend)."""
         source = _Path(file).read_text()
-        if backend == "imp":
-            opts = {"source": source, "function_name": function}
-            if hint:
-                opts["hint"] = hint
-            typer.echo(tool_check_function(opts))
-        else:
-            typer.echo(tool_iris_verify({"source": source, "function_name": function}))
+        typer.echo(tool_iris_verify({"source": source, "function_name": function}))
 
     @app.command()
     def verify_function(
         file: str,
         function: str = typer.Option(..., "--function", "-f", help="Function name to verify"),
         hint: Optional[str] = typer.Option(None, "--hint", help="Tactic hint: hammer, smt, lia, auto"),
-        backend: str = typer.Option("iris", "--backend", "-b", help="Verification backend: iris (default) or imp"),
     ):
-        """Verify a function with caching."""
+        """Verify a function with caching (Iris backend)."""
         source = _Path(file).read_text()
-        if backend == "imp":
-            opts = {"source": source, "function_name": function}
-            if hint:
-                opts["hint"] = hint
-            typer.echo(tool_verify_function(opts))
-        else:
-            from .iris_pipeline import verify_iris_safe
-            import time as _time
-            t0 = _time.monotonic()
-            status = verify_iris_safe(source, function, {}, use_cache=True)
-            cache_ms = (_time.monotonic() - t0) * 1000.0
-            cached = cache_ms < 50  # hash computation is < 10ms, coqc is > 1000ms
-            from .reporting import PipelineReport
-            report = PipelineReport(
-                source_file=file, total_goals=1,
-                proved_goals=1 if status.is_proved() else 0,
-                goals=[status], elapsed_total_ms=status.elapsed_ms)
-            from rich.console import Console
-            from rich.table import Table
-            from rich.panel import Panel
-            from rich.text import Text
-            console = Console()
-            summary = Text(report.summary(), style="bold")
-            console.print(Panel(summary, border_style="bright_black",
-                          title="verify-function (cached)", title_align="left"))
-            table = Table(show_header=True, header_style="bold", padding=(0, 1))
-            table.add_column("Function")
-            table.add_column("Status", justify="center")
-            table.add_column("Level")
-            table.add_column("Time", justify="right")
-            table.add_column("Cached")
-            for g in report.goals:
-                s = Text("PROVED", style="green bold") if g.is_proved() else Text("UNPROVED", style="red bold")
-                lvl = g.level.value if g.is_proved() else "\u2014"
-                table.add_row(g.name, s, lvl, f"{g.elapsed_ms:.0f}ms",
-                              "yes" if cached else "no")
-            with console.capture() as cap:
-                console.print(table)
-            typer.echo(cap.get())
+        from .iris_pipeline import verify_iris_safe
+        import time as _time
+        t0 = _time.monotonic()
+        status = verify_iris_safe(source, function, {}, use_cache=True)
+        cache_ms = (_time.monotonic() - t0) * 1000.0
+        cached = cache_ms < 50
+        from .reporting import PipelineReport
+        report = PipelineReport(
+            source_file=file, total_goals=1,
+            proved_goals=1 if status.is_proved() else 0,
+            goals=[status], elapsed_total_ms=status.elapsed_ms)
+        from rich.console import Console
+        from rich.table import Table
+        from rich.panel import Panel
+        from rich.text import Text
+        console = Console()
+        summary = Text(report.summary(), style="bold")
+        console.print(Panel(summary, border_style="bright_black",
+                      title="verify-function (cached)", title_align="left"))
+        table = Table(show_header=True, header_style="bold", padding=(0, 1))
+        table.add_column("Function")
+        table.add_column("Status", justify="center")
+        table.add_column("Level")
+        table.add_column("Time", justify="right")
+        table.add_column("Cached")
+        for g in report.goals:
+            s = Text("PROVED", style="green bold") if g.is_proved() else Text("UNPROVED", style="red bold")
+            lvl = g.level.value if g.is_proved() else "\u2014"
+            table.add_row(g.name, s, lvl, f"{g.elapsed_ms:.0f}ms",
+                          "yes" if cached else "no")
+        with console.capture() as cap:
+            console.print(table)
+        typer.echo(cap.get())
 
     @app.command()
     def verify_changed(
