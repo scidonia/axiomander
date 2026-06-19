@@ -14,9 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from oracle.iris_pipeline import IrisGenError, python_to_iris_proof
-from oracle.iris_proof_gen import OpaqueSpec, TransparentDef
-from oracle.snakelet_ir import SBinOp, SVar
+from axiomander.oracle.iris_pipeline import IrisGenError, python_to_iris_proof
+from axiomander.oracle.iris_proof_gen import OpaqueSpec, TransparentDef
+from axiomander.oracle.snakelet_ir import SBinOp, SVar
 
 COQ_ROOT = Path(__file__).resolve().parent.parent.parent / "coq"
 
@@ -697,7 +697,7 @@ def simple_append(x: int):
 # flattened scalar variables.  The object stays a single sn_val, preserving
 # identity and composing for nested/whole-object use.
 
-from oracle.iris_proof_gen import IRIS_BUILTINS
+from axiomander.oracle.iris_proof_gen import IRIS_BUILTINS
 
 
 def _builtins_table(extra=None):
@@ -877,7 +877,7 @@ def float_ge_check(x: float):
 def test_residual_capture_goal():
     """When a proof fails, capture_residual produces a .v fragment
     with the open goal and full hypotheses at the failure point."""
-    from oracle.iris_pipeline import capture_residual
+    from axiomander.oracle.iris_pipeline import capture_residual
 
     src = '''
 def wrong(x: int):
@@ -898,7 +898,7 @@ def wrong(x: int):
 
 def test_residual_no_capture_on_pass():
     """capture_residual returns None for a function that verifies."""
-    from oracle.iris_pipeline import capture_residual
+    from axiomander.oracle.iris_pipeline import capture_residual
 
     src = '''
 def good(x: int):

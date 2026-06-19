@@ -1387,7 +1387,7 @@ class InvariantFinder(ast.NodeVisitor):
         inv_parts = []
         for stmt in body:
             if isinstance(stmt, ast.Assert):
-                from oracle.contract_linter import ContractLinter
+                from axiomander.oracle.contract_linter import ContractLinter
                 lint = ContractLinter(context="postcondition")
                 result = lint.lint_expression(stmt.test)
                 if result.is_valid:

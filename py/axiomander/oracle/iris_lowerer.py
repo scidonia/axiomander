@@ -176,7 +176,7 @@ class IrisLowerer:
         if isinstance(expr.obj, PyName):
             obj_name = expr.obj.name
             # Check for enum member resolution (IntEnum in contracts)
-            from oracle.shape_ir import lookup_enum_value, lookup_shape
+            from axiomander.oracle.shape_ir import lookup_enum_value, lookup_shape
             ev = lookup_enum_value(obj_name, expr.attr)
             if ev is not None:
                 return SLit(lit_type="int", value=str(ev))

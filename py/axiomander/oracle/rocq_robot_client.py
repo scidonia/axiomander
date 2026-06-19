@@ -45,7 +45,7 @@ class RocqRobotClient:
     ):
         if robot_path is None:
             # Default: vendor/rocq-robot/dist/index.js relative to this file
-            project_root = Path(__file__).resolve().parent.parent.parent
+            project_root = Path(__file__).resolve().parent.parent.parent.parent
             robot_path = project_root / "vendor" / "rocq-piler" / "dist" / "index.js"
 
         if coq_lsp_path is None:
@@ -59,7 +59,7 @@ class RocqRobotClient:
                 coq_lsp_path = "coq-lsp"
 
         if workspace_root is None:
-            workspace_root = Path(__file__).resolve().parent.parent.parent
+            workspace_root = Path(__file__).resolve().parent.parent.parent.parent
 
         self.robot_path = Path(robot_path)
         self.coq_lsp_path = coq_lsp_path

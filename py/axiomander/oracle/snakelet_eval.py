@@ -139,7 +139,7 @@ def _float_binop(op: str, a: Val, b: Val) -> Val:
 # ── Expression evaluator ─────────────────────────────────────────
 
 def eval_expr(e: Any, s: State, env: dict[str, Val]) -> Val:
-    from oracle.snakelet_ir import (
+    from axiomander.oracle.snakelet_ir import (
         SLit, SVar, SBinOp, SLoad, SStore, SLet, SIf, SReturn,
         SSeq, SFAA, SDictGet, SDictSet,
     )

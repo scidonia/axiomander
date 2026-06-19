@@ -46,7 +46,7 @@ uv pip install -e .
 
 # Run the test suite
 eval $(opam env)
-PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
+.venv/bin/python -m pytest  -v
 ```
 
 ## Usage
@@ -409,16 +409,16 @@ MCP tool `frame-report` shows contracts and frame conditions for any function.
 
 ```bash
 eval $(opam env)
-PYTHONPATH=py .venv/bin/python -m pytest py/tests/ -v
+.venv/bin/python -m pytest  -v
 ```
 
 130 pipeline tests covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, docstring contracts, old-state syntax, reads/modifies frames, range quantifiers, stub integration, tuple/bytes/dict/set/None value comparisons, implication, loop-predicate contract inlining, user-defined predicates, exception contracts, validate_assignment enforcement, nested Pydantic models, constructor CCalls, isinstance dispatch with type-tag lowering, and collection fields.
 
-Plus **60 dimensional analysis tests** (`py/tests/test_dim_analysis.py`) covering DimVec algebra, expression parsing, constraint checking, and end-to-end violation detection for financial, physical, and cardinality dimensions.
+Plus **60 dimensional analysis tests** (`test_dim_analysis.py`) covering DimVec algebra, expression parsing, constraint checking, and end-to-end violation detection for financial, physical, and cardinality dimensions.
 
-Plus **51 theory-SMT tests** (`py/tests/test_theory_smt.py`) covering regex translation via sre_parse, string contains/prefix dispatch, typed counterexample generation, phone-gate subsumption/contradiction, and two-function CCall regex gating.
+Plus **51 theory-SMT tests** (`test_theory_smt.py`) covering regex translation via sre_parse, string contains/prefix dispatch, typed counterexample generation, phone-gate subsumption/contradiction, and two-function CCall regex gating.
 
-Plus **14 case-dispatch tests** (`py/tests/test_case_extractor.py`) covering CIf/CSeq tree extraction, nested conditionals, path-condition accumulation, mutual exclusivity heuristics, and loop rejection.
+Plus **14 case-dispatch tests** (`test_case_extractor.py`) covering CIf/CSeq tree extraction, nested conditionals, path-condition accumulation, mutual exclusivity heuristics, and loop rejection.
 
 ## Dependencies
 

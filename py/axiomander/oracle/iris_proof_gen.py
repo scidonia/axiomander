@@ -36,7 +36,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Union
 
-from oracle.snakelet_ir import (
+from axiomander.oracle.snakelet_ir import (
     SAlloc, SApp, SBinOp, SDictGet, SDictSet, SExpr, SIf, SLet, SLit, SLoad, SRaise, SReturn, SSeq,
     SStore, STry, SVar, SWhile, SFor,
 )
@@ -240,7 +240,7 @@ class WhileInv:
     @property
     def invariants(self) -> list[str]:
         """Coq Prop strings, compiled lazily from invariant_exprs."""
-        from oracle.contract_ir_iris import iris_prop
+        from axiomander.oracle.contract_ir_iris import iris_prop
         return [iris_prop(e) for e in self.invariant_exprs]
 
     body_stages: list["StageNode"] = field(default_factory=list)
@@ -304,7 +304,7 @@ def _make_forall_predicate(invariants: list[str], loop_var: str) -> str:
         return ""
     inv = invariants[0]
     # New style: contract_ir.Expr AST nodes
-    from oracle.contract_ir import BinOp as CIBinOp, Var as CIVar, IntLit as CIIntLit
+    from axiomander.oracle.contract_ir import BinOp as CIBinOp, Var as CIVar, IntLit as CIIntLit
     if isinstance(inv, CIBinOp) and isinstance(inv.left, CIVar) and isinstance(inv.right, CIIntLit):
         op = inv.op
         rhs = inv.right.value
@@ -837,7 +837,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 "for-loop over a non-literal list: needs a list contract "
                 "(is_list) to expose the model. See "
                 "docs/finite-iterable-relations.md.")
-        from oracle.contract_ir_iris import iris_prop
+        from axiomander.oracle.contract_ir_iris import iris_prop
         return [ForList(
             var=e.var,
             lst_coq=model_coq,

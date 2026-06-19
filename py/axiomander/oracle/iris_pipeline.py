@@ -32,22 +32,22 @@ import ast
 from dataclasses import dataclass, field
 from typing import Optional
 
-from oracle.contract_ir_iris import compile_postcondition, compile_precondition, _collect_vars, iris_prop
-from oracle.contract_linter import ContractLinter
-from oracle.iris_lowerer import IrisLowerer
-from oracle.iris_proof_gen import (
+from axiomander.oracle.contract_ir_iris import compile_postcondition, compile_precondition, _collect_vars, iris_prop
+from axiomander.oracle.contract_linter import ContractLinter
+from axiomander.oracle.iris_lowerer import IrisLowerer
+from axiomander.oracle.iris_proof_gen import (
     FunTable, IrisGenError, IrisProof, generate,
 )
-from oracle.reporting import (
+from axiomander.oracle.reporting import (
     GoalStatus, ProofLevel, Action, PipelineReport,
     classify_failure, action_guidance,
 )
-from oracle.py_ir import (
+from axiomander.oracle.py_ir import (
     PyAssert, PyAssign, PyAugAssign, PyCall, PyConstant, PyExprStmt,
     PyFor, PyIf, PyName, PyRaise, PyReturn, PyStmt, PyStoreSubscript, PyTry, PyWhile,
 )
-from oracle.py_ir_translator import PyIRTranslator
-from oracle.snakelet_ir import (
+from axiomander.oracle.py_ir_translator import PyIRTranslator
+from axiomander.oracle.snakelet_ir import (
     SAlloc, SApp, SBinOp, SDictGet, SDictSet, SExpr, SIf, SLet, SLit, SLoad, SRaise, SReturn, SSeq,
     SStore, STry, SVar, SWhile, SFor,
 )
@@ -97,11 +97,11 @@ def extract_contracts(
     # "sn_val" result kind so the postcondition uses v directly.
     result_kind: str | None = None
     if fn_node.returns:
-        from oracle.shape_ir import lookup_shape
+        from axiomander.oracle.shape_ir import lookup_shape
         if isinstance(fn_node.returns, ast.Name):
             if lookup_shape(fn_node.returns.id) is not None:
                 result_kind = "sn_val"
-    from oracle.contract_ir_iris import _FLOAT_PARAMS, _STRING_PARAMS
+    from axiomander.oracle.contract_ir_iris import _FLOAT_PARAMS, _STRING_PARAMS
     _FLOAT_PARAMS.clear()
     _FLOAT_PARAMS.update(float_params)
     _STRING_PARAMS.clear()
@@ -122,8 +122,8 @@ def extract_contracts(
     # whose test is a raises(ExcType, cond) call.  Removing them before the
     # pre/post scan prevents a trailing raises() assert from being mistaken
     # for the postcondition.  Multiple conditions per exc_type are ANDed.
-    from oracle.contract_ir import RaisesExpr
-    from oracle.contract_ir_iris import iris_prop
+    from axiomander.oracle.contract_ir import RaisesExpr
+    from axiomander.oracle.contract_ir_iris import iris_prop
     raises: dict[str, str] = {}
     _kept: list[ast.stmt] = []
     for stmt in body:
@@ -413,7 +413,7 @@ def _rewrite_invariants(invs: list, counter_var: str,
     Works at the AST level — no string manipulation.
     counter_var -> 'z', bound var -> 'bound', extras -> 'a_0', 'a_1', ...
     """
-    from oracle.contract_ir import Var as CVar, BinOp as CBinOp, Logical, \
+    from axiomander.oracle.contract_ir import Var as CVar, BinOp as CBinOp, Logical, \
         IntLit, LenExpr, AllExpr, AnyExpr, RecursorExpr
 
     sub: dict[str, str] = {counter_var: "z"}
@@ -575,8 +575,8 @@ def collect_inv_obligations(proof) -> list[tuple]:
     Returns (wi, inv_idx, coq_prop, smt_hyps, smt_conc) tuples.
     All SMT strings come from expr.to_smt() — no regex, no string parsing.
     """
-    from oracle.iris_proof_gen import WhileInv
-    from oracle.contract_ir import Var as CVar, BinOp as CBinOp, IntLit
+    from axiomander.oracle.iris_proof_gen import WhileInv
+    from axiomander.oracle.contract_ir import Var as CVar, BinOp as CBinOp, IntLit
 
     def subst_body_update(e):
         """Replace Var('z') -> z+1 AND a_i -> a_i + (z+1) (body update)."""
@@ -758,7 +758,7 @@ def _verify_coq_prop_with_smt(coq_prop: str) -> bool:
         # Literal or variable
         return e.strip()
 
-    from oracle.smt_export import _expr_to_smt as _old_smt
+    from axiomander.oracle.smt_export import _expr_to_smt as _old_smt
     def convert_hyp(h: str) -> str | None:
         h = h.strip()
         # Z.le a b
@@ -1009,7 +1009,7 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
 
 def _param_type_map(fn_node: ast.FunctionDef) -> dict[str, str]:
     """Extract {param_name: python_type_name} from function annotations."""
-    from oracle.shape_ir import lookup_shape
+    from axiomander.oracle.shape_ir import lookup_shape
     out: dict[str, str] = {}
     for a in fn_node.args.args:
         if a.annotation:
@@ -1390,7 +1390,7 @@ def python_to_iris_proof(source: str,
     tree = ast.parse(source)
     # Load the shape/enum registry so enum member refs (PaymentState.CAPTURED)
     # are resolved to their integer encodings in contract expressions.
-    from oracle.shape_ir import build_shape_registry
+    from axiomander.oracle.shape_ir import build_shape_registry
     build_shape_registry(tree, _cwd=_cwd)
     target = None
     for node in ast.walk(tree):
@@ -1426,12 +1426,12 @@ def python_to_iris_proof(source: str,
     # Build a ghost_resolver from the callee table: observer calls in
     # contracts resolve to the ghost variable names the callee's post names.
     ghost_resolver: dict[str, str] = {}
-    from oracle.iris_proof_gen import OpaqueSpec
+    from axiomander.oracle.iris_proof_gen import OpaqueSpec
     for entry in table.values():
         if isinstance(entry, OpaqueSpec):
             ghost_resolver.update(entry.ghost_vars)
     # First parse docstring contracts and merge them into contract extraction.
-    from oracle.docstring_contracts import docstring_assert_nodes
+    from axiomander.oracle.docstring_contracts import docstring_assert_nodes
     dc_asserts = docstring_assert_nodes(target)
     # Inject docstring assertions as synthetic asserts at the top of the body
     # so extract_contracts picks them up (same as the IMP pipeline does via
@@ -1562,7 +1562,7 @@ def capture_residual(source: str,
 def _coq_root() -> str:
     """Return the path to the coq source root."""
     import pathlib
-    return str(pathlib.Path(__file__).parent.parent.parent / "coq")
+    return str(pathlib.Path(__file__).parent.parent.parent.parent / "coq")
 
 
 # ---------------------------------------------------------------------------
@@ -1573,7 +1573,7 @@ def _iris_compute_hashes(source: str, func_name: str) -> tuple[str, str, str]:
     """Compute (source_hash, contracts_hash, full_hash) for a function."""
     import hashlib
     import ast as _ast
-    from oracle.contract_linter import ContractLinter
+    from axiomander.oracle.contract_linter import ContractLinter
 
     src_hash = hashlib.sha256(source.encode()).hexdigest()[:16]
     tree = _ast.parse(source)
@@ -1608,7 +1608,7 @@ def _iris_compute_hashes(source: str, func_name: str) -> tuple[str, str, str]:
 
 def _iris_cache_get(source: str, func_name: str) -> GoalStatus | None:
     """Return cached GoalStatus if hash matches, else None."""
-    from oracle.cache import VerificationCache
+    from axiomander.oracle.cache import VerificationCache
     import json
     _, _, full_hash = _iris_compute_hashes(source, func_name)
     store = VerificationCache()
@@ -1636,7 +1636,7 @@ def _iris_cache_get(source: str, func_name: str) -> GoalStatus | None:
 
 def _iris_cache_put(source: str, func_name: str, status: GoalStatus) -> None:
     """Store a GoalStatus in the file-based cache."""
-    from oracle.cache import VerificationCache
+    from axiomander.oracle.cache import VerificationCache
     import json
     _, _, full_hash = _iris_compute_hashes(source, func_name)
     store = VerificationCache()

@@ -3,11 +3,10 @@
     "axiomander": {
       "command": "python3",
       "args": [
-        "-m", "oracle.mcp_server"
+        "-m", "axiomander.oracle.mcp_server"
       ],
       "cwd": "/home/gavin/dev/Scidonia/axiomander",
       "env": {
-        "PYTHONPATH": "/home/gavin/dev/Scidonia/axiomander/py",
         "AXIOMANDER_ROOT": "/home/gavin/dev/Scidonia/axiomander",
         "PATH": "/home/gavin/.opam/rocq-9/bin:/usr/bin:/bin"
       }

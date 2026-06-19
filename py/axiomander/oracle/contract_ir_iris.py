@@ -20,7 +20,7 @@ still works — this module only handles the Coq Prop side.
 from __future__ import annotations
 
 from typing import Optional
-from oracle.contract_ir import (
+from axiomander.oracle.contract_ir import (
     AllExpr, AnyExpr, BinOp, BoolLit, DictCountExpr, DictExpr,
     DictLenExpr, Expr, FieldAccess, FloatExpr, ImpliesExpr, IndexExpr,
     IntLit, IsShape, IsValid, LenExpr, ListEqExpr, Logical, MaxExpr,
@@ -312,7 +312,7 @@ def _recursor(n, ps, pv):
 
 def _is_valid(n, ps, pv):
     """is_valid(obj, Type) — field constraint conjunction from shape registry."""
-    from oracle.shape_ir import lookup_shape, flat_fields
+    from axiomander.oracle.shape_ir import lookup_shape, flat_fields
     shape = lookup_shape(n.model_type)
     if not shape:
         return "True"

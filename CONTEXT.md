@@ -165,7 +165,7 @@ is in [`docs/iris-migration-plan.md`](docs/iris-migration-plan.md).
    parameterization (see above); default instance demoted to priority 100.
 
 ### iris_proof_gen.py — syntax-directed staged proof generator (Phase 2)
-- `py/oracle/iris_proof_gen.py`: walks SnakeletIR + a `FunTable`
+- `py/axiomander/oracle/iris_proof_gen.py`: walks SnakeletIR + a `FunTable`
   (`OpaqueSpec(args, side, result)` | `TransparentDef(params, body)`)
   and emits a complete `.v`: SMT axioms, generated FunCtx table
   (pre/post defs, String.eqb-chain table, mechanically-proven totality
@@ -185,13 +185,13 @@ is in [`docs/iris-migration-plan.md`](docs/iris-migration-plan.md).
 - `snakelet_ir.py`: `to_coq()` completed for SVar/SLet/SIf/SApp/SReturn/
   SSeq (SnakeletLang constructors); heap/exception nodes raise
   NotImplementedError (phase 3).
-- `py/tests/test_iris_proof_gen.py`: 15 end-to-end tests (generate ->
+- `test_iris_proof_gen.py`: 15 end-to-end tests (generate ->
   coqc): chains, parametric pre flow, nested binop trees, case splits
   (incl. calls in branches), SMT slot, negative tests (wrong post, pre
   violation, unknown callee, non-ANF), empty table, multi-arg specs.
 
 ### contract_ir_iris.py — Iris Prop compilation for contract IR (NEW)
-- `py/oracle/contract_ir_iris.py`: pure-function dispatch `iris_prop(node,
+- `py/axiomander/oracle/contract_ir_iris.py`: pure-function dispatch `iris_prop(node,
   param_set, post_var)` compiles `contract_ir.Expr` nodes to plain Coq Props
   for Iris pre/postconditions.  No IMP state model (no `s "x"%string`,
   `asZ`, `hget`).  Parameters are bare `Z` variables.
@@ -346,11 +346,11 @@ Behavior verified across the full test suite (224 tests):
 - `coq/SnakeletDemo.v` — Demos and examples
 - `coq/SnakeletTactics.v` — `reshape_expr`, `wp_bind`, stage tactics
 - `coq/SnakeletEval.v` — Fuel evaluator
-- `py/oracle/snakelet_ir.py` — SnakeletIR + to_coq (SnakeletLang syntax)
-- `py/oracle/iris_proof_gen.py` — staged proof generator
-- `py/tests/test_iris_proof_gen.py` — 15 generator end-to-end tests
-- `py/tests/test_snakelet_rocq.py` — 24 extraction tests
-- `py/tests/test_snakelet_conservative.py` — 28 conservative tests
+- `py/axiomander/oracle/snakelet_ir.py` — SnakeletIR + to_coq (SnakeletLang syntax)
+- `py/axiomander/oracle/iris_proof_gen.py` — staged proof generator
+- `test_iris_proof_gen.py` — 15 generator end-to-end tests
+- `test_snakelet_rocq.py` — 24 extraction tests
+- `test_snakelet_conservative.py` — 28 conservative tests
 
 ## Build Commands
 ```bash
@@ -358,5 +358,5 @@ eval $(opam env)
 coqc -R coq "" coq/SnakeletLang.v
 coqc -R coq "" coq/SnakeletWp.v
 coqc -R coq "" coq/SnakeletDemo.v
-PYTHONPATH=py uv run pytest py/tests/test_snakelet_rocq.py py/tests/test_snakelet_conservative.py -q
+uv run pytest test_snakelet_rocq.py test_snakelet_conservative.py -q
 ```

@@ -14,7 +14,6 @@ the templated heuristics aren't sufficient.
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .client import load_config, call_llm
 from .docstring_contracts import parse_axiomander_docstring
 
 
@@ -164,12 +163,7 @@ def generate_llm_guidance(
     """
     # Build a templated fallback
     fallback = _templated_guidance(func_name, error_detail, suggestions)
-
-    config = load_config()
-    if not config.api_key:
-        return fallback
-
-    # Build LLM prompt
+    return fallback
     prompt = f"""A Coq verification of this Python function failed.
 
 Function: {func_name}

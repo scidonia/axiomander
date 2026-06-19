@@ -275,7 +275,7 @@ def extract_function_contracts(source: str, func_name: str) -> FunctionContracts
 
 def _collect_var_names(node: Expr) -> set[str]:
     """Collect all Var-name references in an Expr subtree."""
-    from oracle.contract_ir import Var as CIVar
+    from axiomander.oracle.contract_ir import Var as CIVar
     out: set[str] = set()
     k = getattr(node, "kind", None)
     if k == "var":
@@ -377,7 +377,7 @@ def _narrow_strategies(
                                 strategies: dict[str, ParamStrategy]) -> None:
         """If lhs==rhs is a Var equal to an expression involving only
         known params, mark the Var as derived from that expression."""
-        from oracle.contract_ir import Var as CIVar
+        from axiomander.oracle.contract_ir import Var as CIVar
         # lhs == f(other params)  →  lhs is derived
         if isinstance(lhs, CIVar) and lhs.name in strategies:
             free_vars = _collect_var_names(rhs)
@@ -616,7 +616,7 @@ def generate_tests(
         "from hypothesis import given, assume, settings",
         "from hypothesis import strategies as st",
         "",
-        "from oracle.contract_runtime import implies, is_shape, is_valid, re_match_pred, _OldSnapshot",
+        "from axiomander.oracle.contract_runtime import implies, is_shape, is_valid, re_match_pred, _OldSnapshot",
         import_line,
         "",
         "",

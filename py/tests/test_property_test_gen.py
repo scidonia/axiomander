@@ -12,7 +12,7 @@ import ast
 import textwrap
 import pytest
 
-from oracle.property_test_gen import (
+from axiomander.oracle.property_test_gen import (
     generate_tests,
     extract_function_contracts,
     counterexample_to_test,
@@ -458,69 +458,69 @@ class TestCounterexampleToTest:
 
 class TestContractRuntime:
     def test_implies_true_true(self):
-        from oracle.contract_runtime import implies
+        from axiomander.oracle.contract_runtime import implies
         assert implies(True, True) is True
 
     def test_implies_true_false(self):
-        from oracle.contract_runtime import implies
+        from axiomander.oracle.contract_runtime import implies
         assert implies(True, False) is False
 
     def test_implies_false_true(self):
-        from oracle.contract_runtime import implies
+        from axiomander.oracle.contract_runtime import implies
         assert implies(False, True) is True
 
     def test_implies_false_false(self):
-        from oracle.contract_runtime import implies
+        from axiomander.oracle.contract_runtime import implies
         assert implies(False, False) is True
 
     def test_is_valid_known_type_no_registry(self):
-        from oracle.contract_runtime import is_valid
+        from axiomander.oracle.contract_runtime import is_valid
         # With no shape registry entry, is_valid is conservative (True)
         assert is_valid(42, "UnknownType") is True
 
     def test_is_valid_none_unknown_type(self):
-        from oracle.contract_runtime import is_valid
+        from axiomander.oracle.contract_runtime import is_valid
         # Conservative: unknown type -> True even for None
         assert is_valid(None, "UnknownType") is True
 
     def test_is_shape_unknown_type_conservative(self):
-        from oracle.contract_runtime import is_shape
+        from axiomander.oracle.contract_runtime import is_shape
         # Unknown model_type -> conservative True
         assert is_shape({"x": 1}, "UnknownModel") is True
 
     def test_re_match_pred_full_match(self):
-        from oracle.contract_runtime import re_match_pred
+        from axiomander.oracle.contract_runtime import re_match_pred
         assert re_match_pred("hello123", r"[a-z]+\d+") is True
 
     def test_re_match_pred_no_match(self):
-        from oracle.contract_runtime import re_match_pred
+        from axiomander.oracle.contract_runtime import re_match_pred
         assert re_match_pred("hello", r"\d+") is False
 
     def test_re_match_pred_partial_not_full(self):
-        from oracle.contract_runtime import re_match_pred
+        from axiomander.oracle.contract_runtime import re_match_pred
         # fullmatch: "hello123extra" does not match "[a-z]+\d+"
         assert re_match_pred("hello123extra", r"[a-z]+\d+") is False
 
     def test_re_match_pred_invalid_pattern(self):
-        from oracle.contract_runtime import re_match_pred
+        from axiomander.oracle.contract_runtime import re_match_pred
         # Invalid regex -> False (not an exception)
         assert re_match_pred("hello", r"[invalid") is False
 
     def test_old_snapshot_captures_values(self):
-        from oracle.contract_runtime import _OldSnapshot
+        from axiomander.oracle.contract_runtime import _OldSnapshot
         snap = _OldSnapshot(x=5, balance=100)
         assert getattr(snap, "x") == 5
         assert getattr(snap, "balance") == 100
 
     def test_old_snapshot_is_immutable(self):
-        from oracle.contract_runtime import _OldSnapshot
+        from axiomander.oracle.contract_runtime import _OldSnapshot
         snap = _OldSnapshot(x=5)
         # setattr always goes through __setattr__, which must raise AttributeError
         with pytest.raises(AttributeError):
             setattr(snap, "x", 10)
 
     def test_old_snapshot_repr(self):
-        from oracle.contract_runtime import _OldSnapshot
+        from axiomander.oracle.contract_runtime import _OldSnapshot
         snap = _OldSnapshot(x=5)
         r = repr(snap)
         assert "_OldSnapshot" in r

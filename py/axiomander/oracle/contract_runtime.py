@@ -7,7 +7,7 @@ defined in contract_ir.py.
 
 Usage in generated tests::
 
-    from oracle.contract_runtime import implies, is_shape, is_valid, re_match_pred
+    from axiomander.oracle.contract_runtime import implies, is_shape, is_valid, re_match_pred
 
 All functions are pure and side-effect-free.
 """

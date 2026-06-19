@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from oracle.iris_proof_gen import (
+from axiomander.oracle.iris_proof_gen import (
     IrisGenError, OpaqueSpec, TransparentDef, generate,
 )
-from oracle.snakelet_ir import (
+from axiomander.oracle.snakelet_ir import (
     SAlloc, SApp, SBinOp, SIf, SLet, SLit, SLoad, SSeq, SStore, SVar,
 )
 

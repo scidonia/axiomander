@@ -39,7 +39,7 @@ def run_coqc(src: str) -> tuple[bool, str]:
                 pass
 
 
-from oracle.iris_pipeline import python_to_iris_proof, IrisGenError
+from axiomander.oracle.iris_pipeline import python_to_iris_proof, IrisGenError
 
 
 def _verify(src: str, func_name: str) -> tuple[bool, str]:
@@ -169,8 +169,8 @@ def test_fulfil_order_composition():
 
     Verified compositionally: each callee's postcondition feeds the next.
     """
-    from oracle.iris_proof_gen import OpaqueSpec
-    from oracle.iris_pipeline import python_to_iris_proof
+    from axiomander.oracle.iris_proof_gen import OpaqueSpec
+    from axiomander.oracle.iris_pipeline import python_to_iris_proof
 
     src = """
 class OrderStatus(IntEnum): READY = 0; DONE = 2

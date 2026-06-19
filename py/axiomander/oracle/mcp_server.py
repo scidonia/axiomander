@@ -23,14 +23,6 @@ from typing import Any
 
 import ast
 
-from .advisor import (
-    analyze_function,
-    analyze_file,
-    generate_llm_guidance,
-    AdornmentAdvice,
-    FunctionAnalysis,
-    FileAnalysis,
-)
 from .cache import (
     VerificationCache, FunctionHashes,
     compute_body_hash, compute_contract_hash, compute_local_assert_hash,
@@ -42,20 +34,26 @@ from .purity_analyzer import (
     analyze_purity, generate_frame_conditions, generate_havoc_body,
     PurityReport,
 )
-from .py_to_imp import PyToImpLowerer
+try:
+    from .py_to_imp import PyToImpLowerer
+except ImportError:
+    PyToImpLowerer = None
 from .iris_pipeline import python_to_iris_proof, IrisGenError
 from .reporting import (
     Action, GoalStatus, ProofLevel, PipelineReport,
     build_report, action_guidance,
 )
-from .client import oracle_query, interactive_oracle_query, load_config
+try:
+    from .client import oracle_query, interactive_oracle_query, load_config
+except ImportError:
+    oracle_query = interactive_oracle_query = load_config = None
 from .py_ir_translator import PyIRTranslator
-from .py_to_imp import PyToImpLowerer
+
 from .docstring_contracts import docstring_assert_nodes, parse_axiomander_docstring
 
 PROJECT_ROOT = Path(os.environ.get(
     "AXIOMANDER_ROOT",
-    str(Path(__file__).resolve().parent.parent.parent)
+    str(Path(__file__).resolve().parent.parent.parent.parent)
 ))
 BUILD_DIR = PROJECT_ROOT / "_build" / "default" / "coq"
 AI_PROVE_PATH = Path("/tmp/axiomander_ai_prove.v")
@@ -66,7 +64,7 @@ from .evidence_graph import Evidence, EvidenceKind, ProofStatus, get_graph, save
 _cache = VerificationCache()
 
 
-from .py_to_imp import PyToImpLowerer
+
 
 
 def _gen_imp_body(tree, func_node, contract_map=None) -> "tuple[str, object]":
@@ -75,7 +73,7 @@ def _gen_imp_body(tree, func_node, contract_map=None) -> "tuple[str, object]":
     Returns (coq_string, imp_ir_root_node).
     """
     import ast
-    from oracle.imp_ir import ImpCom
+    from axiomander.oracle.imp_ir import ImpCom
     from .shape_ir import build_shape_registry
     build_shape_registry(tree) if tree else None
     predicates = _collect_predicates(tree) if tree else {}
@@ -113,7 +111,7 @@ def _gen_imp_body(tree, func_node, contract_map=None) -> "tuple[str, object]":
     )
     imp_ir = lowerer.lower_function(py_func)
 
-    from oracle.imp_ir import ImpCCall
+    from axiomander.oracle.imp_ir import ImpCCall
     def _has_any_ccall(node) -> bool:
         if isinstance(node, ImpCCall): return True
         if hasattr(node, 'commands'):
@@ -389,6 +387,7 @@ def tool_check_file(args: dict) -> str:
     if not source:
         return "Error: 'source' parameter is required."
 
+    from .advisor import analyze_file
     analysis = analyze_file(source)
 
     lines = [
@@ -524,7 +523,7 @@ def tool_check_function(args: dict) -> str:
         return "Error: 'source' parameter is required."
 
     # Reset LLM credit budget per top-level call (session granularity)
-    from oracle.client import reset_credit_budget
+    from axiomander.oracle.client import reset_credit_budget
     reset_credit_budget()
 
     # Step 1: Structural analysis
@@ -641,7 +640,7 @@ def tool_verify_changed(args: dict) -> str:
         return "Error: 'source' parameter is required."
 
     # Reset LLM credit budget once per invocation (shared across all functions)
-    from oracle.client import reset_credit_budget, credits_used
+    from axiomander.oracle.client import reset_credit_budget, credits_used
     reset_credit_budget()
 
     try:
@@ -1230,7 +1229,7 @@ def _try_iris_backend(source: str, func_name: str, tree: ast.AST,
     import tempfile, subprocess, os
     from pathlib import Path
     COQ_ROOT = Path(os.environ.get("AXIOMANDER_ROOT",
-                   Path(__file__).resolve().parent.parent.parent)) / "coq"
+                   Path(__file__).resolve().parent.parent.parent.parent)) / "coq"
 
     def _run_coqc(proof_text: str) -> int | None:
         """Compile a generated proof; return coqc returncode, or None on
@@ -1415,7 +1414,7 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
 
     # Ghost vars make staged proofs complex; the WP + frame conditions
     # already prove variable preservation without ghost snapshots.
-    from oracle.imp_ir import ImpCCall
+    from axiomander.oracle.imp_ir import ImpCCall
     has_ccall = False
     if imp_ir is not None:
         def _has_ir_ccall(node) -> bool:
@@ -1752,7 +1751,7 @@ def _verify_function_full(source: str, func_name: str, hint: str | None = None) 
         if not obligation_mode:
             goal = _try_coqlsp_oracle(source, func_name, goal)
     if goal and not goal.is_proved():
-        from oracle.client import credits_used as _credits_used, credit_budget_exhausted as _budget_exhausted
+        from axiomander.oracle.client import credits_used as _credits_used, credit_budget_exhausted as _budget_exhausted
         goal = _try_llm_oracle(source, func_name, goal, hint)
         if goal and _budget_exhausted():
             goal.error_detail += f" (LLM credit budget exhausted: {_credits_used()} calls)"
@@ -1769,7 +1768,7 @@ def _capture_residual_goal(coq_source: str, error_line: int) -> "str | None":
     modified = "\n".join(prefix) + "\nShow.\n"
     import tempfile as _tf, subprocess as _sp, os as _os
     from pathlib import Path as _Path
-    BUILD_DIR_L = _Path(__file__).resolve().parent.parent.parent / "_build" / "default" / "coq"
+    BUILD_DIR_L = _Path(__file__).resolve().parent.parent.parent.parent / "_build" / "default" / "coq"
     with _tf.NamedTemporaryFile(mode="w", suffix=".v", delete=False, prefix="mcp_residual_") as f:
         f.write(modified)
         rp = _Path(f.name)
@@ -2007,7 +2006,7 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
         f"(unsolved: {', '.join(unsolved_names)})...",
         file=_sys.stderr,
     )
-    from oracle.langgraph_oracle import run_langgraph_oracle
+    from axiomander.oracle.langgraph_oracle import run_langgraph_oracle
     ok, proof_script, err = run_langgraph_oracle(
         preamble,
         max_steps=max(20, 20 * len(unsolved_names)),
@@ -2110,7 +2109,7 @@ def _try_llm_oracle(source: str, func_name: str, goal: GoalStatus, hint: str | N
 
     print(f"  [oracle] Attempting LangGraph LLM proof for {func_name}...", file=_sys.stderr)
     # Use LangGraph with tool-calling: the LLM calls get_goals/try_tactic/finish_proof itself
-    from oracle.langgraph_oracle import run_langgraph_oracle
+    from axiomander.oracle.langgraph_oracle import run_langgraph_oracle
 
     # Build preamble with imports, segmented defs, stage lemmas, goal
     import_prefix = (
@@ -2165,7 +2164,7 @@ def _try_coqlsp_oracle(source: str, func_name: str, goal: GoalStatus) -> GoalSta
     if not goal or goal.is_proved():
         return goal
 
-    from oracle.coqpyt_session import CoqpytSession
+    from axiomander.oracle.coqpyt_session import CoqpytSession
     import sys as _sys
 
     # Use the exact Coq source emitted by the base verifier. This preserves
@@ -2379,7 +2378,7 @@ def _try_smt_main(pre_coq: str, post_coq: str, imp_body: str, init_state: str, n
 def _capture_wp_reduce_goal(coq_source: str) -> list[str]:
     """Run intros; wp_reduce in coqpyt and capture remaining goals."""
     try:
-        from oracle.coqpyt_session import CoqpytSession
+        from axiomander.oracle.coqpyt_session import CoqpytSession
         preamble = coq_source.split("Proof.")[0] + "Proof."
         with CoqpytSession(BUILD_DIR, timeout=30) as session:
             if not session.load(preamble):
@@ -3950,7 +3949,7 @@ def _try_smt_vcg_ir(inv_irs: list, exit_cond: str, post_irs: list, scaffold: str
 
 def _has_initial_assignments(imp_ir, ccalls) -> bool:
     """Check if there are non-CCall, non-ghost assignments before the first CCall."""
-    from oracle.imp_ir import ImpCSeq, ImpCCall, ImpCIf, ImpCAss
+    from axiomander.oracle.imp_ir import ImpCSeq, ImpCCall, ImpCIf, ImpCAss
     if not ccalls:
         return False
     segs: list[tuple[str, object]] = []
@@ -3988,7 +3987,7 @@ def _build_staged_proof(imp_ir, contract_map, params, ghost_vars,
     Each is embedded as separate Coq blocks: defs then lemmas then proof body.
     """
     import re
-    from oracle.imp_ir import (
+    from axiomander.oracle.imp_ir import (
         ImpCSeq, ImpCCall, ImpCAss, ImpCIf, ImpCSkip,
         ImpAVar, ImpANum, ImpAPlus, ImpAMinus, ImpAMult,
         ImpAMod, ImpADiv, ImpABool,
@@ -4481,7 +4480,7 @@ def _get_relevant_hyps_for_stage(stage_idx: int, prev_conjs: list[str],
                                   ccall_segs, prefix: str = "H") -> list[str]:
     """Get the hypothesis names that need to be passed to a stage lemma."""
     import re
-    from oracle.imp_ir import ImpAVar
+    from axiomander.oracle.imp_ir import ImpAVar
 
     # Find the CCall for this stage
     _, seg = ccall_segs[stage_idx]
@@ -4511,7 +4510,7 @@ def _get_pre_hyp_name_for_stage(stage_idx: int, ccall_segs,
     bindings = []
     seg = ccall_segs[stage_idx][1]
     if hasattr(seg, 'commands'):
-        from oracle.imp_ir import ImpCAss, ImpAVar
+        from axiomander.oracle.imp_ir import ImpCAss, ImpAVar
         for cmd in seg.commands:
             if isinstance(cmd, ImpCAss) and isinstance(cmd.value, ImpAVar):
                 bindings.append((cmd.target, cmd.value.name))
@@ -4784,7 +4783,7 @@ def _generate_coq(func_node, lint_results, imp_body: str, full_tree=None, hint: 
 
     # Collect raises clauses: exc_type -> Coq condition (scoped).
     # Multiple raises(SameType, ...) for the same type are ANDed together.
-    from oracle.contract_ir import RaisesExpr
+    from axiomander.oracle.contract_ir import RaisesExpr
     raises_coq: dict[str, list[str]] = {}
     for r in exc_posts:
         if r.lint_result.ir and isinstance(r.lint_result.ir, RaisesExpr):
@@ -5148,7 +5147,7 @@ Theorem {name}_vcg_exit : forall {vcg_params},
     frame_lemmas = ""
     frame_applies = ""
     if imp_ir is not None:
-        from oracle.imp_ir import ImpCCall
+        from axiomander.oracle.imp_ir import ImpCCall
 
         def _collect_ccalls(node) -> list[ImpCCall]:
             ccalls = []

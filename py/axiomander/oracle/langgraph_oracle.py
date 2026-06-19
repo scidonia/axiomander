@@ -206,14 +206,14 @@ def run_langgraph_oracle(
     if ChatOpenAI is None:
         return False, "", "langgraph not installed"
 
-    from oracle.client import _consume_credit
+    from axiomander.oracle.client import _consume_credit
 
     est_calls = min(max_steps, 5)
     for _ in range(est_calls):
         if not _consume_credit():
             return False, "", "Credit budget exhausted"
 
-    project_root = Path(__file__).resolve().parent.parent.parent
+    project_root = Path(__file__).resolve().parent.parent.parent.parent
 
     # Write temp .v file
     fd, tmp_path = tempfile.mkstemp(suffix=".v", prefix="axiomander_")
@@ -330,7 +330,7 @@ def run_langgraph_oracle(
             transcripts_dir.mkdir(parents=True, exist_ok=True)
             transcript = {
                 "timestamp": ts, "success": proved,
-                "credits_used": getattr(__import__('oracle.client'), '_credits_used', 0),
+                "credits_used": getattr(__import__('axiomander.oracle.client'), '_credits_used', 0),
                 "messages": [
                     {"role": str(getattr(m, 'type', 'unknown')),
                      "content": str(getattr(m, 'content', ''))[:500],

@@ -44,7 +44,7 @@ def _compute_diagnostics(source: str) -> list[lsp.Diagnostic]:
     if not funcs:
         return diagnostics
 
-    from oracle.iris_pipeline import _iris_cache_get
+    from axiomander.oracle.iris_pipeline import _iris_cache_get
 
     for node in funcs:
         try:

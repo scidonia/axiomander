@@ -425,7 +425,7 @@ class VerificationCache:
         if cache_dir is None:
             cache_dir = Path(os.environ.get(
                 "AXIOMANDER_ROOT",
-                str(Path(__file__).resolve().parent.parent.parent)
+                str(Path(__file__).resolve().parent.parent.parent.parent)
             )) / ".axiomander" / "cache"
         self.cache_dir = Path(cache_dir)
         self.entries_dir = self.cache_dir / "entries"

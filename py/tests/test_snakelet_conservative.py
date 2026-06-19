@@ -7,11 +7,11 @@ Checks: (1) valid ops produce same result as Python.
 
 import pytest
 from typing import Any
-from oracle.snakelet_eval import (
+from axiomander.oracle.snakelet_eval import (
     eval_expr, State, VInt, VFloat, VBool, VString, VUnit, VTuple, VLoc,
     Val, VError, alloc,
 )
-from oracle.snakelet_ir import (
+from axiomander.oracle.snakelet_ir import (
     SLit, SVar, SBinOp, SLoad, SStore, SLet, SIf, SReturn, SSeq, SFAA, SDictGet,
 )
 
