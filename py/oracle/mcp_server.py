@@ -5641,37 +5641,37 @@ def tool_iris_verify(args: dict) -> str:
 
     if as_json:
         return report.to_json()
-    import typer as _typer
     from rich.console import Console
     from rich.table import Table
     from rich.panel import Panel
     from rich.text import Text
 
     console = Console()
-    lines: list[str] = []
 
     summary_text = Text(report.summary(), style="bold")
-    lines.append(Panel(summary_text, border_style="bright_black", title="iris-verify", title_align="left"))
+    panel = Panel(summary_text, border_style="bright_black",
+                  title="iris-verify", title_align="left")
 
-    table = Table(show_header=True, header_style="bold")
+    table = Table(show_header=True, header_style="bold",
+                  show_lines=False, padding=(0, 1))
     table.add_column("Function")
-    table.add_column("Status")
+    table.add_column("Status", justify="center")
     table.add_column("Level")
-    table.add_column("Time")
+    table.add_column("Time", justify="right")
     table.add_column("Action")
     for g in report.goals:
         if g.is_proved():
-            status = _typer.style("PROVED", fg=_typer.colors.GREEN, bold=True)
+            status = Text("PROVED", style="green bold")
             level = g.level.value
         else:
-            status = _typer.style("UNPROVED", fg=_typer.colors.RED, bold=True)
-            level = "---"
-        action = g.suggested_action.value if g.suggested_action else "---"
+            status = Text("UNPROVED", style="red bold")
+            level = "\u2014"
+        action = g.suggested_action.value if g.suggested_action else "\u2014"
         time_str = f"{g.elapsed_ms:.0f}ms"
         table.add_row(g.name, status, level, time_str, action)
 
     with console.capture() as capture:
-        console.print(lines[0])
+        console.print(panel)
         console.print(table)
     return capture.get()
 
