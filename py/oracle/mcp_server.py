@@ -5642,18 +5642,38 @@ def tool_iris_verify(args: dict) -> str:
     if as_json:
         return report.to_json()
     import typer as _typer
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.text import Text
+
+    console = Console()
     lines: list[str] = []
-    lines.append(_typer.style(f"{'=' * 50}", fg=_typer.colors.BRIGHT_BLACK))
-    lines.append(_typer.style(report.summary(), bold=True))
+
+    summary_text = Text(report.summary(), style="bold")
+    lines.append(Panel(summary_text, border_style="bright_black", title="iris-verify", title_align="left"))
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Function")
+    table.add_column("Status")
+    table.add_column("Level")
+    table.add_column("Time")
+    table.add_column("Action")
     for g in report.goals:
         if g.is_proved():
-            tag = _typer.style("PROVED", fg=_typer.colors.GREEN, bold=True)
-            lines.append(f"  {tag}   {g.name}  [{g.level.value}]  {g.elapsed_ms:.0f}ms")
+            status = _typer.style("PROVED", fg=_typer.colors.GREEN, bold=True)
+            level = g.level.value
         else:
-            tag = _typer.style("UNPROVED", fg=_typer.colors.RED, bold=True)
-            action = g.suggested_action.value if g.suggested_action else "?"
-            lines.append(f"  {tag} {g.name}  [{action}]  {g.error_detail[:80] if g.error_detail else 'no detail'}")
-    return "\n".join(lines)
+            status = _typer.style("UNPROVED", fg=_typer.colors.RED, bold=True)
+            level = "---"
+        action = g.suggested_action.value if g.suggested_action else "---"
+        time_str = f"{g.elapsed_ms:.0f}ms"
+        table.add_row(g.name, status, level, time_str, action)
+
+    with console.capture() as capture:
+        console.print(lines[0])
+        console.print(table)
+    return capture.get()
 
 
 def main():
