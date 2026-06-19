@@ -158,14 +158,10 @@ Ltac raise_step :=
 
 (** Path fork on a symbolic boolean condition. *)
 Ltac case_bool :=
-  popvals;
+  popvals; focus_redex;
   lazymatch goal with
   | |- envs_entails _ (wp_exn (If (Val (LitBool ?b)) _ _) _) =>
-      lazymatch b with
-      | true => fail "case_bool: literally true; use pure_step"
-      | false => fail "case_bool: literally false; use pure_step"
-      | _ => let Hcond := fresh "Hcond" in destruct b eqn:Hcond
-      end
+      let Hcond := fresh "Hcond" in destruct b eqn:Hcond
   | _ => fail "case_bool: goal is not an If on a boolean value"
   end.
 

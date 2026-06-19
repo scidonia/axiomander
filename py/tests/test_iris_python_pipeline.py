@@ -1123,10 +1123,37 @@ def upper_test(s: str):
 
 
 # -- Dict get with default (d.get) --------------------------------------
-# NOTE: d.get(k, default) body works for concrete dicts at the IR level
-# (InOp reduces, If branches on result) but the case_bool tactic + Branch
-# stage structure needs a fix for literal booleans in TransparentDef bodies.
-# Test deferred until case_bool handles literal-boolean If without failure.
+
+def test_dict_get_hit():
+    """d.get(k, default) where k is present in a concrete dict."""
+    ok, out = verify_exn('''
+def get_hit():
+    d = {1: "a", 2: "b"}
+    result = d.get(1, "default")
+    return result
+''', table=_builtins_table(), func_name="get_hit")
+    assert ok, out
+
+
+def test_dict_get_miss():
+    """d.get(k, default) where k is NOT present — returns default."""
+    ok, out = verify_exn('''
+def get_miss():
+    d = {1: "a"}
+    result = d.get(2, "not_found")
+    return result
+''', table=_builtins_table(), func_name="get_miss")
+    assert ok, out
+
+
+def test_dict_get_opaque():
+    """d.get(k, default) on opaque dict param."""
+    ok, out = verify_exn('''
+def get_opaque(d: dict, k, default):
+    result = d.get(k, default)
+    return result
+''', table=_builtins_table(), func_name="get_opaque")
+    assert ok, out
 
 
 # -- Dict set (d[k] = v) -------------------------------------------------

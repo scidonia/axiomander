@@ -251,6 +251,18 @@ Fixpoint dict_has_kvs (kvs : list (sn_val * sn_val)) (k : sn_val) : bool :=
   | (k', _) :: rest => if sn_val_eqb k' k then true else dict_has_kvs rest k
   end.
 
+
+(** Check key membership in any value.  Delegates to the appropriate
+    representation based on the value's shape.  Returns a [bool] so
+    it composes with [LitBool] directly, avoiding a raw [match]
+    that [simpl] leaves irreducible on opaque arguments. *)
+Definition dict_has (d : sn_val) (k : sn_val) : bool :=
+  match d with
+  | LitDict kvs => dict_has_kvs kvs k
+  | LitSet vs => List.existsb (fun x => sn_val_eqb x k) vs
+  | _ => false
+  end.
+
 (** Z-valued field projection: extract the integer value of a string-keyed
     field from a model's [LitDict] representation, returning 0%Z if the
     field is absent or non-integer.  This is the contract-level projection
@@ -317,6 +329,7 @@ Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
      [Raise (BinOp MkKeyErrOp k _)] raises exactly Python's KeyError(k). *)
   | MkKeyErrOp => LitExn "KeyError" v1
   | TupleOp => LitTuple [v1; v2]
+  | InOp => LitBool (dict_has v1 v2)
   (* DictGetIntOp: integer-valued projection that ALWAYS returns LitInt,
      even for non-dict receivers (model_field_Z returns 0).  This
      guarantees [exists z, v = LitInt z /\ ...] is provable by reflexivity
