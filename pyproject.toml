@@ -15,8 +15,12 @@ dependencies = [
     "langchain-openai",
 ]
 
+[project.optional-dependencies]
+testgen = ["hypothesis>=6.0"]
+
 [project.scripts]
 axiomander-mcp = "oracle.mcp_server:main"
+axiomander = "oracle.mcp_server:main"
 
 [build-system]
 requires = ["setuptools>=64"]
@@ -29,7 +33,13 @@ include = ["py", "py.*"]
 [tool.uv.sources]
 coqpyt = { git = "https://github.com/sr-lab/coqpyt.git" }
 
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests that invoke the full Coq toolchain (deselect with -m 'not slow')",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+    "hypothesis>=6.0",
 ]

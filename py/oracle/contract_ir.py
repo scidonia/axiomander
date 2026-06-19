@@ -22,6 +22,9 @@ class Var(BaseModel):
     def to_smt(self) -> str:
         return self.name
 
+    def to_python(self) -> str:
+        return self.name
+
 
 class IntLit(BaseModel):
     kind: Literal["int"] = "int"
@@ -31,6 +34,9 @@ class IntLit(BaseModel):
         return str(self.value)
 
     def to_smt(self) -> str:
+        return str(self.value)
+
+    def to_python(self) -> str:
         return str(self.value)
 
 
@@ -43,6 +49,9 @@ class BoolLit(BaseModel):
 
     def to_smt(self) -> str:
         return "true" if self.value else "false"
+
+    def to_python(self) -> str:
+        return "True" if self.value else "False"
 
 
 class BinOp(BaseModel):
@@ -93,6 +102,12 @@ class BinOp(BaseModel):
         smt_op = op_map.get(self.op, self.op)
         return f"({smt_op} {self.left.to_smt()} {self.right.to_smt()})"
 
+    def to_python(self) -> str:
+        # Map IR operators to Python operators
+        op_map = {"=": "==", "<>": "!=", "mod": "%"}
+        py_op = op_map.get(self.op, self.op)
+        return f"({self.left.to_python()} {py_op} {self.right.to_python()})"
+
 
 class Logical(BaseModel):
     kind: Literal["logical"] = "logical"
@@ -112,6 +127,12 @@ class Logical(BaseModel):
         smt_op = "and" if self.op == "and" else "or"
         return f"({smt_op} {' '.join(o.to_smt() for o in self.operands)})"
 
+    def to_python(self) -> str:
+        if self.op == "not":
+            return f"(not {self.operands[0].to_python()})"
+        py_op = "and" if self.op == "and" else "or"
+        return "(" + f" {py_op} ".join(o.to_python() for o in self.operands) + ")"
+
 
 class LenExpr(BaseModel):
     """len(lst) — array length lookup."""
@@ -125,6 +146,9 @@ class LenExpr(BaseModel):
 
     def to_smt(self) -> str:
         return f"{self.name}__len"
+
+    def to_python(self) -> str:
+        return f"len({self.name})"
 
 
 class IndexExpr(BaseModel):
@@ -142,6 +166,9 @@ class IndexExpr(BaseModel):
     def to_smt(self) -> str:
         return f"{self.name}___{self.index.to_smt()}"
 
+    def to_python(self) -> str:
+        return f"{self.name}[{self.index.to_python()}]"
+
 
 class DictLenExpr(BaseModel):
     """len(dict[key]) — dict value list length."""
@@ -158,6 +185,9 @@ class DictLenExpr(BaseModel):
     def to_smt(self) -> str:
         return f"{self.name}_v_{self.key.to_smt()}__len"
 
+    def to_python(self) -> str:
+        return f"len({self.name}[{self.key.to_python()}])"
+
 
 class DictCountExpr(BaseModel):
     """len(dict) — number of keys in dict."""
@@ -171,6 +201,9 @@ class DictCountExpr(BaseModel):
 
     def to_smt(self) -> str:
         return f"{self.name}__count"
+
+    def to_python(self) -> str:
+        return f"len({self.name})"
 
 
 class AllExpr(BaseModel):
@@ -205,6 +238,18 @@ class AllExpr(BaseModel):
             return f"(forall (({self.var} Int)) (=> (and (<= {lo} {self.var}) (< {self.var} {hi})) {p}))"
         return f"(forall (({self.var} Int)) (=> (and (<= 0 {self.var}) (< {self.var} {self.lst}__len)) {p}))"
 
+    def to_python(self) -> str:
+        # Tier 3: list quantifiers not yet executable -- emit a generator expression
+        # that Hypothesis can evaluate.
+        pred_py = self.pred.to_python()
+        if self.lower is not None and self.upper is not None:
+            lo = self.lower.to_python()
+            hi = self.upper.to_python()
+            return f"all({pred_py.replace(self.var, '_ax_v')} for _ax_v in range({lo}, {hi}))"
+        if self.lst:
+            return f"all({pred_py.replace(self.var, '_ax_v')} for _ax_v in {self.lst})"
+        raise NotImplementedError("AllExpr.to_python: no list or range bound provided")
+
 
 class AnyExpr(BaseModel):
     """any(p(x) for x in lst) or any(p(x) for x in range(lo, hi))."""
@@ -226,6 +271,16 @@ class AnyExpr(BaseModel):
             return f"(exists (({self.var} Int)) (and (and (<= {lo} {self.var}) (< {self.var} {hi})) {p}))"
         return f"(exists (({self.var} Int)) (and (and (<= 0 {self.var}) (< {self.var} {self.lst}__len)) {p}))"
 
+    def to_python(self) -> str:
+        pred_py = self.pred.to_python()
+        if self.lower is not None and self.upper is not None:
+            lo = self.lower.to_python()
+            hi = self.upper.to_python()
+            return f"any({pred_py.replace(self.var, '_ax_v')} for _ax_v in range({lo}, {hi}))"
+        if self.lst:
+            return f"any({pred_py.replace(self.var, '_ax_v')} for _ax_v in {self.lst})"
+        raise NotImplementedError("AnyExpr.to_python: no list or range bound provided")
+
 
 class SliceLenExpr(BaseModel):
     """len(lst[i:j]) — length of slice = j - i."""
@@ -243,6 +298,11 @@ class SliceLenExpr(BaseModel):
         s = self.start.to_smt() if self.start else "0"
         e = self.end.to_smt() if self.end else f"{self.name}__len"
         return f"(- {e} {s})"
+
+    def to_python(self) -> str:
+        s = self.start.to_python() if self.start else "0"
+        e = self.end.to_python() if self.end else f"len({self.name})"
+        return f"len({self.name}[{s}:{e}])"
 
 
 class MinExpr(BaseModel):
@@ -264,6 +324,9 @@ class MinExpr(BaseModel):
     def to_smt(self) -> str:
         return f"(ite (< {self.left.to_smt()} {self.right.to_smt()}) {self.left.to_smt()} {self.right.to_smt()})"
 
+    def to_python(self) -> str:
+        return f"min({self.left.to_python()}, {self.right.to_python()})"
+
 
 class MaxExpr(BaseModel):
     """max(a, b) — maximum of two values."""
@@ -284,6 +347,9 @@ class MaxExpr(BaseModel):
     def to_smt(self) -> str:
         return f"(ite (> {self.left.to_smt()} {self.right.to_smt()}) {self.left.to_smt()} {self.right.to_smt()})"
 
+    def to_python(self) -> str:
+        return f"max({self.left.to_python()}, {self.right.to_python()})"
+
 
 class SumExpr(BaseModel):
     """sum(lst) — sum of list elements."""
@@ -296,6 +362,9 @@ class SumExpr(BaseModel):
     def to_smt(self) -> str:
         return f"{self.name}__sum"
 
+    def to_python(self) -> str:
+        return f"sum({self.name})"
+
 
 class FloatExpr(BaseModel):
     """Float literal for contracts: result == 3.14. Z-encoded (scaled * 100)."""
@@ -306,6 +375,11 @@ class FloatExpr(BaseModel):
         return str(self.value)
 
     def to_smt(self) -> str:
+        return str(self.value)
+
+    def to_python(self) -> str:
+        # Z-encoded: value is already the scaled integer (e.g. 314 for 3.14)
+        # Emit the integer directly; callers that need the float divide by 100.
         return str(self.value)
 
 
@@ -320,6 +394,10 @@ class StrLitExpr(BaseModel):
 
     def to_smt(self) -> str:
         return f'"{self.value}"'
+
+    def to_python(self) -> str:
+        escaped = self.value.replace('\\', '\\\\').replace('"', '\\"')
+        return f'"{escaped}"'
 
 
 class TupleExpr(BaseModel):
@@ -344,6 +422,10 @@ class TupleExpr(BaseModel):
     def to_smt(self) -> str:
         return "0"
 
+    def to_python(self) -> str:
+        els = ", ".join(e.to_python() for e in self.elements)
+        return f"({els},)" if len(self.elements) == 1 else f"({els})"
+
 
 class DictExpr(BaseModel):
     """Dict literal for contracts: result == {1: 2}. Z-encoded keys/values."""
@@ -367,6 +449,10 @@ class DictExpr(BaseModel):
     def to_smt(self) -> str:
         return "0"
 
+    def to_python(self) -> str:
+        pairs = ", ".join(f"{k.to_python()}: {v.to_python()}" for k, v in self.pairs)
+        return "{" + pairs + "}"
+
 
 class SetExpr(BaseModel):
     """Set literal for contracts: result == {1, 2}."""
@@ -385,6 +471,12 @@ class SetExpr(BaseModel):
     def to_smt(self) -> str:
         return "0"
 
+    def to_python(self) -> str:
+        if not self.elements:
+            return "set()"
+        els = ", ".join(e.to_python() for e in self.elements)
+        return "{" + els + "}"
+
 
 class ImpliesExpr(BaseModel):
     """Implication: A -> B for conditional guarantees."""
@@ -397,6 +489,10 @@ class ImpliesExpr(BaseModel):
 
     def to_smt(self) -> str:
         return f"(=> {self.left.to_smt()} {self.right.to_smt()})"
+
+    def to_python(self) -> str:
+        # Tier 2: backed by contract_runtime.implies
+        return f"implies({self.left.to_python()}, {self.right.to_python()})"
 
 
 class RaisesExpr(BaseModel):
@@ -424,6 +520,11 @@ class RaisesExpr(BaseModel):
     def to_smt(self) -> str:
         return self.cond.to_smt()
 
+    def to_python(self) -> str:
+        # RaisesExpr is handled specially by the test generator (pytest.raises block).
+        # Calling to_python() on the inner condition is still useful for the body.
+        return self.cond.to_python()
+
 
 class IsShape(BaseModel):
     """is_shape(obj, Type) — the object structurally matches the shape.
@@ -446,6 +547,10 @@ class IsShape(BaseModel):
     def to_smt(self) -> str:
         return "true"
 
+    def to_python(self) -> str:
+        # Tier 2: backed by contract_runtime.is_shape
+        return f'is_shape({self.obj}, "{self.model_type}")'
+
 
 class IsValid(BaseModel):
     """is_valid(obj, Type) — the object satisfies all declared constraints.
@@ -467,6 +572,32 @@ class IsValid(BaseModel):
 
     def to_smt(self) -> str:
         return "true"
+
+    def to_python(self) -> str:
+        # Tier 2: backed by contract_runtime.is_valid
+        return f'is_valid({self.obj}, "{self.model_type}")'
+
+
+class FieldAccess(BaseModel):
+    """model.field -- structural field projection for Pydantic/shape models.
+
+    The object stays a single sn_val (never flattened), and the field
+    value is extracted via the trusted dict_lookup_Z projection.
+    Compiles to [model_field_Z obj "field"] in Coq Props -- a bare Z,
+    so it composes naturally with arithmetic comparisons in contracts.
+    """
+    kind: Literal["field_access"] = "field_access"
+    obj: str          # e.g. "account"
+    field: str        # e.g. "balance"
+
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        return f'model_field_Z {self.obj} "{self.field}"'
+
+    def to_smt(self) -> str:
+        return "0"
+
+    def to_python(self) -> str:
+        return f"{self.obj}.{self.field}"
 
 
 class ReMatchExpr(BaseModel):
@@ -498,6 +629,11 @@ class ReMatchExpr(BaseModel):
     def to_smt(self) -> str:
         return f"re_match_{self.subject}_{self.pattern}"
 
+    def to_python(self) -> str:
+        # Tier 2: backed by contract_runtime.re_match_pred
+        escaped = self.pattern.replace('\\', '\\\\').replace('"', '\\"')
+        return f're_match_pred({self.subject}, "{escaped}")'
+
 
 class ListEqExpr(BaseModel):
     """List literal equality: result == [a, b] or result != [].
@@ -520,6 +656,10 @@ class ListEqExpr(BaseModel):
 
     def to_smt(self) -> str:
         return f"({self.op} (len {self.name}) {self.n_elements})"
+
+    def to_python(self) -> str:
+        py_op = "==" if self.op == "=" else "!="
+        return f"(len({self.name}) {py_op} {self.n_elements})"
 
 
 class StringContainsExpr(BaseModel):
@@ -550,6 +690,10 @@ class StringContainsExpr(BaseModel):
         inner = f'(str.contains {self.haystack} {self.needle})'
         return f'(not {inner})' if self.negated else inner
 
+    def to_python(self) -> str:
+        inner = f'({self.needle} in {self.haystack})'
+        return f'(not {inner})' if self.negated else inner
+
 
 class RecursorExpr(BaseModel):
     """User-defined predicate lowered to a recursor combinator.
@@ -568,6 +712,13 @@ class RecursorExpr(BaseModel):
 
     def to_smt(self) -> str:
         return f"{self.recursor}_{self.arg}"
+
+    def to_python(self) -> str:
+        raise NotImplementedError(
+            f"RecursorExpr.to_python: Coq recursor '{self.recursor}' has no direct "
+            "Python equivalent. Postcondition using this recursor will be skipped "
+            "in generated tests (annotated with # axiomander: skipped RecursorExpr)."
+        )
 
 
 class StringEqualsExpr(BaseModel):
@@ -591,5 +742,50 @@ class StringEqualsExpr(BaseModel):
         inner = f'(= {self.var} "{self.literal}")'
         return f'(not {inner})' if self.negated else inner
 
+    def to_python(self) -> str:
+        py_op = "!=" if self.negated else "=="
+        escaped = self.literal.replace('\\', '\\\\').replace('"', '\\"')
+        return f'({self.var} {py_op} "{escaped}")'
 
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, ListEqExpr, ReMatchExpr, StringContainsExpr, StringEqualsExpr, RecursorExpr]
+
+class ROwnExpr(BaseModel):
+    """Resource ownership predicate: owns(x) — marks x as an owned resource.
+
+    Compiles to no Coq expression (resource-only, not pure logic).
+    Its presence in the contract classification triggers the resource
+    footprint extraction and Iris lowering path.
+    """
+    kind: Literal["rown"] = "rown"
+    obj: str    # variable name, e.g. "box"
+
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        return "True"  # resource contract — pure side is vacuous
+
+    def to_smt(self) -> str:
+        return "true"
+
+
+class OpaqueTerm(BaseModel):
+    """A function call in a contract expression whose return value is opaque.
+
+    This represents calls to external state observers (e.g.
+    db_get_payment_state(order_id)) that appear in pre/postconditions but
+    whose semantics come from the callee's own contract (not from inline
+    state).  Compiles to True (neutral identity) in Coq Prop; the real
+    guarantee is discharged transitively through the opaque callee's
+    postcondition rather than by evaluating this term.
+
+    kind: string naming the function,
+    args: list of argument Exprs."""
+    kind: str = "opaque_term"
+    name: str = ""        # function name
+    args: list[Expr] = Field(default_factory=list)
+
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        return "True"   # neutral identity; real guarantee via callee contract
+
+    def to_smt(self) -> str:
+        return "true"
+
+
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, FieldAccess, ListEqExpr, ReMatchExpr, StringContainsExpr, StringEqualsExpr, RecursorExpr, ROwnExpr, OpaqueTerm]

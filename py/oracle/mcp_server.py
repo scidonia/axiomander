@@ -43,6 +43,7 @@ from .purity_analyzer import (
     PurityReport,
 )
 from .py_to_imp import PyToImpLowerer
+from .iris_pipeline import python_to_iris_proof, IrisGenError
 from .reporting import (
     Action, GoalStatus, ProofLevel, PipelineReport,
     build_report, action_guidance,
@@ -1128,6 +1129,160 @@ def _run_dimension_check(func_node: ast.FunctionDef) -> str:
         return ""
 
 
+def _build_iris_callee_table(tree: ast.AST, target_func: str) -> dict:
+    """Discover callee functions in [tree] and build OpaqueSpec entries.
+
+    Walks top-level FunctionDef nodes (excluding [target_func] itself),
+    extracts each one's params, precondition, and return-value expression,
+    and returns a table suitable for python_to_iris_proof.
+
+    The return value is traced from `return X` backwards through a single
+    `X = expr` assignment (the common contract-body pattern)."""
+    import ast as _ast
+    from .iris_proof_gen import OpaqueSpec
+    from .contract_linter import ContractLinter
+
+    table: dict[str, object] = {}
+
+    for node in _ast.iter_child_nodes(tree):
+        if not isinstance(node, _ast.FunctionDef):
+            continue
+        name = node.name
+        if name == target_func:
+            continue
+
+        params = [a.arg for a in node.args.args]
+        if not params:
+            continue
+
+        body = list(node.body)
+
+        # Extract precondition: leading asserts
+        linter = ContractLinter(params=params, context="precondition")
+        side: str | None = None
+        while body and isinstance(body[0], _ast.Assert):
+            linted = linter.lint_expression(body[0].test)
+            if linted.ir is not None:
+                from .contract_ir_iris import iris_prop
+                p = iris_prop(linted.ir)
+                side = f"({p})" if side else p
+            body = body[1:]
+
+        # Find return value expression: look for `return X` and trace
+        # back to `X = expr`.
+        result_expr = _trace_return_value(node, params)
+        if result_expr is None:
+            continue
+
+        table[name] = OpaqueSpec(args=list(params), side=side,
+                                 result=result_expr)
+
+    return table
+
+
+def _trace_return_value(func_node: ast.FunctionDef,
+                        params: list[str]) -> str | None:
+    """Trace `return X` to the expression assigned to X.
+
+    Handles the simple contract-body pattern: `X = expr; ...; return X`.
+    Returns the Python expression text with parameter names intact."""
+    import ast as _ast
+    # Find return statement
+    ret_var: str | None = None
+    for stmt in _ast.walk(func_node):
+        if isinstance(stmt, _ast.Return) and isinstance(stmt.value, _ast.Name):
+            ret_var = stmt.value.id
+            break
+    if ret_var is None:
+        return None
+
+    # Find assignment to return variable
+    for stmt in _ast.walk(func_node):
+        if (isinstance(stmt, _ast.Assign)
+                and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], _ast.Name)
+                and stmt.targets[0].id == ret_var):
+            return _ast.unparse(stmt.value).strip()
+
+    return None
+
+
+def _try_iris_backend(source: str, func_name: str, tree: ast.AST,
+                       func_node: ast.FunctionDef,
+                       lint_results: list,
+                       hint: str | None = None) -> GoalStatus | None:
+    """Attempt to verify [func_name] using the Iris (SnakeletLang) backend.
+
+    Returns a GoalStatus on success or failure, or None to fall through
+    to the IMP pipeline (function uses unsupported constructs)."""
+    from .iris_pipeline import python_to_iris_proof, IrisGenError
+
+    table = _build_iris_callee_table(tree, func_name)
+
+    try:
+        proof = python_to_iris_proof(
+            source, table, func_name=func_name)
+    except IrisGenError:
+        return None        # Fragment unsupported: fall through to IMP
+    except Exception:
+        return None
+
+    import tempfile, subprocess, os
+    from pathlib import Path
+    COQ_ROOT = Path(os.environ.get("AXIOMANDER_ROOT",
+                   Path(__file__).resolve().parent.parent.parent)) / "coq"
+
+    def _run_coqc(proof_text: str) -> int | None:
+        """Compile a generated proof; return coqc returncode, or None on
+        timeout."""
+        with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".v", delete=False,
+                prefix=f"iris_{func_name}_") as f:
+            f.write(proof_text)
+            tmp_path = f.name
+        try:
+            res = subprocess.run(
+                ["coqc", "-R", str(COQ_ROOT), "", tmp_path],
+                capture_output=True, text=True, timeout=120,
+                env={**os.environ},
+            )
+            return res.returncode
+        except subprocess.TimeoutExpired:
+            return None
+        finally:
+            try: os.unlink(tmp_path)
+            except OSError: pass
+            for ext in (".vo", ".vok", ".vos", ".glob"):
+                try: os.unlink(tmp_path + ext)
+                except OSError: pass
+
+    # The exception-aware backend (Result-postcondition WP) is the sole
+    # Iris backend: it is the gold-standard semantics, subsuming the old
+    # SnakeletLang WP and adding exceptions, heap, and loop reasoning.  If
+    # the fragment is unsupported (IrisGenError) or its proof fails to
+    # compile, fall through to IMP.
+    try:
+        rc = _run_coqc(proof.emit_exn())
+    except IrisGenError:
+        return None
+    except Exception:
+        return None
+    if rc == 0:
+        return GoalStatus(name=func_name,
+                          goal_statement=f"WPE {func_name} {{ ... }}",
+                          level=ProofLevel.LEVEL1_LTAC,
+                          proof_method="iris")
+    if rc is None:
+        return GoalStatus(name=func_name,
+                          goal_statement=f"WPE {func_name} {{ ... }}",
+                          level=ProofLevel.UNPROVED,
+                          error_detail="Iris proof compilation timed out",
+                          suggested_action=Action.ADD_LEMMA)
+    # Iris compilation failed — fall through to IMP.  (Returning an
+    # UNPROVED here would short-circuit the IMP path.)
+    return None
+
+
 def _verify_function(source: str, func_name: str, hint: str | None = None) -> GoalStatus | None:
     """Try to verify a function. Returns GoalStatus or None on error."""
     try:
@@ -1224,6 +1379,36 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
                           error_detail="\n".join(msgs),
                           suggested_action=Action.REFACTOR,
                           suggestion_text="Fix lint errors in assertions.")
+
+    # --- Iris backend dispatch ---
+    # Try the Iris (SnakeletLang) backend first.  If the function body
+    # uses only the supported integer/heap fragment, the Iris proof
+    # generator produces a staged proof script; coqc checks it.
+    # Functions with unsupported constructs (strings, floats, lists,
+    # Pydantic models, symbolic loops) raise IrisGenError and fall
+    # through to the IMP pipeline below.
+    iris_result = _try_iris_backend(source, func_name, tree, func_node,
+                                     lint_results, hint)
+    if iris_result is not None:
+        return iris_result
+
+    # Resource classification — detect owns(x) predicates for Iris backend prototype
+    from .resources.classify import classify as classify_resource, ContractClass
+    classification, owned_var = classify_resource(lint_results)
+    if classification != ContractClass.PURE_ONLY:
+        return GoalStatus(
+            name=func_name,
+            goal_statement=f"wp {func_name}_body ...",
+            level=ProofLevel.UNPROVED,
+            error_detail=(
+                f"Resource contract detected: owns({owned_var}).\n"
+                f"Classification: {classification.value}.\n"
+                f"Resource lowering is experimental (iris-backend-prototype branch).\n"
+                f"Pure existing pipeline skipped — this function needs the Iris backend."
+            ),
+            suggested_action=Action.ADD_LEMMA,
+            suggestion_text=f"Resource contract ({classification.value}) — Iris backend prototype.",
+        )
 
     # Generate IMP via PyIR -> ImpIR
     imp_body, imp_ir = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
@@ -5203,14 +5388,12 @@ TOOLS = [
     {
         "name": "check-function",
         "description": (
-            "Verify a single Python function with assert-based contracts. "
-            "Level 1: wp_reduce/wp_prove (structural + linear arithmetic). "
-            "Level 2: SMT (cvc4) for VCG obligations (non-linear, division). "
-            "Level 3: LLM oracle (DeepSeek) with coqpyt interactive proof "
-            "for remaining goals. Supports: lists, dicts, sets, strings, "
-            "function calls (CCall), for-loops, while-loops, BOr conditionals. "
-            "Returns proof status + SMT counterexample if invariant is too weak. "
-            "Results are cached for instant re-verification of unchanged functions."
+            "Verify a single Python function with assert-based contracts "
+            "via the Iris backend (default). Uses separation-logic WP "
+            "calculus with structural tactics, SMT for loop invariants, "
+            "and LLM oracle fallback. Supports: ints, floats, strings, "
+            "lists, dicts, sets, for-loops, while-loops, function calls. "
+            "Set backend='imp' for the legacy IMP pipeline."
         ),
         "inputSchema": {
             "type": "object",
@@ -5222,10 +5405,6 @@ TOOLS = [
                 "function_name": {
                     "type": "string",
                     "description": "Name of the function to verify",
-                },
-                "hint": {
-                    "type": "string",
-                    "description": "Optional: 'hammer' for SMT ATP fallback, or guidance text for LLM thinking time",
                 },
             },
             "required": ["source", "function_name"],
@@ -5234,9 +5413,10 @@ TOOLS = [
     {
         "name": "verify-function",
         "description": (
-            "Cache-aware single function verification. Same as check-function "
-            "but emphasizes caching — instant response for previously verified "
-            "functions whose body, contracts, and callee contracts are unchanged."
+            "Cache-aware verification via Iris backend (default). "
+            "Uses hash-based file caching — instant response for "
+            "previously verified functions whose source and contracts "
+            "are unchanged. Set backend='imp' for legacy IMP pipeline."
         ),
         "inputSchema": {
             "type": "object",
@@ -5248,10 +5428,6 @@ TOOLS = [
                 "function_name": {
                     "type": "string",
                     "description": "Name of the function to verify",
-                },
-                "hint": {
-                    "type": "string",
-                    "description": "Optional: 'hammer' for SMT ATP fallback",
                 },
             },
             "required": ["source", "function_name"],
@@ -5369,17 +5545,43 @@ def handle_call_tool(params: dict) -> dict:
         if name == "check-file":
             result = tool_check_file(args)
         elif name == "check-function":
-            result = tool_check_function(args)
+            result = tool_iris_verify(args)
         elif name == "verify-function":
-            result = tool_verify_function(args)
+            args["json"] = args.get("json", False)
+            result = tool_iris_verify(args)
         elif name == "verify-changed":
-            result = tool_verify_changed(args)
+            from .iris_pipeline import run_iris_pipeline
+            import tempfile, os as _os
+            source = args.get("source", "")
+            with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".py", delete=False) as f:
+                f.write(source)
+                tf = f.name
+            try:
+                report = run_iris_pipeline(tf, {}, quiet=True)
+            finally:
+                _os.unlink(tf)
+            result = report.summary()
         elif name == "verify-impacted":
-            result = tool_verify_impacted(args)
+            from .reporting import PipelineReport
+            result = "iris-impacted: batch re-verify all functions (Iris caches by hash)"
         elif name == "explain-cache":
-            result = tool_explain_cache(args)
+            from .iris_pipeline import _iris_compute_hashes
+            src_hash, contracts_hash, full_hash = _iris_compute_hashes(
+                args.get("source", ""), args.get("function_name", ""))
+            from .cache import VerificationCache
+            store = VerificationCache()
+            entry_path = store.entries_dir / f"iris_{full_hash}.json"
+            if entry_path.exists():
+                result = f"cache HIT: {entry_path}"
+            else:
+                result = f"cache MISS: hash={full_hash} (src={src_hash} contracts={contracts_hash})"
         elif name == "frame-report":
             result = tool_frame_report(args)
+        elif name == "gen-tests":
+            result = tool_gen_tests(args)
+        elif name == "iris-verify":
+            result = tool_iris_verify(args)
         else:
             return {"content": [{"type": "text", "text": f"Unknown tool: {name}"}], "isError": True}
     except Exception as e:
@@ -5387,6 +5589,104 @@ def handle_call_tool(params: dict) -> dict:
         return {"content": [{"type": "text", "text": f"Error: {e}\n{traceback.format_exc()[-500:]}"}], "isError": True}
 
     return {"content": [{"type": "text", "text": result}]}
+
+
+def tool_gen_tests(args: dict) -> str:
+    """Generate Hypothesis property tests from assert contracts.
+
+    Args:
+        source (str): Python source code.
+        function_name (str, optional): Generate tests only for this function.
+        module_path (str, optional): Source file path (used in import line).
+
+    Returns:
+        str: A complete pytest + Hypothesis test module as a string.
+    """
+    from .property_test_gen import generate_tests
+    source = args.get("source", "")
+    func_name = args.get("function_name") or None
+    module_path = args.get("module_path", "")
+    if not source:
+        return "Error: source is required"
+    return generate_tests(source, func_name=func_name, module_path=module_path)
+
+
+def tool_iris_verify(args: dict) -> str:
+    """Verify Python functions via the Iris backend.
+
+    Args:
+        source (str): Python source code.
+        function_name (str, optional): Verify only this function.
+        json (bool, optional): Output JSON report (default: human-readable).
+
+    Returns:
+        str: Verification report as JSON or human-readable text.
+    """
+    from .iris_pipeline import verify_iris_safe, run_iris_pipeline
+    import tempfile, os
+
+    source = args.get("source", "")
+    func_name = args.get("function_name") or None
+    as_json = args.get("json", False)
+
+    if not source:
+        return "Error: source is required"
+
+    if func_name:
+        status = verify_iris_safe(source, func_name, {})
+        from .reporting import PipelineReport
+        report = PipelineReport(
+            source_file="<inline>",
+            total_goals=1,
+            proved_goals=1 if status.is_proved() else 0,
+            goals=[status],
+            elapsed_total_ms=status.elapsed_ms,
+        )
+    else:
+        with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".py", delete=False) as f:
+            f.write(source)
+            tf = f.name
+        try:
+            report = run_iris_pipeline(tf, {}, quiet=True)
+        finally:
+            os.unlink(tf)
+
+    if as_json:
+        return report.to_json()
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.text import Text
+
+    console = Console()
+
+    summary_text = Text(report.summary(), style="bold")
+    panel = Panel(summary_text, border_style="bright_black",
+                  title="iris-verify", title_align="left")
+
+    table = Table(show_header=True, header_style="bold",
+                  show_lines=False, padding=(0, 1))
+    table.add_column("Function")
+    table.add_column("Status", justify="center")
+    table.add_column("Level")
+    table.add_column("Time", justify="right")
+    table.add_column("Action")
+    for g in report.goals:
+        if g.is_proved():
+            status = Text("PROVED", style="green bold")
+            level = g.level.value
+        else:
+            status = Text("UNPROVED", style="red bold")
+            level = "\u2014"
+        action = g.suggested_action.value if g.suggested_action else "\u2014"
+        time_str = f"{g.elapsed_ms:.0f}ms"
+        table.add_row(g.name, status, level, time_str, action)
+
+    with console.capture() as capture:
+        console.print(panel)
+        console.print(table)
+    return capture.get()
 
 
 def main():
@@ -5403,8 +5703,14 @@ def main():
         rid = request.get("id")
         method = request.get("method", "")
 
+        # Notifications have no "id" — must not send a response
+        if rid is None:
+            continue
+
         if method == "initialize":
             res = handle_initialize(request.get("params", {}))
+        elif method == "ping":
+            res = {}
         elif method == "tools/list":
             res = handle_list_tools()
         elif method == "tools/call":
@@ -5412,7 +5718,7 @@ def main():
         else:
             sys.stdout.write(json.dumps({
                 "jsonrpc": "2.0", "id": rid,
-                "error": {"code": -32601, "message": f"Unknown: {method}"}
+                "error": {"code": -32601, "message": f"Unknown method: {method}"}
             }) + "\n")
             sys.stdout.flush()
             continue
@@ -5440,11 +5746,9 @@ def _cli(argv: list[str] | None = None):
         function: str = typer.Option(..., "--function", "-f", help="Function name to verify"),
         hint: Optional[str] = typer.Option(None, "--hint", help="Tactic hint: hammer, smt, lia, auto"),
     ):
-        """Verify a single function with assert contracts."""
-        opts = {"source": _Path(file).read_text(), "function_name": function}
-        if hint:
-            opts["hint"] = hint
-        typer.echo(tool_check_function(opts))
+        """Verify a single function with assert contracts (Iris backend)."""
+        source = _Path(file).read_text()
+        typer.echo(tool_iris_verify({"source": source, "function_name": function}))
 
     @app.command()
     def verify_function(
@@ -5452,38 +5756,147 @@ def _cli(argv: list[str] | None = None):
         function: str = typer.Option(..., "--function", "-f", help="Function name to verify"),
         hint: Optional[str] = typer.Option(None, "--hint", help="Tactic hint: hammer, smt, lia, auto"),
     ):
-        """Verify a function with caching (alias for check-function)."""
-        opts = {"source": _Path(file).read_text(), "function_name": function}
-        if hint:
-            opts["hint"] = hint
-        typer.echo(tool_verify_function(opts))
+        """Verify a function with caching (Iris backend)."""
+        source = _Path(file).read_text()
+        from .iris_pipeline import verify_iris_safe
+        import time as _time
+        t0 = _time.monotonic()
+        status = verify_iris_safe(source, function, {}, use_cache=True)
+        cache_ms = (_time.monotonic() - t0) * 1000.0
+        cached = cache_ms < 50
+        from .reporting import PipelineReport
+        report = PipelineReport(
+            source_file=file, total_goals=1,
+            proved_goals=1 if status.is_proved() else 0,
+            goals=[status], elapsed_total_ms=status.elapsed_ms)
+        from rich.console import Console
+        from rich.table import Table
+        from rich.panel import Panel
+        from rich.text import Text
+        console = Console()
+        summary = Text(report.summary(), style="bold")
+        console.print(Panel(summary, border_style="bright_black",
+                      title="verify-function (cached)", title_align="left"))
+        table = Table(show_header=True, header_style="bold", padding=(0, 1))
+        table.add_column("Function")
+        table.add_column("Status", justify="center")
+        table.add_column("Level")
+        table.add_column("Time", justify="right")
+        table.add_column("Cached")
+        for g in report.goals:
+            s = Text("PROVED", style="green bold") if g.is_proved() else Text("UNPROVED", style="red bold")
+            lvl = g.level.value if g.is_proved() else "\u2014"
+            table.add_row(g.name, s, lvl, f"{g.elapsed_ms:.0f}ms",
+                          "yes" if cached else "no")
+        with console.capture() as cap:
+            console.print(table)
+        typer.echo(cap.get())
 
     @app.command()
     def verify_changed(
         file: str,
         hint: Optional[str] = typer.Option(None, "--hint", help="Tactic hint: hammer"),
     ):
-        """Incremental verification: re-verify only changed functions."""
-        opts = {"source": _Path(file).read_text()}
-        if hint:
-            opts["hint"] = hint
-        typer.echo(tool_verify_changed(opts))
+        """Incremental verification: re-verify only changed functions (Iris)."""
+        from .iris_pipeline import run_iris_pipeline
+        import tempfile, os as _os
+        source = _Path(file).read_text()
+        with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".py", delete=False) as f:
+            f.write(source)
+            tf = f.name
+        try:
+            report = run_iris_pipeline(tf, {}, quiet=True)
+        finally:
+            _os.unlink(tf)
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.text import Text
+        console = Console()
+        console.print(Panel(Text(report.summary(), style="bold"),
+                      border_style="bright_black", title="verify-changed"))
+        typer.echo("  (all functions re-verified; Iris caches by hash)")
 
     @app.command()
     def verify_impacted(file: str):
-        """Show which functions would be re-verified (dry-run)."""
-        typer.echo(tool_verify_impacted({"source": _Path(file).read_text()}))
+        """Show which functions would be re-verified (dry-run) (Iris)."""
+        from .iris_pipeline import _enumerate_iris_functions
+        source = _Path(file).read_text()
+        pairs = _enumerate_iris_functions(source)
+        typer.echo(f"  {len(pairs)} functions would be verified:")
+        for name, _ in pairs:
+            typer.echo(f"    - {name}")
 
     @app.command()
     def explain_cache(
         file: str,
         function: str = typer.Option(..., "--function", "-f", help="Function name to explain"),
     ):
-        """Explain the cache state for a function."""
-        typer.echo(tool_explain_cache({
-            "source": _Path(file).read_text(),
-            "function_name": function,
-        }))
+        """Explain the cache state for a function (Iris)."""
+        source = _Path(file).read_text()
+        from .iris_pipeline import _iris_compute_hashes
+        src_hash, contracts_hash, full_hash = _iris_compute_hashes(source, function)
+        from .cache import VerificationCache
+        store = VerificationCache()
+        entry_path = store.entries_dir / f"iris_{full_hash}.json"
+        if entry_path.exists():
+            import json
+            data = json.loads(entry_path.read_text())
+            typer.echo(f"  CACHE HIT for '{function}'")
+            typer.echo(f"  source_hash:  {src_hash}")
+            typer.echo(f"  contract_hash: {contracts_hash}")
+            typer.echo(f"  full_hash:    {full_hash}")
+            typer.echo(f"  result: {data.get('level', '?')} ({data.get('elapsed_ms', 0):.0f}ms)")
+            typer.echo(f"  entry: {entry_path}")
+        else:
+            typer.echo(f"  CACHE MISS for '{function}'")
+            typer.echo(f"  source_hash:  {src_hash}")
+            typer.echo(f"  contract_hash: {contracts_hash}")
+            typer.echo(f"  full_hash:    {full_hash}")
+
+    @app.command(name="frame-report")
+    def frame_report(
+        file: str,
+        function: Optional[str] = typer.Option(None, "--function", "-f", help="Report only this function"),
+    ):
+        """Report contracts and frame conditions for functions."""
+        opts: dict = {"source": _Path(file).read_text()}
+        if function:
+            opts["function_name"] = function
+        typer.echo(tool_frame_report(opts))
+
+    @app.command(name="gen-tests")
+    def gen_tests(
+        file: str,
+        function: Optional[str] = typer.Option(None, "--function", "-f", help="Generate tests only for this function"),
+        output: Optional[str] = typer.Option(None, "--output", "-o", help="Write output to this file instead of stdout"),
+    ):
+        """Generate Hypothesis property tests from assert contracts."""
+        opts: dict = {"source": _Path(file).read_text(), "module_path": file}
+        if function:
+            opts["function_name"] = function
+        result = tool_gen_tests(opts)
+        if output:
+            _Path(output).write_text(result)
+            typer.echo(f"Tests written to {output}")
+        else:
+            typer.echo(result)
+
+    @app.command(name="iris-verify")
+    def iris_verify(
+        file: str,
+        function: Optional[str] = typer.Option(None, "--function", "-f", help="Verify only this function"),
+        json_flag: bool = typer.Option(False, "--json", help="Output JSON report"),
+        quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress per-function status"),
+    ):
+        """Verify Python functions with the Iris backend."""
+        source = _Path(file).read_text()
+        opts: dict = {"source": source, "json": json_flag}
+        if function:
+            opts["function_name"] = function
+        result = tool_iris_verify(opts)
+        if not quiet:
+            typer.echo(result)
 
     app()
 

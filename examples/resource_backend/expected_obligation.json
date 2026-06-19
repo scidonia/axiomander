@@ -1,0 +1,40 @@
+{
+  "kind": "resource_wp_obligation",
+  "function": "bump",
+  "classification": "mixed_pure_resource",
+  "resource_model": "owned_field_v0",
+  "pre": {
+    "pure": [
+      "kind='binop' op='>=' left=Var(kind='var', name='box.value') right=IntLit(kind='int', value=0)"
+    ],
+    "field": [
+      "box",
+      "value",
+      "old_box_value"
+    ]
+  },
+  "program": [
+    "load_field t0 box value",
+    "t1 = t0 + 1",
+    "store_field box value t1",
+    "load_field t2 box value",
+    "return t2"
+  ],
+  "post": {
+    "field": [
+      "box",
+      "value",
+      "old_box_value"
+    ],
+    "pure": [
+      "t0 == old_box_value",
+      "t1 == old_box_value + 1",
+      "t2 == t1"
+    ]
+  },
+  "pure_side_conditions": [
+    "t0 == old_box_value",
+    "t1 == old_box_value + 1",
+    "t2 == t1"
+  ]
+}

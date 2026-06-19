@@ -1,7 +1,7 @@
 """
-LSP server for axiomander — real-time verification diagnostics.
+LSP server for axiomander -- real-time verification diagnostics.
 
-Publishes diagnostics after each document change using the incremental
+Publishes diagnostics after each document change using the Iris
 verification cache for fast feedback.
 
 Usage: python3 -m oracle.lsp_server
@@ -44,125 +44,65 @@ def _compute_diagnostics(source: str) -> list[lsp.Diagnostic]:
     if not funcs:
         return diagnostics
 
-    from oracle.mcp_server import tool_verify_changed
-    from oracle.cache import VerificationCache
-    try:
-        result = tool_verify_changed({"source": source})
-    except Exception:
-        return diagnostics
+    from oracle.iris_pipeline import _iris_cache_get
 
-    # Handle "All functions up to date" — check cache for each function
-    if "All functions up to date" in result:
-        cache = VerificationCache()
-        for node in funcs:
-            from oracle.mcp_server import _compute_hashes
-            h = _compute_hashes(source, node.name)
-            if h:
-                cached = cache.lookup(node.name, h)
-                if cached and cached.is_proved():
-                    diagnostics.append(lsp.Diagnostic(
-                        range=lsp.Range(
-                            start=lsp.Position(line=node.lineno - 1, character=0),
-                            end=lsp.Position(line=node.lineno - 1, character=0),
-                        ),
-                        message=f"✓ {node.name} proved (cached)",
-                        severity=lsp.DiagnosticSeverity.Information,
-                        source="axiomander",
-                    ))
-                else:
-                    diagnostics.append(lsp.Diagnostic(
-                        range=lsp.Range(
-                            start=lsp.Position(line=node.lineno - 1, character=0),
-                            end=lsp.Position(line=node.lineno - 1, character=0),
-                        ),
-                        message=f"⚠ {node.name} not proved",
-                        severity=lsp.DiagnosticSeverity.Warning,
-                        source="axiomander",
-                    ))
-        return diagnostics
-
-    in_table = False
-    for line in result.splitlines():
-        line = line.strip()
-        if line.startswith("| Function"):
-            in_table = True
+    for node in funcs:
+        try:
+            cached = _iris_cache_get(source, node.name)
+        except Exception:
             continue
-        if not in_table or not line.startswith("| `"):
-            continue
-
-        parts = [p.strip() for p in line.split("|")]
-        if len(parts) < 4:
-            continue
-        func_name = parts[1].strip("`")
-        status = parts[2].strip()
-        note = parts[5].strip() if len(parts) > 5 else ""
-
-        func_line = 0
-        for node in funcs:
-            if node.name == func_name:
-                func_line = node.lineno - 1
-                break
-
-        if status == "✓":
-            severity = lsp.DiagnosticSeverity.Information
-            msg = f"✓ {func_name} proved"
-            if note and "cached" in note:
-                msg += " (cached)"
-        elif status == "✗":
-            severity = lsp.DiagnosticSeverity.Warning
-            msg = f"✗ {func_name} — {note}" if note else f"✗ {func_name} not proved"
-        else:
-            continue
-
-        diagnostics.append(lsp.Diagnostic(
-            range=lsp.Range(
-                start=lsp.Position(line=func_line, character=0),
-                end=lsp.Position(line=func_line, character=0),
-            ),
-            message=msg,
-            severity=severity,
-            source="axiomander",
-        ))
+        if cached and cached.is_proved():
+            diagnostics.append(lsp.Diagnostic(
+                range=lsp.Range(
+                    start=lsp.Position(line=node.lineno - 1, character=0),
+                    end=lsp.Position(line=node.lineno - 1, character=0),
+                ),
+                message=f"{node.name} proved (cached)",
+                severity=lsp.DiagnosticSeverity.Information,
+                source="axiomander",
+            ))
+        elif cached:
+            diagnostics.append(lsp.Diagnostic(
+                range=lsp.Range(
+                    start=lsp.Position(line=node.lineno - 1, character=0),
+                    end=lsp.Position(line=node.lineno - 1, character=0),
+                ),
+                message=f"{node.name} not proved",
+                severity=lsp.DiagnosticSeverity.Warning,
+                source="axiomander",
+            ))
 
     return diagnostics
 
 
-async def _verify_after_delay(uri: str, source: str):
-    await asyncio.sleep(DEBOUNCE_SECONDS)
-    t0 = time.time()
-    diagnostics = _compute_diagnostics(source)
-    elapsed = (time.time() - t0) * 1000
-    server.text_document_publish_diagnostics(
-        lsp.PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics)
-    )
-    logger.info(f"{uri.rsplit('/', 1)[-1]}: {len(diagnostics)} diags ({elapsed:.0f}ms)")
+def _schedule_diagnostics(uri: str, source: str):
+    async def _run():
+        await asyncio.sleep(DEBOUNCE_SECONDS)
+        task = _pending.get(uri)
+        if task is None:
+            return
+        t0 = time.monotonic()
+        diagnostics = _compute_diagnostics(source)
+        elapsed = time.monotonic() - t0
+        logger.info("diagnostics for %s: %d items in %.2fs", uri, len(diagnostics), elapsed)
+        server.text_document_publish_diagnostics(
+            lsp.PublishDiagnosticsParams(uri=uri, diagnostics=diagnostics)
+        )
 
-
-def _trigger_verify(uri: str, source: str):
-    if not uri.endswith(".py"):
-        return
-    task = _pending.get(uri)
-    if task and not task.done():
-        task.cancel()
-    _pending[uri] = asyncio.ensure_future(_verify_after_delay(uri, source))
+    task = asyncio.create_task(_run())
+    _pending[uri] = task
+    task.add_done_callback(lambda _: _pending.pop(uri, None))
 
 
 @server.feature(lsp.TEXT_DOCUMENT_DID_OPEN)
 def did_open(ls: LanguageServer, params: lsp.DidOpenTextDocumentParams):
-    _trigger_verify(params.text_document.uri, params.text_document.text)
+    _schedule_diagnostics(params.text_document.uri, params.text_document.text)
 
 
 @server.feature(lsp.TEXT_DOCUMENT_DID_CHANGE)
 def did_change(ls: LanguageServer, params: lsp.DidChangeTextDocumentParams):
-    changes = params.content_changes
-    if changes:
-        _trigger_verify(params.text_document.uri, changes[-1].text)
-
-
-@server.feature(lsp.TEXT_DOCUMENT_DID_SAVE)
-def did_save(ls: LanguageServer, params: lsp.DidSaveTextDocumentParams):
-    doc = ls.workspace.get_text_document(params.text_document.uri)
-    _trigger_verify(params.text_document.uri, doc.source)
+    text = params.content_changes[0].text
+    _schedule_diagnostics(params.text_document.uri, text)
 
 
 @server.feature(lsp.TEXT_DOCUMENT_DID_CLOSE)

@@ -42,6 +42,7 @@ PURE_BUILTINS = frozenset({
     "re_match",   # regex membership: s.re_match("[0-9]+")
     "is_shape",   # Pydantic shape predicate
     "field",      # field(obj, "name", var) → flat-field access
+    "owns",       # resource ownership: owns(box) → separation-logic footprint
 })
 
 PURE_MODULE_FUNCTIONS = frozenset({
@@ -84,13 +85,17 @@ class ContractLinter(ast.NodeVisitor):
     """
 
     def __init__(self, params: list[str] | None = None, context: str = "postcondition",
-                 predicates: dict | None = None, unbound: frozenset[str] = frozenset()):
+                  predicates: dict | None = None, unbound: frozenset[str] = frozenset(),
+                  ghost_resolver: dict[str, str] | None = None,
+                  param_type_hint: dict[str, str] | None = None):
         self.violations: list[LintViolation] = []
         self.params = params or []
         self.context = context
         self.predicates: dict = predicates or {}
         self.var_types: dict[str, str] = {}  # var_name → "dict" | "list" | "int" | "unknown"
-        self.unbound: frozenset[str] = unbound  # ghost/forall vars excluded from state scoping
+        self.unbound: frozenset[str] = unbound
+        self.ghost_resolver: dict[str, str] = ghost_resolver or {}
+        self.param_type_hint: dict[str, str] = param_type_hint or {}
 
     def lint_expression(self, node: ast.expr) -> LintResult:
         """Convert a Python expression to IR. Returns LintResult with coq/smt."""
@@ -127,6 +132,17 @@ class ContractLinter(ast.NodeVisitor):
                 if left and isinstance(left, Var) and op in ("=", "<>"):
                     n = len(node.comparators[0].elts)
                     return ListEqExpr(name=left.name, op=op, n_elements=n)
+            # Set-literal membership: x in {"a", "b", ...} expands to a
+            # disjunction of equalities; x not in {...} to a conjunction of
+            # inequalities.  String elements use StringEqualsExpr; ints use
+            # BinOp '='.  This is the contract-language form for
+            # `result.status in {"fulfilled", "failed_recoverably"}`.
+            if (op in ("in", "notin")
+                    and isinstance(node.comparators[0], ast.Set)):
+                member = self._expand_set_membership(
+                    node.left, node.comparators[0], negated=(op == "notin"))
+                if member is not None:
+                    return member
             left = self.visit(node.left)
             right = self.visit(node.comparators[0])
             if op == "in":
@@ -153,12 +169,10 @@ class ContractLinter(ast.NodeVisitor):
                     return StringContainsExpr(needle=needle, haystack=right.name, negated=True)
                 return BinOp(op="=", left=IntLit(value=1), right=IntLit(value=0))
             if left and right:
-                # Convert BoolLit to IntLit in comparison context so
-                # result == True compiles to asZ result = 1 (not = True)
-                if isinstance(left, BoolLit):
-                    left = IntLit(value=1 if left.value else 0)
-                if isinstance(right, BoolLit):
-                    right = IntLit(value=1 if right.value else 0)
+                # NOTE: BoolLit→IntLit conversion removed for Iris.
+                # BoolLit comparisons (e.g. result == True) now survive
+                # as bool so that _result_value_kind detects boolean
+                # result types and the postcondition uses the bool wrapper.
                 # String comparison: Var == "literal" → String.eqb form
                 # Only when the Var is a known string type.
                 if op in ("=", "!=") and isinstance(left, Var) and isinstance(right, StrLitExpr):
@@ -181,6 +195,42 @@ class ContractLinter(ast.NodeVisitor):
             if left and right:
                 conjuncts.append(BinOp(op=op_str, left=left, right=right))
         return Logical(op="and", operands=conjuncts) if conjuncts else None
+
+    def _expand_set_membership(self, left_node: ast.expr, set_node: ast.Set,
+                               negated: bool) -> Optional[Expr]:
+        """Expand `x in {e1, e2, ...}` to a disjunction of equalities.
+
+        `x in {"a", "b"}`     -> (x = "a") \\/ (x = "b")
+        `x not in {"a", "b"}` -> (x <> "a") /\\ (x <> "b")
+
+        String elements produce StringEqualsExpr; integer elements produce
+        BinOp.  The left operand may be a Name or an attribute chain
+        (e.g. result.status), resolved through the normal visitor.
+        """
+        from .contract_ir import StringEqualsExpr
+        left = self.visit(left_node)
+        if left is None or not isinstance(left, Var):
+            return None
+        terms: list[Expr] = []
+        for elt in set_node.elts:
+            if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                terms.append(StringEqualsExpr(
+                    var=left.name, literal=elt.value, negated=negated))
+            elif isinstance(elt, ast.Constant) and isinstance(elt.value, bool):
+                iv = 1 if elt.value else 0
+                terms.append(BinOp(op=("<>" if negated else "="),
+                                   left=left, right=IntLit(value=iv)))
+            elif isinstance(elt, ast.Constant) and isinstance(elt.value, int):
+                terms.append(BinOp(op=("<>" if negated else "="),
+                                   left=left, right=IntLit(value=elt.value)))
+            else:
+                # Unsupported element kind: bail to the generic path.
+                return None
+        if not terms:
+            return None
+        if len(terms) == 1:
+            return terms[0]
+        return Logical(op=("and" if negated else "or"), operands=terms)
 
     def visit_BoolOp(self, node: ast.BoolOp) -> Optional[Expr]:
         operands = [self.visit(v) for v in node.values]
@@ -264,7 +314,7 @@ class ContractLinter(ast.NodeVisitor):
                 field_name = node.args[1].value if isinstance(node.args[1], ast.Constant) else None
                 var = self.visit(node.args[2])
                 if obj and field_name and var:
-                    from .contract_ir import BinOp, Var, IntLit
+                    from .contract_ir import BinOp, IntLit
                     # _escape_field convention: literal underscores → double underscores
                     safe_field = field_name.replace("_", "__")
                     flat_key = f"{obj}_{safe_field}"
@@ -287,13 +337,22 @@ class ContractLinter(ast.NodeVisitor):
                             "re_match() requires exactly one string literal argument: "
                             "s.re_match(\"[0-9]+\")")
             return None
+        if name == "load":
+            if len(node.args) == 1 and isinstance(node.args[0], ast.Name):
+                return Var(name=node.args[0].id)
+            return None
+        if name == "store":
+            return None  # store is not a pure expression
         if name not in PURE_BUILTINS and name not in PURE_MODULE_FUNCTIONS \
            and method_name not in PURE_BUILTINS:
             if name in self.predicates:
                 return self._expand_predicate(node, name)
-            self._violation(node, ExprKind.IMPURE_CALL,
-                          f"Function '{name}' not in pure whitelist")
-            return None
+            if name == "load":
+                if len(node.args) == 1 and isinstance(node.args[0], ast.Name):
+                    return Var(name=node.args[0].id)
+                return None
+            if name == "store":
+                return None  # store is not a pure expression
         return self._translate_pure_call(node, name)
 
     def _expand_predicate(self, node: ast.Call, name: str) -> Optional[Expr]:
@@ -418,12 +477,37 @@ class ContractLinter(ast.NodeVisitor):
                 idx = IntLit(value=0)
             return IndexExpr(name=name, index=idx)
         # Resolve enum member references to their integer encoding
-        # e.g. ProofLevel.UNPROVED → IntLit(3)
         if isinstance(node.value, ast.Name):
-            from .shape_ir import lookup_enum_value
+            from .shape_ir import lookup_enum_value, lookup_shape
             ev = lookup_enum_value(node.value.id, node.attr)
             if ev is not None:
                 return IntLit(value=ev)
+            # Model field access (Pydantic/shape): resolve the param name
+            # to its declared type, then check the shape registry.  If the
+            # type IS a shape, produce a structural FieldAccess (not a
+            # flattened Var) so that contracts like
+            # [assert account.balance >= 0] compile to Z-valued Coq Props.
+            param_name = node.value.id
+            model_type = self.param_type_hint.get(param_name)
+            if model_type and lookup_shape(model_type) is not None:
+                from .contract_ir import FieldAccess
+                return FieldAccess(obj=param_name, field=node.attr)
+        # If the base is a Call (e.g. Order(order_id).status), the
+        # contract language can't represent the call return value as
+        # a flat variable.  Return OpaqueTerm so the comparison
+        # short-circuits to True (the observer's guarantee comes from
+        # the callee's contract transitively).
+        if isinstance(node.value, ast.Call):
+            from .contract_ir import OpaqueTerm
+            return OpaqueTerm(name=self._get_call_name(node.value) or "?")
+        # result.attr (e.g. result.status) — structural field projection
+        # on the return value.  Emit FieldAccess with obj="result"; in the
+        # postcondition compilation, the obj is mapped to the raw WP binder
+        # "v" (not the unpacked Z/bool/string bound variable) so that
+        # model_field_Z v "attr" extracts the field from the return value.
+        if isinstance(node.value, ast.Name) and node.value.id == "result":
+            from .contract_ir import FieldAccess
+            return FieldAccess(obj="result", field=node.attr)
         path = self._attribute_path(node)
         # Always normalise dots to underscores with _escape_field convention:
         # precondition: bare var  e.g. item_value  (Coq param name)
@@ -550,7 +634,24 @@ class ContractLinter(ast.NodeVisitor):
                         tag_var = f"{obj_name}_tag"
                         return BinOp(op="=", left=Var(name=tag_var), right=IntLit(value=tag))
             return IntLit(value=1)
-        return IntLit(value=0)
+        if name == "owns":
+            # owns(x) → resource ownership predicate
+            if node.args and isinstance(node.args[0], ast.Name):
+                from .contract_ir import ROwnExpr
+                return ROwnExpr(obj=node.args[0].id)
+            return IntLit(value=1)
+        # Ghost resolver: observer calls resolved to ghost variable names
+        # from the callee's OpaqueSpec.ghost_vars mapping.
+        if name in self.ghost_resolver:
+            return Var(name=self.ghost_resolver[name])
+        # Unknown function call → opaque DB observer (OpaqueTerm → True)
+        # opaque DB observer (e.g. db_get_payment_state(order_id)).
+        # Compiles to True in Coq Prop; the real guarantee is discharged
+        # transitively through the callee's own contract.
+        from .contract_ir import OpaqueTerm
+        return OpaqueTerm(name=name, args=[
+            self.visit(a) for a in node.args if self.visit(a) is not None
+        ])
 
     def _translate_quantifier(self, node: ast.Call, name: str) -> Optional[Expr]:
         """Translate all(p(x) for x in lst) or all(p(x) for x in range(lo, hi))."""

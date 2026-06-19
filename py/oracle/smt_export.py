@@ -26,6 +26,87 @@ class SmtResult:
     error: str = ""
 
 
+def verify_inv_update(
+    inv_old: str,
+    body_equalities: list[tuple[str, str]],
+    inv_new: str,
+    extra_vars: list[str] | None = None,
+    solver: str = "cvc4",
+) -> SmtResult:
+    """Verify that a loop invariant is preserved by the body.
+
+    Given:
+      - inv_old: invariant at start of iteration (Coq expression)
+      - body_equalities: [(new_var, expr)] from body execution
+      - inv_new: invariant to prove after body (Coq expression)
+      - extra_vars: additional variable names (e.g. ['z', 'bound'])
+
+    Checks: inv_old /\\ body -> inv_new is valid (UNSAT of negation).
+    """
+    # Collect all variable names explicitly
+    all_exprs = [inv_old, inv_new] + [e for _, e in body_equalities]
+    vars_found = _extract_vars(*all_exprs)
+    if extra_vars:
+        vars_found.update(extra_vars)
+    # Add body new-variables
+    for new_var, _ in body_equalities:
+        vars_found.add(new_var)
+    if not vars_found:
+        return SmtResult(is_valid=False, error="No variables found")
+
+    inv_old_smt = _expr_to_smt(inv_old)
+    inv_new_smt = _expr_to_smt(inv_new)
+    body_smt_parts = [
+        f"(= {new_var} {_expr_to_smt(expr)})"
+        for new_var, expr in body_equalities
+    ]
+    body_smt = ("(and " + " ".join(body_smt_parts) + ")"
+                if len(body_smt_parts) > 1
+                else body_smt_parts[0] if body_smt_parts else "true")
+
+    smt_lines = ["(set-logic QF_NIA)"]
+    for var in sorted(vars_found):
+        smt_lines.append(f"(declare-fun {var} () Int)")
+    smt_lines.append(f"(assert {inv_old_smt})")
+    if body_smt_parts:
+        smt_lines.append(f"(assert {body_smt})")
+    smt_lines.append(f"(assert (not {inv_new_smt}))")
+    smt_lines.append("(check-sat)")
+
+    smt_src = "\n".join(smt_lines)
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".smt2", delete=False, prefix="inv_"
+        ) as f:
+            f.write(smt_src)
+            tmp_path = Path(f.name)
+
+        for s in ([solver] if solver != "any"
+                  else ["cvc4", "z3", "cvc5"]):
+            if not __import__("shutil").which(s):
+                continue
+            try:
+                result = subprocess.run(
+                    [s, str(tmp_path)],
+                    capture_output=True, text=True, timeout=15)
+                out = result.stdout.strip()
+                if "unsat" in out:
+                    return SmtResult(is_valid=True, solver=s, raw_output=out)
+                if "sat" in out and "unsat" not in out:
+                    return SmtResult(is_valid=False, solver=s, raw_output=out)
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                continue
+        return SmtResult(is_valid=False, error="All solvers timed out or failed")
+    finally:
+        if tmp_path:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+
 def verify_vcg(
     invariant: str,
     exit_cond: str,

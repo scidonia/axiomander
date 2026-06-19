@@ -43,14 +43,41 @@ Fixpoint filterb {A} (p : A -> bool) (xs : list A) : list A :=
 Lemma forallb_true : forall A (p : A -> bool) (xs : list A),
   forallb p xs = true <-> (forall x, In x xs -> p x = true).
 Proof.
-Admitted.
+  intros A p xs.
+  induction xs as [|y ys IH]; simpl.
+  - split; auto.
+  - rewrite Bool.andb_true_iff.
+    split.
+    + intros [Hpy Hforall] z [-> | Hz].
+      * exact Hpy.
+      * apply IH; auto.
+    + intros H. split.
+      * apply H; left; reflexivity.
+      * apply IH; intros z Hz; apply H; right; exact Hz.
+Qed.
 
 Lemma existsb_true : forall A (p : A -> bool) (xs : list A),
   existsb p xs = true <-> exists x, In x xs /\ p x = true.
 Proof.
-Admitted.
+  intros A p xs.
+  induction xs as [|y ys IH]; simpl.
+  - split; [easy | intros [x [H _]]; easy].
+  - rewrite Bool.orb_true_iff.
+    split.
+    + intros [Hpy | Hex].
+      * exists y; split; [left; reflexivity | exact Hpy].
+      * apply IH in Hex as [x [Hx Hpx]].
+        exists x; split; [right; exact Hx | exact Hpx].
+    + intros [x [[-> | Hx] Hpx]].
+      * left; exact Hpx.
+      * right; apply IH; exists x; split; [exact Hx | exact Hpx].
+Qed.
 
 Lemma countb_app : forall A (p : A -> bool) (xs ys : list A),
   countb p (xs ++ ys) = countb p xs + countb p ys.
 Proof.
-Admitted.
+  intros A p xs ys.
+  induction xs as [|x xs IH]; simpl.
+  - reflexivity.
+  - rewrite IH; destruct (p x); reflexivity.
+Qed.

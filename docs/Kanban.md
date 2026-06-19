@@ -1,109 +1,136 @@
 # Kanban
 
-## Done
+## Iris Backend — Done
 
-### Core pipeline
-- [x] IMP language — value-typed state model: `VZ | VBool | VUnit | VString | VFloat | VNone | VTuple | VList | VDict | VBytes`
-- [x] `value_eqb` — structural equality dispatching on all 10 value constructors (nested fix for containers)
-- [x] WP calculus with `aeval → value` (box/unbox dispatch), `beval` type-aware comparison, float coercion
-- [x] `wp_reduce` / `wp_prove` structural automation (unfolds asZ/asString/asFloat, `cbn -[In clobber]`)
-- [x] VCG while-exit obligation generation + SMT/Lia proofs
-- [x] Pydantic model encoding (Record types, `store_field`, `load_field`, frame condition generation)
-- [x] Python contract linter (`assert` → IR → Coq + SMT-LIB)
-- [x] Python → IMP body translator (assign, if/else, while, for, return, augmented assignment, break/continue)
-- [x] **85 tests**: 15 negative, 70 positive — covering arithmetic, loops, lists, dicts, sets, strings, class fields, predicates, function calls, range quantifiers, frame conditions, stub integration, tuple/bytes/dict/None/float/string value comparisons
-- [x] LLM oracle wired to coqpyt (interactive proof validation)
-- [x] String parameter storage — `VString s_str` at original key + `VZ s__len` at `._len`
-- [x] Float parameter storage — `VFloat` for `float`-annotated params
-- [x] `IsNot` → `BNot(BEq)` fix (was silently proving `x is not None` on `None` values)
+### Core language
+- [x] `wp_while_inv_gen` — Qed (heap-counter while with side condition)
+- [x] `wp_while_str` — Qed (string-guard while, Hoare rule)
+- [x] `call_opaque_pred` + ghost threading — Z-witness extraction
+- [x] `OpaqueSpec.post_pred / post_witness / ghost_vars / ghost_wits`
+- [x] Per-branch ghost_close — observer verified for non-branched subcontracts
+- [x] `OpaqueTerm` — unknown calls in contracts → True (trusted)
+- [x] IntEnum resolution — linter + lowering + multi-file via `build_shape_registry`
+- [x] Docstring contract wiring — `axiomander:` blocks feed Iris pipeline
+- [x] Multi-post ensures — conjoined under shared existential
+- [x] `->` → `implies()` rewrite, `owns`/`frame`/`preserves` parsing
+- [x] `finish_pure` — handles string existentials, set membership, bool, int, float, sn_val
+- [x] Ghost_close rz-shadowing fix — unique hypothesis names per callee
 
-### MCP server + tools
-- [x] check-file, check-function, verify-function, verify-changed, verify-impacted, explain-cache
-- [x] `frame-report` — pre/post/inv contracts + modifies/preserves + callee effects
-- [x] CLI parity: all tools exposed via Typer CLI
+### IMP retirement features
+- [x] String param types — annotation-driven `LitString` vs `LitInt` vs `sn_val`
+- [x] String indexing — `StrIndexOp` binop via `String.substring`
+- [x] String operations — `StartsWithOp` / `EndsWithOp` (real, not mock)
+- [x] Dict indexing — `d[k]` with KeyError semantics via `MkKeyErrOp`
+- [x] Dict/field projection — `dict_lookup`, `DictGetOp`, `model_field_Z`
+- [x] List append SSA — value-type lists rebind via `SLet` after append
+- [x] Set operations — `InOp`, `SetAddOp`, `UnionOp`, `InterOp` in Coq + lowering
+- [x] Float arithmetic — `LitFloat`, coercion (int+float→float), `z2float`
+- [x] Float contracts — `PrimFloat.leb`/`ltb`/`eqb`, `_FLOAT_PARAMS` global
+- [x] Boolean contracts — `BoolLit` preserved (not collapsed to IntLit), bool result kind
+- [x] Pydantic field access — `field_access` via `DictGetIntOp`, shape registry type detection
+- [x] Structured result fields — `result.x` in postconditions via `model_field_Z v "x"`
+- [x] Symbolic while loops — single-variable (`i < n`) heap promotion
+- [x] Multi-variable while loops — all assigned locals heap-promoted (`i`, `acc`)
+- [x] Loop invariant verification — invariant premises in per-loop lemmas
+- [x] Loop invariant SMT discharge — `Expr.to_smt()` → cvc4/z3, no regex/string parsing
+- [x] Score: 79+ tests (74 Iris + 5 fulfil_order), 0 failures
 
-### Caching
-- [x] Incremental verification cache (body/contract/callee-contract discipline)
-- [x] Dependency graph + transitive invalidation
+### Proof engineering
+- [x] Staged proof output — per-stage IDs in tactic comments
+- [x] Residual goal capture — `capture_residual()` produces `.v` fragment with `Show.`
+- [x] `nia` / `sfirstorder` / `lia` tactic ladder in finish_pure and invariant subgoals
+- [x] `length_app` rewrite for list-length simplification
 
-### Frame conditions
-- [x] Library stubs (`.pyi`): requires/ensures/reads/writes docstring contracts
-- [x] Stub merge with source asserts (source pre/post take precedence, reads/writes union)
-- [x] `CCall` carries `writes : list var` through the pipeline
-- [x] `clobber` semantics — ceval zeros out callee writes variables
-- [x] Frame lemmas: `clobber_nil`, `clobber_unchanged`, `upd_unchanged`, `wp_ccall_frame`
-- [x] Frame enforcement wired via `cbn -[In clobber]` + `wp_ccall_frame` lemma
-- [x] Implicit field preservation for class fields (generate_frame_conditions)
-- [x] `asZ` wrapping fix for frame conditions
+### Architecture: Expr AST → to_coq/to_smt (late compilation)
+- [x] `WhileInv.invariant_exprs` stores `contract_ir.Expr` nodes, not pre-compiled strings
+- [x] `invariants` @property compiles lazily via `iris_prop()`
+- [x] `collect_inv_obligations` calls `expr.to_smt()` directly — no regex, no string parsing
+- [x] Variable renaming via AST walk (`rename_expr`), not `re.sub`
+- [x] `z → z+1` substitution via `subst_z_plus_one` AST walk
 
-### Purity & black holes
-- [x] Purity analyzer: black hole detection for impure calls
-- [x] `CHavoc` for impure calls
-
-### Value types (all 10 constructors)
-- [x] `VString` — `String.eqb` equality, `AString` aexp, `StrLitExpr` IR, `asString` wrapper
-- [x] `VFloat` — Z-encoded (scale 100), `AFloat` aexp, `FloatExpr` IR, `asFloat`, `BLe` dispatch, coercion in aeval
-- [x] `VNone` — `ANone` aexp, `is None` via BEq, `is not None` via BNot(BEq)
-- [x] `VTuple` — `ATuple` aexp, structural equality via nested fix
-- [x] `VList` — value constructor for equality, heap commands preserved for mutation
-- [x] `VDict` — `ADict` aexp, `DictExpr` IR, `visit_Dict` linter
-- [x] `VBytes` — `ABytes` aexp, byte literal translation
-- [x] `VSet` — value constructor exists, translator/linter pending
-
-### Negative tests
-- [x] 15 negative tests: weak invariants, missing bounds, false postconditions, broken string/bytes/dict/None comparisons, frame violation, braces, count errors
-- [x] AGENTS.md rule: every new type/operation must have negative tests
+### fulfil_order
+- [x] 3 subcontracts (do_validate_fraud, do_capture_payment, do_commit_order) + composition
 
 ---
 
-## In Progress
+## Remaining Gaps
 
-### LSP + tooling
-- [ ] Better error reporting (map coqc errors to Python source lines)
-- [ ] LLM oracle reliability (better prompt, more retries, proof repair)
-- [ ] CI — GitHub Action
+### Language completeness
+- [x] **`is_valid` field constraints** — `ge`/`le`/`gt`/`lt`
+  via model_field_Z projection works at IR level.  `_is_valid` handler emits
+  `model_field_Z` comparisons from shape registry.  Negative tests demonstrate
+  constraint violations are caught.  Coq side uses trusted `model_field_Z` axiom.
+- [ ] **String lower/upper for Unicode** — ASCII case-mapping is done
+  (Coq Fixpoint via `Ascii.N_of_ascii` byte arithmetic). SMT string theory
+  (cvc4/z3) lacks `str.to_lower`/`str.to_upper`.  Full Unicode would require
+  UCD tables or codepoint-aware `LitUnicode : list Z -> sn_val`.
+- [x] **`d.get(k, default)`** — real body (If(k in d, d[k], default))
+  works at IR level.  Now handles BOTH concrete (literal) and opaque dicts
+  via `dict_has` Definition (returns bool via LitBool wrapper, not raw
+  match).  `case_bool` destructs all booleans including literals; `focus_redex`
+  added so If is visible through Let bindings.  5 tests pass (hit, miss,
+  opaque, dict_set basic + expression).
+- [x] **`dict_set` lowering** — `TupleOp` binop constructs LitTuple [v1; v2]
+  from two values.  `dict_set` transparent helper uses `SBinOp("tuple", ...)`
+  instead of SLit tuple (which can't reference variables).  2 tests pass.
 
-### VSet completion
-- [ ] Translator: `ast.Set` → `ASetLit`
-- [ ] Linter: `visit_Set` → `SetExpr` IR node
-- [ ] Negative test: set equality violation
+### Verification strength
+- [x] **Body--invariant coupling** — resolved.  `subst_body_update` replaces `a_i → a_i + (z+1)`
+  in the invariant conclusion, fixing the bug where the SMT axiom used old `a_0`.  Per-loop
+  lemmas use `smt_ax_N; [exact Hz | exact Hcond | exact HinvN]`.  Call-site invariant
+  blocks use `nia|lia|simpl; reflexivity`.
+- [x] **Invariant SMT discharge** — resolved.  `collect_inv_obligations` walks WhileInv nodes,
+  compiles via `expr.to_smt()` (no regex).  `discharge_inv_obligations` + `_smt_check`
+  sends to cvc4/z3 (QF_NIA).  Fallback to `nia|sfirstorder|lia` for non-division cases.
+- [x] **Complex invariants with division** — `acc == i*(i+1)//2` compiles to `Z.div`.
+  SMT handles it in the obligation; contract-level Postcondition uses `Z.div` via
+  `nia`.  Current tests pass.  For robustness, rewrite contracts as `2*acc == i*(i+1)`.
 
----
+### IMP backend (pre-existing, not Iris)
+- [ ] `set_count` — set operations inside while loops fail VCG
+- [ ] `in_vocab` — set membership inside while loops fails VCG
 
-## Next — Contract Language
+### Infrastructure
+- [x] **Fault isolation** — `verify_iris_safe()` wraps `python_to_iris_proof` + `coqc`
+  in try/except, returns `GoalStatus`. One crashing function does not cascade.
+- [x] **CLI entry point** — `main()` with `--function`, `--json`, `--quiet`, toolchain
+  guard, exit codes 0/1/2. Parity with pipeline.py's CLI.
+- [x] **Dafny-flavored JSON schema** — `PipelineReport.to_json()` produces standard
+  schema via existing `reporting.py` types. `verify_iris_safe` returns `GoalStatus`;
+  `run_iris_pipeline` returns `PipelineReport`.
+- [x] **Failure classification** — `_classify_iris_failure` runs `classify_failure` +
+  `action_guidance` on unproved goals. Loop detection via AST walk.
+- [x] **CLI dispatch** — `verify-function` / `check-function` / `verify-changed` /
+  `verify-impacted` / `explain-cache` still route to IMP backend. When IMP is
+  retired, these must dispatch to Iris. Currently users must know to use the
+  separate `iris-verify` command.
+  → Resolved: `check-function` and `verify-function` now route to Iris by
+  default. `--backend imp` flag preserved for fallback. `verify-changed`
+  and `verify-impacted` remain IMP-only (need Iris incremental support).
+- [x] **Caching + incremental verification** — Iris re-verifies everything from
+  scratch on every run. IMP tracks per-function hashes (body, contracts, callees)
+  and only re-verifies what changed. Iris needs hash-based caching with
+  transitive caller invalidation.
+  → Resolved: file-based cache in `.axiomander/cache/entries/iris_*.json`.
+  `verify-function` uses `use_cache=True`. Hash keys body + contracts.
+  Cold run ~2s, warm run <10ms.
+- [x] **frame-report command** — the `frame-report` tool function exists in
+  `mcp_server.py` but is not wired as a typer CLI command. It was removed
+  during the main PR. Needs to be re-added (works for both backends).
+  → Resolved: typer command added. Shows pre/post conditions and
+  frame variables per function.
 
-- [ ] Implication in contracts: `A → B` (conditional guarantees)
-- [ ] Branch-specific postconditions
-- [ ] General quantifiers: `forall`/`exists` as IR nodes (beyond `all()`/`any()`)
-- [ ] Relational properties: "output is a permutation of input"
-- [ ] Multiple loop VCGs (currently only outermost/last loop gets VCG)
+### Nice-to-have
+- [ ] **Existential quantifier** — `exists e in EventBus.emitted` (domain-specific)
+- [ ] **For loops over dicts** — `for k, v in d.items()`
+- [ ] **isinstance type dispatch** — tag-based branching
+- [ ] **Multiple loop VCGs** — currently only outermost/last loop gets VCG (IMP)
 
----
-
-## Next — Effects & I/O
-
-- [ ] Filesystem ghost state — `read_text`/`write_text` modeled as ghost map updates
-- [ ] Path traversal safety proofs — `_resolve_local_path` never escapes root
-- [ ] OCC (optimistic concurrency control) verification — hash-checked writes
-- [ ] Database ghost state — SQL queries as ghost reads, transactions as ghost writes
-- [ ] Network stubs — `httpx.get` as opaque axiom
-
----
-
-## Backlog
-
-### Proof strength
-- [ ] Induction in VCG
-- [ ] Non-linear arithmetic counterexample extraction
+### Deferred
+- [ ] History model — `exactly_once_domain_effect`
+- [ ] Event log ghost theory — `may_emit` / `must_not_emit`
+- [ ] Global invariants — `preserves GlobalInvariant.*`
+- [ ] Frame lemmas from `frame:` declarations
+- [ ] Old-value capture — `old(x)` in docstring ensures
 - [ ] Termination measures
-- [ ] Supercompiler / symbolic evaluation of WP for concrete inputs
-
-### Hard types
-- [ ] `VComplex (re im : Z)` — two-component float
-- [ ] `VGenerator` — lazy evaluation, state-capture semantics
-- [ ] `VFunction` / `VMethod` — first-class functions
-
-### Polish
-- [ ] Delete dead code: `vcg_exit` Ltac, duplicate `return` in `_translate_for`
-- [ ] Documentation — user guide, API reference
-- [ ] Exception handling (try/except as black holes)
+- [ ] CI — GitHub Action
