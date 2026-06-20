@@ -1,6 +1,8 @@
 opam-version: "2.0"
 name: "axiomander"
 synopsis: "Hoare-logic verification pipeline for Python"
+authors: ["axiomander contributors"]
+license: "MIT"
 maintainer: "dev@axiomander.local"
 version: "0.1.0"
 homepage: "https://github.com/scidonia/axiomander"
@@ -8,10 +10,11 @@ bug-reports: "https://github.com/scidonia/axiomander/issues"
 depends: [
   "ocaml" {>= "5.2.0"}
   "dune" {>= "3.17"}
-  "coq" {>= "8.20.0"}
+  "rocq-core" {>= "9.0.0"}
+  "rocq-stdlib" {>= "9.0.0"}
   "coq-hammer"
-  "coq-iris"
-  "coq-stdpp"
+  "rocq-iris"
+  "rocq-stdpp"
 ]
 build: [
   ["dune" "subst"] {dev}
