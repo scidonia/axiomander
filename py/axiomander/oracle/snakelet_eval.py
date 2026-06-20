@@ -27,6 +27,8 @@ class VUnit(Val): pass
 @dataclass
 class VTuple(Val): vs: list[Val]
 @dataclass
+class VDict(Val): d: dict[str, Val]
+@dataclass
 class VLoc(Val): l: int
 
 @dataclass
@@ -41,6 +43,10 @@ class VError(Val):
     @staticmethod
     def value_error(msg: str = "") -> "VError":
         return VError("ValueError", msg)
+
+    @staticmethod
+    def key_error(msg: str = "") -> "VError":
+        return VError("KeyError", msg)
 
 
 # ── Interpreter ──────────────────────────────────────────────────
@@ -85,6 +91,16 @@ def _binop(op: str, l: Val, r: Val) -> Val:
 
     if isinstance(l, VString) and isinstance(r, VInt) and op == "mul":
         return VString(l.v * r.v)
+
+    # Dict operations
+    if isinstance(l, VDict) and isinstance(r, VString):
+        if op == "dict_get_int":
+            val = l.d.get(r.v)
+            if isinstance(val, VInt):
+                return val
+            return VError.key_error(r.v)
+        if op == "in":
+            return VBool(r.v in l.d)
 
     # Integer operations
     if isinstance(l, VInt) and isinstance(r, VInt):
@@ -151,6 +167,17 @@ def eval_expr(e: Any, s: State, env: dict[str, Val]) -> Val:
         if t == "bool": return VBool(v.lower() == "true")
         if t == "string": return VString(v)
         if t == "unit": return VUnit()
+        if t == "dict":
+            d: dict[str, Val] = {}
+            if e.elements:
+                elems = list(e.elements)
+                for i in range(0, len(elems), 2):
+                    if i + 1 < len(elems):
+                        key_val = eval_expr(elems[i], s, env)
+                        val_val = eval_expr(elems[i + 1], s, env)
+                        key_str = str(key_val.v) if hasattr(key_val, 'v') else str(key_val)
+                        d[key_str] = val_val
+            return VDict(d)
         return VUnit()
 
     if isinstance(e, SVar):

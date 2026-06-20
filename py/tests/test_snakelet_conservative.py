@@ -9,7 +9,7 @@ import pytest
 from typing import Any
 from axiomander.oracle.snakelet_eval import (
     eval_expr, State, VInt, VFloat, VBool, VString, VUnit, VTuple, VLoc,
-    Val, VError, alloc,
+    Val, VError, VDict, alloc, _binop,
 )
 from axiomander.oracle.snakelet_ir import (
     SLit, SVar, SBinOp, SLoad, SStore, SLet, SIf, SReturn, SSeq, SFAA, SDictGet,
@@ -171,3 +171,79 @@ def test_bump_end_to_end():
 def test_float_inexact():
     """0.1 + 0.2 != 0.3 in IEEE 754 — our float model must preserve this."""
     assert 0.1 + 0.2 != 0.3, "IEEE 754: 0.1+0.2≠0.3 is a property of floats"
+
+
+# ── Pydantic models: field access via DictGetIntOp ───────────────
+
+def test_dict_get_int_hit():
+    """model.field on a dict returns the integer field value."""
+    from axiomander.oracle.snakelet_eval import VDict, VInt
+    d = VDict({"balance": VInt(42), "limit": VInt(100)})
+    result = _binop("dict_get_int", d, VString("balance"))
+    assert isinstance(result, VInt) and result.v == 42
+
+
+def test_dict_get_int_miss():
+    """model.field on a non-existent key raises KeyError."""
+    from axiomander.oracle.snakelet_eval import VDict, VInt, VError
+    d = VDict({"balance": VInt(42)})
+    result = _binop("dict_get_int", d, VString("missing"))
+    assert isinstance(result, VError) and result.kind == "KeyError"
+
+
+def test_dict_get_int_wrong_type():
+    """model.field where the value is not an int raises KeyError."""
+    from axiomander.oracle.snakelet_eval import VDict, VString, VError
+    d = VDict({"name": VString("alice")})
+    result = _binop("dict_get_int", d, VString("name"))
+    assert isinstance(result, VError) and result.kind == "KeyError"
+
+
+def test_dict_in_op_hit():
+    """InOp 'balance' in model → True."""
+    from axiomander.oracle.snakelet_eval import VDict, VInt, VBool
+    d = VDict({"balance": VInt(42)})
+    result = _binop("in", d, VString("balance"))
+    assert isinstance(result, VBool) and result.v is True
+
+
+def test_dict_in_op_miss():
+    """InOp 'missing' in model → False."""
+    from axiomander.oracle.snakelet_eval import VDict, VInt, VBool
+    d = VDict({"balance": VInt(42)})
+    result = _binop("in", d, VString("missing"))
+    assert isinstance(result, VBool) and result.v is False
+
+
+# ── Model field access end-to-end (via SBinOp) ────────────────────
+
+def test_model_field_hit():
+    """SBinOp('dict_get_int', VDict lit, key) → field value."""
+    e = SBinOp(
+        op="dict_get_int",
+        left=SLit(lit_type="dict", value="{}", elements=[
+            SLit("string", "balance"), SLit("int", "42"),
+        ]),
+        right=SLit("string", "balance"),
+    )
+    result = eval_expr(e, State(), {})
+    assert isinstance(result, VInt) and result.v == 42
+
+
+def test_model_field_miss():
+    """SBinOp('dict_get_int', VDict lit, missing key) → KeyError."""
+    e = SBinOp(
+        op="dict_get_int",
+        left=SLit(lit_type="dict", value="{}", elements=[
+            SLit("string", "balance"), SLit("int", "42"),
+        ]),
+        right=SLit("string", "missing"),
+    )
+    result = eval_expr(e, State(), {})
+    assert isinstance(result, VError) and result.kind == "KeyError"
+
+
+def test_model_field_wrong_receiver():
+    """DictGetIntOp on non-dict raises TypeError."""
+    result = _binop("dict_get_int", VInt(42), VString("balance"))
+    assert isinstance(result, VError) and result.kind == "TypeError"
