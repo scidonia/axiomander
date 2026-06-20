@@ -86,9 +86,7 @@
   SMT handles it in the obligation; contract-level Postcondition uses `Z.div` via
   `nia`.  Current tests pass.  For robustness, rewrite contracts as `2*acc == i*(i+1)`.
 
-### IMP backend (pre-existing, not Iris)
-- [ ] `set_count` — set operations inside while loops fail VCG
-- [ ] `in_vocab` — set membership inside while loops fails VCG
+### IMP backend (removed — moot)
 
 ### Infrastructure
 - [x] **Fault isolation** — `verify_iris_safe()` wraps `python_to_iris_proof` + `coqc`
