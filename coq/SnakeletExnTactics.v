@@ -176,6 +176,11 @@ Ltac finish_pure :=
   | _ => idtac
   end;
   simpl; iPureIntro; snakelet_pure_hyps;
+  (* Handle (A -> B) implications *)
+  repeat match goal with
+  | |- (_ -> _) /\ _ => split; [| idtac]
+  end;
+  try (intros);
   try (first
          [ reflexivity
          | nia
