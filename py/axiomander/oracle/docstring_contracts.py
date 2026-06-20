@@ -153,9 +153,11 @@ def parse_axiomander_docstring(func_node: ast.FunctionDef) -> DocstringContracts
 
         # ── Continuation lines (after ensures X ->) ──
         if cont_ensures is not None:
-            stripped_cont = stripped.lstrip("and ").strip()
+            stripped_cont = stripped
+            # Strip "and " prefix if present (word, not character set)
+            if stripped_cont.startswith("and "):
+                stripped_cont = stripped_cont[4:]
             if cont_block == "and":
-                # Continuation lines are conjoined with `and`
                 cont_ensures += " and " + stripped_cont
                 continue
             elif cont_block == "block":
