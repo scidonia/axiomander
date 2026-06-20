@@ -1179,3 +1179,29 @@ def set_expr(d: dict, x, y):
     return result
 ''', table=_builtins_table(), func_name="set_expr")
     assert ok, out
+
+
+# -- Implication postconditions (ensures X -> Y) -------------------------
+
+def test_implies_postcondition_proved():
+    """ensures result == 10 -> x == 5 with result = x * 2."""
+    ok, out = verify_exn('''
+def imp_ok(x: int):
+    assert x >= 1
+    result = x * 2
+    assert implies(result == 10, x == 5)
+    return result
+''')
+    assert ok, out
+
+
+def test_implies_postcondition_rejected():
+    """ensures result == 10 -> bogus == 999 where bogus is unconstrained."""
+    ok, out = verify_exn('''
+def imp_bad(x: int, bogus: int):
+    assert x >= 1
+    result = x * 2
+    assert implies(result == 10, bogus == 999)
+    return result
+''')
+    assert not ok, "implication with unconstrained consequent must reject"
