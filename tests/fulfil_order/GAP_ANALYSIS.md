@@ -15,18 +15,21 @@ Updated after ghost-model wiring + implication postconditions.
 | `frame: may_modify / must_not_modify` | Displayed + validated in frame-report |
 | `Order.status(order_id) == 1` etc. | Ghost call in body → OpaqueSpec → call_opaque_pred |
 
-## Assembly Work (5 items) — infrastructure exists, needs wiring
+## Assembly Work (5 items) — DONE
 
-Each ghost function in ghost_models.py needs an OpaqueSpec entry in the table
-with proper side/post_pred constraints, then called in the function body.
+Each ghost function now has an OpaqueSpec entry and is called in the
+function body with pre/post assertions checked.
 
-| Ghost Function | Needs |
-|----------------|-------|
-| `Orders.row_status(order_id)` | OpaqueSpec with string-kind result |
-| `Payment.state(order_id)` | OpaqueSpec with int enum result |
-| `OrderQueue.contains(order_id)` | OpaqueSpec with bool result |
-| `Inventory.can_reserve(items)` | OpaqueSpec with bool result |
-| `OrderQueue.item_state(order_id)` | OpaqueSpec with string-kind result |
+| Ghost Function | Status |
+|----------------|--------|
+| `Orders.row_status(order_id)` | Verified (as `Orders_status`) |
+| `Payment.state(order_id)` | Verified (as `Payment_state`) |
+| `OrderQueue.contains(order_id)` | Verified (as `OrderQueue_contains`) |
+| `Inventory.can_reserve(items)` | Verified (as `Inventory_can_reserve`) |
+| `OrderQueue.item_state(order_id)` | Verified (as `OrderQueue_item_state`) |
+
+See `test_ghost_model_composition` for the full verified fulfil_order
+implementation with all 5 ghost functions + 3 subcontracts.
 
 ## Feature Work (8 items) — requires new infrastructure
 
@@ -41,7 +44,6 @@ with proper side/post_pred constraints, then called in the function body.
 ## Summary
 
 ```
-Proven:  ██████████  7  done
-Assembly:███████     5  needs OpaqueSpec entries
-Future:  ████████████ 8  needs new features
+Proven:  ████████████ 12 done (7 core + 5 assembly)
+Future:  ████████     8 needs new features
 ```
