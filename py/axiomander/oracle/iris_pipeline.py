@@ -1528,7 +1528,7 @@ def capture_residual(source: str,
             tf = f.name
         try:
             r = subprocess.run(
-                ["coqc", "-R", _coq_root(), "", tf],
+                ["coqc"] + _coq_flags() + [tf],
                 capture_output=True, text=True, timeout=60)
         finally:
             try:
@@ -1560,9 +1560,51 @@ def capture_residual(source: str,
 
 
 def _coq_root() -> str:
-    """Return the path to the coq source root."""
+    """Return the path to the compiled coq directory.
+
+    Prefers ``_build/default/coq/`` (dune output, contains ``.vo`` files)
+    over the raw source ``coq/`` directory.  Falls back to the source
+    directory if the build directory does not exist.
+    """
     import pathlib
-    return str(pathlib.Path(__file__).parent.parent.parent.parent / "coq")
+    repo_root = pathlib.Path(__file__).parent.parent.parent.parent
+    build_dir = repo_root / "_build" / "default" / "coq"
+    if build_dir.is_dir():
+        return str(build_dir)
+    return str(repo_root / "coq")
+
+
+def _coq_flags() -> list[str]:
+    """Return the coqc load-path flags needed to compile generated proofs.
+
+    The generated proofs import iris, stdpp, Hammer, and Ltac2 -- all of
+    which are installed under ``$(coqc -where)/user-contrib/``.  Coqc does
+    NOT automatically add user-contrib to the load path when a ``-R`` flag
+    is present, so we must pass explicit ``-R`` flags for each library.
+    """
+    import subprocess
+    import pathlib as _pl
+    coq_root = _coq_root()
+    try:
+        result = subprocess.run(
+            ["coqc", "-where"],
+            capture_output=True, text=True, timeout=10)
+        coqlib = result.stdout.strip()
+    except Exception:
+        coqlib = ""
+    flags: list[str] = ["-R", coq_root, ""]
+    if coqlib:
+        uc = _pl.Path(coqlib) / "user-contrib"
+        for lib, name in [
+            ("iris",   "iris"),
+            ("stdpp",  "stdpp"),
+            ("Hammer", "Hammer"),
+            ("Ltac2",  "Ltac2"),
+        ]:
+            lib_path = uc / lib
+            if lib_path.is_dir():
+                flags += ["-R", str(lib_path), name]
+    return flags
 
 
 # ---------------------------------------------------------------------------
@@ -1695,7 +1737,7 @@ def verify_iris_safe(source: str,
             tf = f.name
         try:
             r = subprocess.run(
-                ["coqc", "-R", _coq_root(), "", tf],
+                ["coqc"] + _coq_flags() + [tf],
                 capture_output=True, text=True, timeout=120)
         finally:
             try:

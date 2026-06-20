@@ -1228,6 +1228,7 @@ def _try_iris_backend(source: str, func_name: str, tree: ast.AST,
 
     import tempfile, subprocess, os
     from pathlib import Path
+    from axiomander.oracle.iris_pipeline import _coq_flags
     COQ_ROOT = Path(os.environ.get("AXIOMANDER_ROOT",
                    Path(__file__).resolve().parent.parent.parent.parent)) / "coq"
 
@@ -1241,7 +1242,7 @@ def _try_iris_backend(source: str, func_name: str, tree: ast.AST,
             tmp_path = f.name
         try:
             res = subprocess.run(
-                ["coqc", "-R", str(COQ_ROOT), "", tmp_path],
+                ["coqc"] + _coq_flags() + [str(tmp_path)],
                 capture_output=True, text=True, timeout=120,
                 env={**os.environ},
             )

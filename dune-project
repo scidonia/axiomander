@@ -5,4 +5,8 @@
 (package
   (name axiomander)
   (synopsis "Hoare-logic verification pipeline for Python")
-  (depends (rocq-core (>= 9.0.0)) (rocq-stdlib (>= 9.0.0))))
+  (depends
+    (rocq-core   (>= 9.0.0))
+    (rocq-stdlib (>= 9.0.0))
+    rocq-iris
+    rocq-stdpp))

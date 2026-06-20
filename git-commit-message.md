@@ -1,9 +1,9 @@
-The CI build failure was caused by the "Install Python deps" step in `.github/workflows/ci.yml` only running `pip install pytest`, which left `pydantic` (and all other runtime dependencies) uninstalled. Since tests import the axiomander package directly via `PYTHONPATH=py`, the missing `pydantic` caused a `ModuleNotFoundError` at collection time.
+The CI failure `Cannot find a physical path bound to logical path proofmode with prefix iris.proofmode` had two root causes:
 
-**Two changes made to the axiomander repo:**
+1. **Missing opam dependencies**: `coq-iris` and `coq-stdpp` were not listed in `axiomander.opam`, so CI's `opam install --deps-only` never installed them. Fixed by adding both to the `depends:` block.
 
-1. **`.github/workflows/ci.yml`** — Added a `Setup uv` step (`astral-sh/setup-uv@v5`) and replaced `pip install pytest` with `uv sync --extra testgen`. This installs the full locked dependency set (including `pydantic`, `z3-solver`, the git-sourced `coqpyt`, and `hypothesis`). The "Run tests" step now uses `uv run python -m pytest` instead of bare `python -m pytest`.
+2. **Wrong logical prefix in compiled `.vo` files**: The `coq/dune` file used `(rocq.theory (name SCoqIris ...))` which baked `SCoqIris.` as the logical prefix into the compiled `.vo` files. But the `.v` source files use bare `Require Import SnakeletExnLang` (no prefix). Fixed by replacing the `rocq.theory` stanza for the Iris-dependent modules with individual `(rule ...)` stanzas that invoke `coqc` directly with `-R . ''` (empty logical prefix), matching what the source files expect.
 
-2. **`py/axiomander/oracle/iris_pipeline.py:653`** — Changed the docstring to a raw string (`r"""..."""`) to clear the `SyntaxWarning: invalid escape sequence '\ '` that appeared in the same CI run.
+3. **Test helpers bypassed `_coq_flags()`**: Both `test_iris_proof_gen.py` and `test_iris_python_pipeline.py` had their own `run_coqc()` helper that hardcoded `["coqc", "-R", str(COQ_ROOT), "", tmp]` pointing at the source `coq/` directory without iris/stdpp flags. Fixed by replacing both with `["coqc"] + _coq_flags() + [tmp]`.
 
-Verified locally: `uv sync --extra testgen` succeeds and both previously-failing test modules now collect 152 tests with no errors.
+Result: **198/198 tests pass** locally (up from 123/198).

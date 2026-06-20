@@ -10,6 +10,8 @@ depends: [
   "dune" {>= "3.17"}
   "coq" {>= "8.20.0"}
   "coq-hammer"
+  "coq-iris"
+  "coq-stdpp"
 ]
 build: [
   ["dune" "subst"] {dev}

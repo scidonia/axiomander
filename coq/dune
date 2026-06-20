@@ -1,6 +1,67 @@
+; Generate coq_flags.sexp: -R flags for iris, stdpp, Hammer, Ltac2
+(rule
+  (targets coq_flags.sexp)
+  (action
+    (with-stdout-to coq_flags.sexp
+      (run sh -c
+        "COQLIB=$(coqc -where); UC=$COQLIB/user-contrib; printf '('; for lib in iris stdpp Hammer Ltac2; do if [ -d $UC/$lib ]; then printf ' -R %s %s' $UC/$lib $lib; fi; done; printf ' )'")
+    )
+  )
+)
+
+; Shared Coq modules (no Iris dependency) — compiled under SCoqShared. prefix
 (rocq.theory
   (name SCoqShared)
   (package axiomander)
   (theories Stdlib)
   (synopsis "Shared Coq modules (Iris backend)")
   (modules ListPredicates RegMatch DictModel))
+
+; Iris-dependent modules — compiled with coqc directly so they get bare
+; logical names (Require Import SnakeletExnLang, not SCoqIris.SnakeletExnLang).
+; Dependency order: Lang → Wp → Tactics → Demo/WhileStr
+;
+; Each rule runs coqc in the _build/default/coq/ directory (dune's cwd for
+; rules), so "-R . ''" maps that directory to the empty logical prefix.
+
+(rule
+  (targets SnakeletExnLang.vo)
+  (deps SnakeletExnLang.v coq_flags.sexp)
+  (action
+    (bash
+      "eval $(opam env 2>/dev/null || true); FLAGS=$(cat coq_flags.sexp | tr -d '()'); coqc $FLAGS -R . '' SnakeletExnLang.v")))
+
+(rule
+  (targets SnakeletLang.vo)
+  (deps SnakeletLang.v SnakeletExnLang.vo coq_flags.sexp)
+  (action
+    (bash
+      "eval $(opam env 2>/dev/null || true); FLAGS=$(cat coq_flags.sexp | tr -d '()'); coqc $FLAGS -R . '' SnakeletLang.v")))
+
+(rule
+  (targets SnakeletExnWp.vo)
+  (deps SnakeletExnWp.v SnakeletExnLang.vo coq_flags.sexp)
+  (action
+    (bash
+      "eval $(opam env 2>/dev/null || true); FLAGS=$(cat coq_flags.sexp | tr -d '()'); coqc $FLAGS -R . '' SnakeletExnWp.v")))
+
+(rule
+  (targets SnakeletExnTactics.vo)
+  (deps SnakeletExnTactics.v SnakeletExnLang.vo SnakeletExnWp.vo coq_flags.sexp)
+  (action
+    (bash
+      "eval $(opam env 2>/dev/null || true); FLAGS=$(cat coq_flags.sexp | tr -d '()'); coqc $FLAGS -R . '' SnakeletExnTactics.v")))
+
+(rule
+  (targets SnakeletExnDemo.vo)
+  (deps SnakeletExnDemo.v SnakeletExnLang.vo SnakeletExnWp.vo SnakeletExnTactics.vo coq_flags.sexp)
+  (action
+    (bash
+      "eval $(opam env 2>/dev/null || true); FLAGS=$(cat coq_flags.sexp | tr -d '()'); coqc $FLAGS -R . '' SnakeletExnDemo.v")))
+
+(rule
+  (targets WhileStrDemo.vo)
+  (deps WhileStrDemo.v SnakeletExnLang.vo SnakeletExnWp.vo SnakeletExnTactics.vo coq_flags.sexp)
+  (action
+    (bash
+      "eval $(opam env 2>/dev/null || true); FLAGS=$(cat coq_flags.sexp | tr -d '()'); coqc $FLAGS -R . '' WhileStrDemo.v")))

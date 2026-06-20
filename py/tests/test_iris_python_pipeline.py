@@ -19,7 +19,7 @@ from axiomander.oracle.iris_pipeline import IrisGenError, python_to_iris_proof
 from axiomander.oracle.iris_proof_gen import OpaqueSpec, TransparentDef
 from axiomander.oracle.snakelet_ir import SBinOp, SVar
 
-COQ_ROOT = Path(__file__).resolve().parent.parent.parent / "coq"
+from axiomander.oracle.iris_pipeline import _coq_flags
 
 
 def run_coqc(src: str) -> tuple[bool, str]:
@@ -29,7 +29,7 @@ def run_coqc(src: str) -> tuple[bool, str]:
         tmp = f.name
     try:
         r = subprocess.run(
-            ["coqc", "-R", str(COQ_ROOT), "", tmp],
+            ["coqc"] + _coq_flags() + [tmp],
             capture_output=True, text=True, timeout=180,
         )
         return r.returncode == 0, r.stdout + r.stderr
