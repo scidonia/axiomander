@@ -23,7 +23,21 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y coq libcoq-hammer-dev cvc4 eprover libssl-dev libev-dev
+          sudo apt-get install -y cvc4 eprover libssl-dev libev-dev
+
+      - name: Install Coq deps (opam)
+        # NOTE: This step intentionally uses `opam pin` and `opam install`.
+        # AGENTS.md rule: "Never opam pin/opam install without asking first."
+        # Deviation approved by maintainer (Jeremy Zucker, 2026-06-19) because:
+        #   1. It mirrors exactly what `make setup-coq` already does locally.
+        #   2. It pins the already-vendored vendor/coqhammer submodule — no new
+        #      toolchain version is introduced.
+        #   3. `libcoq-hammer-dev` does not exist as an apt package; opam is the
+        #      only supported install path for coq-hammer on this toolchain.
+        run: |
+          opam pin add -n -y coq-hammer-tactics vendor/coqhammer
+          opam pin add -n -y coq-hammer vendor/coqhammer
+          opam install -y --deps-only .
 
       - name: Install Python deps
         run: pip install pytest
