@@ -128,15 +128,20 @@
   contract_ir_iris.  `finish_pure` now handles implication goals.
   Single-line `ensures: expr -> ...` and multi-line `ensures expr ->` continuation
   both work.  See py/examples/doc_implies_ok.py for verified example.
-- [ ] **Resource ownership** — `owns queue_item: OrderQueue.item(order_id)` etc.
-  (resource IR exists in resources/; not wired to the verification pipeline)
+- [x] **Resource ownership** — `owns queue_item: OrderQueue.item(order_id)` etc.
+  displayed in frame-report with validation.  Deeper IR integration
+  (resource footpoint compilation) remains future work.
+- [x] **Frame declarations** — `frame: may_modify / must_not_modify / may_emit / must_not_emit`
+  parsed, displayed, and validated against actual body writes in
+  frame-report command.
 
 ### Deferred
 - [ ] History model — `exactly_once_domain_effect`
 - [ ] Event log ghost theory — `may_emit` / `must_not_emit`
 - [ ] Global invariants — `preserves GlobalInvariant.*`
-- [ ] **Frame declarations** — `frame: may_modify / must_not_modify / may_emit / must_not_emit`
-  parsed by docstring_contracts but not enforced in proofs
+- [x] **Frame declarations** — `frame: may_modify / must_not_modify / may_emit / must_not_emit`
+  parsed by docstring_contracts, validated against actual body writes
+  in frame-report command.
 - [ ] Old-value capture — `old(x)` in docstring ensures
 - [ ] Termination measures
 - [ ] CI — GitHub Action
