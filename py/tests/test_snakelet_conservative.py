@@ -174,6 +174,10 @@ def test_float_inexact():
 
 
 # ── Pydantic models: field access via DictGetIntOp ───────────────
+# NOTE: Axiomander lowers Pydantic models to LitDict values.  Field
+# access (model.balance) compiles to DictGetIntOp(dict, "balance")
+# which is dict["balance"] semantics — KeyError, not AttributeError.
+# This is intentional: the IR models records as dicts, not objects.
 
 def test_dict_get_int_hit():
     """model.field on a dict returns the integer field value."""
@@ -247,3 +251,18 @@ def test_model_field_wrong_receiver():
     """DictGetIntOp on non-dict raises TypeError."""
     result = _binop("dict_get_int", VInt(42), VString("balance"))
     assert isinstance(result, VError) and result.kind == "TypeError"
+
+
+def test_keyerror_matches_python_dict():
+    """Our KeyError semantics match Python dict[key] for missing keys."""
+    d = {"balance": 42}
+    try:
+        d["missing"]
+    except KeyError as e:
+        py_key = str(e)
+    # Our IR: DictGetInt on missing key → KeyError('missing')
+    result = _binop("dict_get_int", VDict({"balance": VInt(42)}), VString("missing"))
+    assert isinstance(result, VError)
+    assert result.kind == "KeyError"
+    assert "missing" in str(result) or "missing" in result.msg, \
+        f"KeyError should mention key 'missing', got {result}"
