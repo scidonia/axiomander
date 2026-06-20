@@ -94,7 +94,7 @@ Two root causes:
 
 ---
 
-### 6 — `6904d9c` Register `coq-released` at switch-creation time via `opam-repositories`
+### 6 — `6904d9c` + `faaf63e` Register `coq-released` and refresh the package index
 
 **Symptom:** Even with the correct `rocq-*` package names, `opam install`
 still failed with "unknown package" because `ocaml/setup-ocaml@v3` only
@@ -103,26 +103,32 @@ registers the default `opam.ocaml.org` repository in the CI switch.
 (`https://coq.inria.fr/opam/released`), which was absent.
 
 **First attempt (insufficient):** Adding a post-hoc `opam repo add … --all-switches`
-step after `setup-ocaml` ran did not reliably make the repository visible to the
-switch — `setup-ocaml@v3` caches the opam root and switch at creation time, so
-repositories added afterward are not reflected in the cached package index.
+step after `setup-ocaml` ran did not work — the step ran but `opam update` was
+never called, so the `coq-released` package index was never fetched.
 
-**Fix:**
-- `.github/workflows/ci.yml` — removed the standalone "Add coq-released" step;
-  instead, registered `coq-released` **at switch-creation time** using the
-  `opam-repositories:` input of `ocaml/setup-ocaml@v3`:
+**Second attempt (insufficient):** Passing `coq-released` via the
+`opam-repositories:` input of `ocaml/setup-ocaml@v3` should register it at
+switch-creation time. However, `setup-ocaml@v3` **caches the opam root** and
+on a cache hit it restores the cached root and skips repository setup entirely,
+so the `opam-repositories:` input is silently ignored on subsequent runs.
+
+**Fix (current):**
+- `.github/workflows/ci.yml` — kept the `opam-repositories:` input (helps on
+  cache misses); additionally added a defensive `opam repo add … || set-url` +
+  `opam update` at the top of the "Install Coq deps" step, so the repo and its
+  package index are always present regardless of cache state:
   ```yaml
-  - name: Setup OCaml
-    uses: ocaml/setup-ocaml@v3
-    with:
-      ocaml-compiler: "5.2"
-      opam-repositories: |
-        coq-released: https://coq.inria.fr/opam/released
-        default: https://opam.ocaml.org
+  run: |
+    opam repo add coq-released https://coq.inria.fr/opam/released \
+      || opam repo set-url coq-released https://coq.inria.fr/opam/released
+    opam update
+    opam pin add -n -y coq-hammer-tactics vendor/coqhammer
+    opam pin add -n -y coq-hammer vendor/coqhammer
+    opam install -y --deps-only .
   ```
-  Listing `coq-released` first mirrors the local switch (rank 1) and guarantees
-  `rocq-iris`, `rocq-stdpp`, and all other Rocq packages are resolvable before
-  any `opam install` or `opam pin` step runs.
+  The `|| set-url` makes it idempotent (no error if the repo already exists).
+  `opam update` fetches the `coq-released` index so `rocq-iris` and
+  `rocq-stdpp` are resolvable before `opam install --deps-only .` runs.
 
 ---
 

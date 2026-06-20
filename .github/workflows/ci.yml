@@ -37,7 +37,17 @@ jobs:
         #      toolchain version is introduced.
         #   3. `libcoq-hammer-dev` does not exist as an apt package; opam is the
         #      only supported install path for coq-hammer on this toolchain.
+        #
+        # The coq-released repo add + opam update below is done here (in
+        # addition to the opam-repositories: input on setup-ocaml) because
+        # setup-ocaml@v3 restores a cached opam root on cache hits and skips
+        # repository setup, which would otherwise leave rocq-iris/rocq-stdpp
+        # unresolvable.  The `|| set-url` makes it idempotent on cache hits
+        # where the repo already exists.
         run: |
+          opam repo add coq-released https://coq.inria.fr/opam/released \
+            || opam repo set-url coq-released https://coq.inria.fr/opam/released
+          opam update
           opam pin add -n -y coq-hammer-tactics vendor/coqhammer
           opam pin add -n -y coq-hammer vendor/coqhammer
           opam install -y --deps-only .
