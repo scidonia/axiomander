@@ -901,9 +901,10 @@ def tool_frame_report(args: dict) -> str:
     lines.append("")
 
     for fn in targets:
-        # Extract pre/post/inv from asserts
-        pres: list[str] = []
-        posts: list[str] = []
+        # Extract pre/post/inv from asserts AND docstring
+        dc = parse_axiomander_docstring(fn)
+        pres: list[str] = list(dc.requires)
+        posts: list[str] = list(dc.ensures)
         invs: list[str] = []
         for stmt in fn.body:
             if isinstance(stmt, _ast.Assert):
@@ -1033,8 +1034,6 @@ def tool_frame_report(args: dict) -> str:
                          f"writes {{{', '.join(cm_writes) or '—'}}}")
 
         # Check docstring frame declarations against actual writes
-        import ast as _ast2
-        dc = parse_axiomander_docstring(fn)
         if dc.frame:
             lines.append("")
             lines.append("### Docstring Frame Check")
@@ -1059,6 +1058,16 @@ def tool_frame_report(args: dict) -> str:
                 lines.append("  may_emit: {" + ', '.join(dc.frame["may_emit"]) + "}")
             if "must_not_emit" in dc.frame:
                 lines.append("  must_not_emit: {" + ', '.join(dc.frame["must_not_emit"]) + "}")
+        if dc.owns:
+            lines.append("")
+            lines.append("### Resource Ownership (owns)")
+            for o in dc.owns:
+                lines.append(f"  owns {o}")
+        if dc.preserves:
+            lines.append("")
+            lines.append("### Preserves (global invariants)")
+            for p in dc.preserves:
+                lines.append(f"  preserves {p}")
         lines.append("")
 
         if callee_effects:
