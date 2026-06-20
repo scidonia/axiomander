@@ -266,3 +266,33 @@ def test_keyerror_matches_python_dict():
     assert result.kind == "KeyError"
     assert "missing" in str(result) or "missing" in result.msg, \
         f"KeyError should mention key 'missing', got {result}"
+
+
+# ── Pydantic is_valid against Field constraints ───────────────────
+
+def test_is_valid_catches_violations():
+    """is_valid(model, Type) catches Field(ge/le) violations.
+    Pydantic rejects at construction; Axiomander checks at precondition.
+    Uses model_construct to bypass Pydantic validation for testing."""
+    from pydantic import BaseModel, Field
+    import ast
+    from axiomander.oracle.shape_ir import build_shape_registry
+    from axiomander.oracle.contract_runtime import is_valid
+
+    class Order(BaseModel):
+        qty: int = Field(ge=1, le=100)
+        price: int = Field(gt=0)
+
+    src = '''
+from pydantic import BaseModel, Field
+class Order(BaseModel):
+    qty: int = Field(ge=1, le=100)
+    price: int = Field(gt=0)
+'''
+    build_shape_registry(ast.parse(src))
+
+    assert is_valid(Order.model_construct(qty=10, price=50), "Order")
+    assert not is_valid(Order.model_construct(qty=0, price=50), "Order")   # ge=1
+    assert not is_valid(Order.model_construct(qty=200, price=50), "Order") # le=100
+    assert not is_valid(Order.model_construct(qty=10, price=0), "Order")   # gt=0
+    assert not is_valid(Order.model_construct(qty=10), "Order")            # missing price
