@@ -123,8 +123,11 @@
 - [ ] **For loops over dicts** — `for k, v in d.items()`
 - [ ] **isinstance type dispatch** — tag-based branching
 - [ ] **Multiple loop VCGs** — currently only outermost/last loop gets VCG (IMP)
-- [ ] **Implication postconditions** — `ensures result == "fulfilled" -> Orders.row(...).status == "fulfilled" and ...`
-  parsed by docstring_contracts but not compiled to WP or verified
+- [x] **Implication postconditions** — `ensures result == "fulfilled" -> Orders.row(...).status == "fulfilled" and ...`
+  parsed by docstring_contracts + compiled to Coq (X -> Y /\ Z) via
+  contract_ir_iris.  `finish_pure` now handles implication goals.
+  Single-line `ensures: expr -> ...` and multi-line `ensures expr ->` continuation
+  both work.  See py/examples/doc_implies_ok.py for verified example.
 - [ ] **Resource ownership** — `owns queue_item: OrderQueue.item(order_id)` etc.
   (resource IR exists in resources/; not wired to the verification pipeline)
 

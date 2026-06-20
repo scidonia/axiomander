@@ -1031,6 +1031,34 @@ def tool_frame_report(args: dict) -> str:
         if cm_reads or cm_writes:
             lines.append(f"  declared (stub): reads {{{', '.join(cm_reads) or '—'}}}, "
                          f"writes {{{', '.join(cm_writes) or '—'}}}")
+
+        # Check docstring frame declarations against actual writes
+        import ast as _ast2
+        dc = parse_axiomander_docstring(fn)
+        if dc.frame:
+            lines.append("")
+            lines.append("### Docstring Frame Check")
+            dc_may = set(dc.frame.get("may_modify", []))
+            dc_mustnot = set(dc.frame.get("must_not_modify", []))
+            actual_writes = params_touched
+            # may_modify: every actual write should be in may_modify
+            undeclared = set(actual_writes) - dc_may
+            if undeclared:
+                lines.append(f"  ⚠ writes {{{', '.join(sorted(undeclared))}}} not declared in may_modify")
+            # must_not_modify: no actual write should be in must_not_modify
+            forbidden = set(actual_writes) & dc_mustnot
+            if forbidden:
+                lines.append(f"  ✗ writes {{{', '.join(sorted(forbidden))}}} violate must_not_modify")
+            if not undeclared and not forbidden:
+                lines.append("  ✓ all writes declared in may_modify; no must_not_modify violations")
+            if dc_may:
+                lines.append(f"  declared may_modify: {{{', '.join(sorted(dc_may))}}}")
+            if dc_mustnot:
+                lines.append(f"  declared must_not_modify: {{{', '.join(sorted(dc_mustnot))}}}")
+            if "may_emit" in dc.frame:
+                lines.append("  may_emit: {" + ', '.join(dc.frame["may_emit"]) + "}")
+            if "must_not_emit" in dc.frame:
+                lines.append("  must_not_emit: {" + ', '.join(dc.frame["must_not_emit"]) + "}")
         lines.append("")
 
         if callee_effects:
