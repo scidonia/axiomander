@@ -14,6 +14,9 @@ jobs:
         uses: ocaml/setup-ocaml@v3
         with:
           ocaml-compiler: "5.2"
+          opam-repositories: |
+            coq-released: https://coq.inria.fr/opam/released
+            default: https://opam.ocaml.org
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -24,13 +27,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cvc4 eprover libssl-dev libev-dev
-
-      - name: Add coq-released opam repository
-        # rocq-iris and rocq-stdpp live in the Coq/Rocq opam overlay, not in
-        # the default opam.ocaml.org repository.  setup-ocaml only adds the
-        # default repo, so we must add coq-released explicitly before any
-        # `opam install` that resolves those packages.
-        run: opam repo add coq-released https://coq.inria.fr/opam/released --all-switches
 
       - name: Install Coq deps (opam)
         # NOTE: This step intentionally uses `opam pin` and `opam install`.
