@@ -123,12 +123,17 @@
 - [ ] **For loops over dicts** — `for k, v in d.items()`
 - [ ] **isinstance type dispatch** — tag-based branching
 - [ ] **Multiple loop VCGs** — currently only outermost/last loop gets VCG (IMP)
+- [ ] **Implication postconditions** — `ensures result == "fulfilled" -> Orders.row(...).status == "fulfilled" and ...`
+  parsed by docstring_contracts but not compiled to WP or verified
+- [ ] **Resource ownership** — `owns queue_item: OrderQueue.item(order_id)` etc.
+  (resource IR exists in resources/; not wired to the verification pipeline)
 
 ### Deferred
 - [ ] History model — `exactly_once_domain_effect`
 - [ ] Event log ghost theory — `may_emit` / `must_not_emit`
 - [ ] Global invariants — `preserves GlobalInvariant.*`
-- [ ] Frame lemmas from `frame:` declarations
+- [ ] **Frame declarations** — `frame: may_modify / must_not_modify / may_emit / must_not_emit`
+  parsed by docstring_contracts but not enforced in proofs
 - [ ] Old-value capture — `old(x)` in docstring ensures
 - [ ] Termination measures
 - [ ] CI — GitHub Action
