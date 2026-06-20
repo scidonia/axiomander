@@ -110,3 +110,21 @@ def f(order_id: int):
     assert "implies(result == " in out
     assert "order_id > 0" in out
     assert "order_id < 100" in out
+
+
+def test_preserves_rejected_by_verify():
+    """functions with preserves must be rejected before coqc."""
+    from axiomander.oracle.iris_pipeline import python_to_iris_proof, IrisGenError
+    source = '''
+def f(order_id: int):
+    """axiomander:
+        preserves GlobalInvariant.accounting_consistency
+    """
+    result = order_id
+    return result
+'''
+    try:
+        python_to_iris_proof(source, {}, func_name='f')
+        assert False, "should have raised IrisGenError"
+    except IrisGenError as e:
+        assert "backing definition" in str(e)

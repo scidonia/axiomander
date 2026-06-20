@@ -5722,6 +5722,28 @@ def tool_iris_verify(args: dict) -> str:
     with console.capture() as capture:
         console.print(panel)
         console.print(table)
+
+    # Show failure details for unproved goals
+    unproved = [g for g in report.goals if not g.is_proved()]
+    if unproved:
+        with console.capture() as capture_fail:
+            for g in unproved:
+                console.print("")
+                error_text = Text(f"✗ {g.name}", style="bold red")
+                console.print(error_text)
+                if g.error_detail:
+                    detail = g.error_detail.strip()
+                    # Split long error messages and format each line
+                    for line in detail.splitlines()[:15]:
+                        if line.strip():
+                            console.print(f"  {line}")
+                    if len(detail.splitlines()) > 15:
+                        console.print(f"  ... (truncated, {len(detail.splitlines())} total lines)")
+                if g.suggestion_text:
+                    console.print("")
+                    guide = Text(g.suggestion_text, style="italic")
+                    console.print(guide)
+        return capture.get() + capture_fail.get()
     return capture.get()
 
 

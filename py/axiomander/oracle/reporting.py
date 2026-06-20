@@ -229,6 +229,8 @@ def classify_failure(goal_name: str, error: str, has_loop: bool) -> Action:
 
     if has_loop and ("inv" in error_lower or "invariant" in error_lower):
         result = Action.ADD_INVARIANT
+    elif "backing definition" in error_lower or "not yet implemented" in error_lower:
+        result = Action.REFACTOR
     elif "counterexample" in error_lower or "sat" in error_lower:
         result = Action.PROPERTY_FALSE
     elif "could not prove" in error_lower or "admitted" in error_lower:
@@ -331,9 +333,11 @@ def action_guidance(action: Action, goal_name: str) -> str:
             f"If not, weaken `@ensures(...)` or add missing preconditions."
         ),
         Action.REFACTOR: (
-            f"The body of `{goal_name}` couldn't be translated to IMP. "
-            f"Simplify the function — extract complex expressions, "
-            f"avoid side effects, flatten nested structures."
+            f"The function `{goal_name}` could not be verified. "
+            f"Check the error detail above for the specific issue — "
+            f"usually this means the function's contracts or body "
+            f"need adjustment (missing precondition, undefined external "
+            f"reference, or unsupported language feature)."
         ),
         Action.ADD_LEMMA: (
             f"The prover needs additional lemmas for `{goal_name}`. "
