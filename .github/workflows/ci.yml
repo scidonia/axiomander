@@ -25,6 +25,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y cvc4 eprover libssl-dev libev-dev
 
+      - name: Add coq-released opam repository
+        # rocq-iris and rocq-stdpp live in the Coq/Rocq opam overlay, not in
+        # the default opam.ocaml.org repository.  setup-ocaml only adds the
+        # default repo, so we must add coq-released explicitly before any
+        # `opam install` that resolves those packages.
+        run: opam repo add coq-released https://coq.inria.fr/opam/released --all-switches
+
       - name: Install Coq deps (opam)
         # NOTE: This step intentionally uses `opam pin` and `opam install`.
         # AGENTS.md rule: "Never opam pin/opam install without asking first."

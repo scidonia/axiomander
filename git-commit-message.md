@@ -1,9 +1,10 @@
-The CI failure `Cannot find a physical path bound to logical path proofmode with prefix iris.proofmode` had two root causes:
+The root cause was that `ocaml/setup-ocaml@v3` only registers the default `opam.ocaml.org` repository in the CI switch. The packages `rocq-iris` and `rocq-stdpp` live in the **Coq/Rocq opam overlay** (`https://coq.inria.fr/opam/released`), which is absent from the CI switch — hence "unknown package" when `opam install --deps-only .` tries to resolve them.
 
-1. **Missing opam dependencies**: `coq-iris` and `coq-stdpp` were not listed in `axiomander.opam`, so CI's `opam install --deps-only` never installed them. Fixed by adding both to the `depends:` block.
+The fix adds a new step in `.github/workflows/ci.yml` immediately before "Install Coq deps":
 
-2. **Wrong logical prefix in compiled `.vo` files**: The `coq/dune` file used `(rocq.theory (name SCoqIris ...))` which baked `SCoqIris.` as the logical prefix into the compiled `.vo` files. But the `.v` source files use bare `Require Import SnakeletExnLang` (no prefix). Fixed by replacing the `rocq.theory` stanza for the Iris-dependent modules with individual `(rule ...)` stanzas that invoke `coqc` directly with `-R . ''` (empty logical prefix), matching what the source files expect.
+```yaml
+- name: Add coq-released opam repository
+  run: opam repo add coq-released https://coq.inria.fr/opam/released --all-switches
+```
 
-3. **Test helpers bypassed `_coq_flags()`**: Both `test_iris_proof_gen.py` and `test_iris_python_pipeline.py` had their own `run_coqc()` helper that hardcoded `["coqc", "-R", str(COQ_ROOT), "", tmp]` pointing at the source `coq/` directory without iris/stdpp flags. Fixed by replacing both with `["coqc"] + _coq_flags() + [tmp]`.
-
-Result: **198/198 tests pass** locally (up from 123/198).
+This mirrors the local setup (where `coq-released` is repo #1 in the switch) and makes `rocq-iris`, `rocq-stdpp`, and any other Rocq packages resolvable before `opam install -y --deps-only .` runs.
