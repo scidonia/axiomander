@@ -296,3 +296,34 @@ class Order(BaseModel):
     assert not is_valid(Order.model_construct(qty=200, price=50), "Order") # le=100
     assert not is_valid(Order.model_construct(qty=10, price=0), "Order")   # gt=0
     assert not is_valid(Order.model_construct(qty=10), "Order")            # missing price
+
+
+def test_pydantic_field_access_matches_dict():
+    """Real Pydantic model field access == DictGetIntOp on model dict."""
+    from pydantic import BaseModel, Field
+    import ast
+    from axiomander.oracle.shape_ir import build_shape_registry
+
+    class Order(BaseModel):
+        qty: int = Field(ge=1, le=100)
+        price: int = Field(gt=0)
+
+    src = '''
+from pydantic import BaseModel, Field
+class Order(BaseModel):
+    qty: int = Field(ge=1, le=100)
+    price: int = Field(gt=0)
+'''
+    build_shape_registry(ast.parse(src))
+
+    order = Order.model_construct(qty=42, price=99)
+
+    # Dict representation mirrors the Pydantic model
+    d = VDict({k: VInt(v) for k, v in order.model_dump().items()})
+
+    # Field access via DictGetIntOp matches model.attribute
+    qty_val = _binop("dict_get_int", d, VString("qty"))
+    price_val = _binop("dict_get_int", d, VString("price"))
+
+    assert isinstance(qty_val, VInt) and qty_val.v == order.qty == 42
+    assert isinstance(price_val, VInt) and price_val.v == order.price == 99
