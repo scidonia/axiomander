@@ -39,8 +39,11 @@ jobs:
           opam pin add -n -y coq-hammer vendor/coqhammer
           opam install -y --deps-only .
 
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+
       - name: Install Python deps
-        run: pip install pytest
+        run: uv sync --extra testgen
 
       - name: Build Coq
         run: |
@@ -50,4 +53,4 @@ jobs:
       - name: Run tests
         run: |
           eval $(opam env)
-          PYTHONPATH=py python -m pytest py/tests/ -v
+          uv run python -m pytest py/tests/ -v

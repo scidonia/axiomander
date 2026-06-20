@@ -650,7 +650,7 @@ def discharge_inv_obligations(proof, axiom_offset: int = 0) -> list[str]:
 
 
 def _smt_check(hyps: list[str], conc: str, extra_vars: list[str] | None = None) -> bool:
-    """Check UNSAT of (hyps /\ not conc) using cvc4/z3.  All strings are
+    r"""Check UNSAT of (hyps /\ not conc) using cvc4/z3.  All strings are
     already SMT-LIB format (produced by contract_ir.Expr.to_smt())."""
     import subprocess, tempfile, shutil, os
     solver = next((s for s in ("cvc4", "z3", "cvc5") if shutil.which(s)), None)
