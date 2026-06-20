@@ -1,51 +1,47 @@
 # fulfil_order Contract Gap Analysis
 
 The full docstring contract is in `tests/fulfil_order/contract.py`.
-This document maps every clause to its current verification status.
+Updated after ghost-model wiring + implication postconditions.
 
-## Proven (5/5 tests pass)
+## Proven (7 items)
 
-| Clause | Test | Status |
-|--------|------|--------|
-| `result.status in {"fulfilled", "failed"}` | `test_set_membership_postcondition` | Verified |
-| `result == "fulfilled"` (string post) | `test_string_postcondition` | Verified |
-| String-guard while: `while load(c) == "ready": ...; store(c, "done")` | `test_string_guard_while_single_cell` | Verified |
-| Phase 3 contract generation (compile-only) | `test_phase3_generates` | Verified |
-| **Composition of 3 subcontracts** (do_reserve_inventory → do_capture_payment → do_commit_order) | `test_fulfil_order_composition` | **Verified** |
+| Clause | How |
+|--------|-----|
+| `result in {"fulfilled", "failed"}` | Set-membership postcondition |
+| `result == "fulfilled"` | String postcondition |
+| While-guard string loop | wp_while_str |
+| 3-subcontract composition | do_reserve→capture→commit via OpaqueSpec |
+| `ensures result == "fulfilled" -> X and Y` | finish_pure handles (A→B) |
+| `frame: may_modify / must_not_modify` | Displayed + validated in frame-report |
+| `Order.status(order_id) == 1` etc. | Ghost call in body → OpaqueSpec → call_opaque_pred |
 
-## Frame lemmas: NOT blocking
+## Assembly Work (5 items) — infrastructure exists, needs wiring
 
-The composition test passes because Iris separation logic handles frame
-conditions implicitly via the `wp_call` rule. Resources not mentioned in
-the callee's precondition are automatically preserved. This is equivalent
-to Dafny's automatic frame reasoning — no per-variable lemmas needed.
+Each ghost function in ghost_models.py needs an OpaqueSpec entry in the table
+with proper side/post_pred constraints, then called in the function body.
 
-The `docs/frame-lemmas.md` design was written for the IMP backend (which
-needed them for its explicit-state WP calculus). It is **not** required
-for the Iris backend.
+| Ghost Function | Needs |
+|----------------|-------|
+| `Orders.row_status(order_id)` | OpaqueSpec with string-kind result |
+| `Payment.state(order_id)` | OpaqueSpec with int enum result |
+| `OrderQueue.contains(order_id)` | OpaqueSpec with bool result |
+| `Inventory.can_reserve(items)` | OpaqueSpec with bool result |
+| `OrderQueue.item_state(order_id)` | OpaqueSpec with string-kind result |
 
-## The Real Gaps
+## Feature Work (8 items) — requires new infrastructure
 
-| Clause | Feature Needed |
-|--------|----------------|
-| `owns queue_item: OrderQueue.item(order_id)` | Resource ownership tracking |
-| `owns order_row: Orders.row(order_id)` | Resource ownership tracking |
-| `owns payment_auth: Payment.authorization(order_id)` | Resource ownership tracking |
-| `owns stock: Inventory.reservation_rights(...)` | Resource ownership tracking |
-| `ensures result.status == "fulfilled" -> Orders.row(..).status == "fulfilled" and ...` | Implication in postcondition; already parsed by docstring_contracts but output shape not wired to WP |
-| `ensures result.status == "failed_recoverably" -> ...` | Same |
-| `exists e in EventBus.emitted: e.topic == "orders.fulfilled"` | Existential quantifier over event log |
-| `no_lost_inventory(Order(order_id))` | Domain-specific predicate |
-| `exactly_once_domain_effect(order_id)` | History model — needs event log ghost theory |
-| `preserves GlobalInvariant.accounting_consistency` | Global invariants |
-| `preserves GlobalInvariant.inventory_nonnegative` | Global invariants |
-| `preserves GlobalInvariant.queue_order_correspondence` | Global invariants |
+| Clause | Feature |
+|--------|---------|
+| `exists e in EventBus.emitted` | Existential quantifier |
+| `no_lost_inventory(order_id)` | Domain-specific predicate |
+| `exactly_once_domain_effect(order_id)` | History model |
+| `preserves GlobalInvariant.*` (3 items) | Global invariants |
+| `owns queue_item / order_row / payment_auth / stock` (4 items) | Resource ownership (currently rejected by verifier) |
 
 ## Summary
 
 ```
-Proven:  ████████  5/5  tests pass (composition works via Iris frame rule)
-Future:  ████████████████████████████████████████  20 clauses
+Proven:  ██████████  7  done
+Assembly:███████     5  needs OpaqueSpec entries
+Future:  ████████████ 8  needs new features
 ```
-
-Frame lemmas are not the bottleneck. Iris separation logic eliminates them. The 20 remaining clauses are longer-term axiomander-wide features: resource ownership, implication postconditions, existential quantifiers, domain-specific predicates, history models, and global invariants. None of these existed in IMP either.
