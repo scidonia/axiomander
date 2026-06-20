@@ -263,3 +263,93 @@ def fulfil_order(order_id: int, worker_id: int) -> int:
     proof = python_to_iris_proof(src, table, func_name="fulfil_order")
     ok, out = run_coqc(proof.emit_exn())
     assert ok, f"Composition failed:\n{out}"
+
+
+# -- Ghost model composition: fulfil_order with domain ghost functions ----
+
+def test_ghost_model_composition():
+    """fulfil_order calling ghost-model observers.
+    
+    Each ghost function is an OpaqueSpec in the table with post_pred constraints.
+    The implementation body calls them and checks results against the spec.
+    Names use underscores (dots not supported in Coq call-site String.eqb).
+    """
+    from axiomander.oracle.iris_proof_gen import OpaqueSpec
+
+    table = {
+        'Orders_status': OpaqueSpec(
+            args=['order_id'], side='order_id > 0', result='0',
+            post_pred='0 <= r_z /\\ r_z <= 3',
+            post_witness='0'),
+        'Payment_state': OpaqueSpec(
+            args=['order_id'], side='order_id > 0', result='0',
+            post_pred='0 <= r_z /\\ r_z <= 2',
+            post_witness='0'),
+        'OrderQueue_contains': OpaqueSpec(
+            args=['order_id'], side='order_id > 0', result='0',
+            post_pred='0 <= r_z /\\ r_z <= 1',
+            post_witness='1'),
+        'Inventory_can_reserve': OpaqueSpec(
+            args=['items_len'], side='items_len >= 1', result='0',
+            post_pred='0 <= r_z /\\ r_z <= 1',
+            post_witness='1'),
+        'OrderQueue_item_state': OpaqueSpec(
+            args=['order_id'], side='order_id > 0', result='0',
+            post_pred='0 <= r_z /\\ r_z <= 2',
+            post_witness='1'),
+        'reserve_inventory': OpaqueSpec(
+            args=['order_id'], side='order_id > 0', result='0',
+            post_pred='0 <= r_z /\\ r_z <= 1', post_witness='1'),
+        'capture_payment': OpaqueSpec(
+            args=['order_id'], side='order_id > 0', result='0',
+            post_pred='r_z = 2', post_witness='2'),
+        'commit_order': OpaqueSpec(
+            args=['order_id', 'worker_id'],
+            side='order_id > 0 /\\ worker_id > 0', result='0',
+            post_pred='0 <= r_z /\\ r_z <= 1', post_witness='1'),
+    }
+
+    src = '''
+def fulfil_order(order_id: int, worker_id: int) -> int:
+    assert order_id > 0
+    assert worker_id > 0
+
+    q = OrderQueue_contains(order_id)
+    assert q == 1
+
+    status = Orders_status(order_id)
+    assert status == 0
+
+    p_state = Payment_state(order_id)
+    assert p_state == 0
+
+    items = 3
+    can = Inventory_can_reserve(items)
+    assert can == 1
+
+    reserved = reserve_inventory(order_id)
+    if reserved == 0:
+        result = 0
+        return result
+
+    captured = capture_payment(order_id)
+    assert captured == 2
+
+    committed = commit_order(order_id, worker_id)
+    assert committed == 1
+
+    final_status = Orders_status(order_id)
+    assert final_status == 1
+
+    final_payment = Payment_state(order_id)
+    assert final_payment == 1
+
+    final_queue = OrderQueue_item_state(order_id)
+    assert final_queue == 1
+
+    result = 1
+    return result
+'''
+    proof = python_to_iris_proof(src, table, func_name="fulfil_order")
+    ok, out = run_coqc(proof.emit_exn())
+    assert ok, f"Ghost model composition failed:\n{out}"
