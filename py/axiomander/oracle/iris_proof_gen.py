@@ -100,6 +100,7 @@ class OpaqueSpec:
     post_witness: Optional[str] = None
     ghost_vars: dict[str, str] = field(default_factory=dict)
     ghost_wits: dict[str, str] = field(default_factory=dict)
+    result_kind: str = "int"  # "int" | "string" — wraps result as LitInt or LitString
 
 
 @dataclass
@@ -344,24 +345,28 @@ def _emit_pre_def(name: str, spec: OpaqueSpec) -> str:
     body = f"args = [{args_list}]"
     if spec.side:
         body = f"{body} /\\ ({spec.side})"
-    return (f"Definition {name}_pre (args : list sn_val) : Prop :=\n"
+    # Sanitize: dots in names (e.g. Order.status) → underscores (Order_status)
+    safe = name.replace(".", "_")
+    return (f"Definition {safe}_pre (args : list sn_val) : Prop :=\n"
             f"  exists {binders}, {body}.")
 
 
 def _emit_post_def(name: str, spec: OpaqueSpec) -> str:
     args_pat = "; ".join(f"LitInt {a}" for a in spec.args)
     if spec.post_pred is not None:
-        # Ghost variables are nested inside post_pred as existentials so
-        # call_opaque_pred's [destruct Hv as (rz & -> & Hr)] pattern
-        # works unchanged.  The caller destructs Hr to name the ghosts.
         ghost_binders = " ".join(
             f"exists ({v} : Z)," for v in spec.ghost_vars.values())
-        rhs = (f"exists r_z : Z, r = LitInt r_z /\\ "
-               f"({ghost_binders} ({spec.post_pred}))")
+        if spec.result_kind == "string":
+            rhs = (f"exists r_s : string, r = LitString r_s /\\ "
+                   f"({ghost_binders} ({spec.post_pred}))")
+        else:
+            rhs = (f"exists r_z : Z, r = LitInt r_z /\\ "
+                   f"({ghost_binders} ({spec.post_pred}))")
     else:
         # Functional post: the result is a known expression of the args.
         rhs = f"r = LitInt ({spec.result})"
-    return (f"Definition {name}_post (args : list sn_val) (r : sn_val) : Prop :=\n"
+    safe = name.replace(".", "_")
+    return (f"Definition {safe}_post (args : list sn_val) (r : sn_val) : Prop :=\n"
             f"  match args with\n"
             f"  | [{args_pat}] => {rhs}\n"
             f"  | _ => False\n"
@@ -379,7 +384,8 @@ def _emit_table(table: FunTable) -> str:
         kw = "if" if first else "else if"
         first = False
         if isinstance(entry, OpaqueSpec):
-            rhs = f"Some (FunSpec {fname}_pre {fname}_post)"
+            safe_fname = fname.replace(".", "_")
+            rhs = f"Some (FunSpec {safe_fname}_pre {safe_fname}_post)"
         else:
             params = "; ".join(f'"{p}"' for p in entry.params)
             rhs = f"Some (FunDef [{params}] {entry.body.to_coq()})"

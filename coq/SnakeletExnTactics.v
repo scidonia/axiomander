@@ -309,8 +309,11 @@ Ltac call_opaque_pred_redex :=
             split; [ reflexivity | lia ] | ];
           iNext; let v := fresh "v" in let Hv := fresh "Hv" in
           iIntros (v Hv); simpl in Hv;
-          let rz := fresh "r_z" in let Hr := fresh "Hr" in
-          destruct Hv as (rz & -> & Hr); simpl
+          (* Destruct result binder: LitInt (rz : Z) or LitString (rs : string) *)
+          try (let rz := fresh "r_z" in let Hr := fresh "Hr" in
+               destruct Hv as (rz & -> & Hr); simpl);
+          try (let rs := fresh "r_s" in let Hr := fresh "Hr" in
+               destruct Hv as (rs & -> & Hr); simpl)
       | _ => fail "call_opaque_pred: not an opaque (FunSpec) call"
       end
   | _ => fail "call_opaque_pred: redex is not a Call"
