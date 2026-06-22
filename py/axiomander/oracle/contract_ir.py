@@ -251,8 +251,37 @@ class AllExpr(BaseModel):
         raise NotImplementedError("AllExpr.to_python: no list or range bound provided")
 
 
+def _extract_int_lit(e: "Expr") -> int | None:
+    """Extract integer value from an IntLit node, or None."""
+    try:
+        if hasattr(e, 'kind') and e.kind == 'int':
+            return int(e.value)
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+def _subst_var(e: "Expr", var: str, val: int) -> "Expr":
+    """Create a copy of e with Var(var) replaced by IntLit(val)."""
+    import copy
+    def _subst(node):
+        k = getattr(node, 'kind', None)
+        if k == 'var' and getattr(node, 'name', None) == var:
+            return IntLit(value=val)
+        if k == 'binop':
+            return BinOp(op=getattr(node, 'op', '+'),
+                         left=_subst(getattr(node, 'left', None)),
+                         right=_subst(getattr(node, 'right', None)))
+        if k == 'logical':
+            operands = getattr(node, 'operands', [])
+            return Logical(op=getattr(node, 'op', 'and'),
+                           operands=[_subst(o) for o in operands])
+        return copy.deepcopy(node)
+    return _subst(e)
+
+
 class AnyExpr(BaseModel):
-    """any(p(x) for x in lst) or any(p(x) for x in range(lo, hi))."""
+    """exists(p(x) for x in lst) or exists(p(x) for x in range(lo, hi))."""
     kind: Literal["any"] = "any"
     var: str
     lst: str = ""
@@ -261,6 +290,23 @@ class AnyExpr(BaseModel):
     upper: Optional["Expr"] = None
 
     def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        if self.lower is not None and self.upper is not None:
+            lo_v = _extract_int_lit(self.lower)
+            hi_v = _extract_int_lit(self.upper)
+            # If bounds are integer literals with small range, expand to disjunction
+            if lo_v is not None and hi_v is not None and hi_v - lo_v <= 5:
+                terms = []
+                for i in range(lo_v, hi_v):
+                    subbed = _subst_var(self.pred, self.var, i)
+                    terms.append(f"({subbed.to_coq(scoped, unbound)})")
+                return " \\/ ".join(terms) if terms else "True"
+            lo = self.lower.to_coq(scoped, unbound)
+            hi = self.upper.to_coq(scoped, unbound)
+            p = self.pred.to_coq(scoped, unbound | {self.var})
+            return f"(exists ({self.var} : Z), ({lo} <= {self.var}) /\\ ({self.var} < {hi}) /\\ ({p}))"
+        if self.lst:
+            p = self.pred.to_coq(scoped, unbound | {self.var})
+            return f"(exists ({self.var} : Z), In ({self.var}) {self.lst} /\\ ({p}))"
         return "True"
 
     def to_smt(self) -> str:

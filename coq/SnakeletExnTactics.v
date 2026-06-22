@@ -195,18 +195,19 @@ Ltac finish_pure :=
           | (rewrite ?length_app; simpl; nia)
          (* existential value-shape postcondition.  The side-condition may
             contain Z.leb/Z.ltb goals; convert them before using nia. *)
-          | (eexists; split;
-             [ reflexivity
-             | try rewrite Z.leb_le; try rewrite Z.ltb_lt;
-               try rewrite Z.eqb_eq; try rewrite Nat2Z.inj_succ;
-               try rewrite length_app; simpl;
-               first [ reflexivity | nia
-                    (* string set-membership: pick a disjunct *)
-                    | left; reflexivity | right; reflexivity
-                    | (repeat first [ left; reflexivity
-                                    | right
-                                    | reflexivity ]) ] ])
-         | (repeat split; first [ reflexivity | nia ]) ]).
+           | (eexists; split;
+              [ reflexivity
+              | try rewrite Z.leb_le; try rewrite Z.ltb_lt;
+                try rewrite Z.eqb_eq; try rewrite Nat2Z.inj_succ;
+                try rewrite length_app; simpl;
+                first [ reflexivity | nia
+                     (* string set-membership: pick a disjunct *)
+                     | left; nia | right; nia | left; nia | right; nia
+                     | (repeat first [ left; nia | right; nia
+                                     | left; nia
+                                     | right
+                                     | reflexivity ]) ] ])
+          | (repeat split; first [ reflexivity | nia ]) ]).
 
 (** Convert a syntactic list of value expressions [[Val v1; ...; Val vn]]
     to the value list [[v1; ...; vn]] so [Call f args] matches the

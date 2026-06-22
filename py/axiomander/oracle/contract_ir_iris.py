@@ -244,10 +244,20 @@ def _all(n, ps, pv):
 
 def _any(n, ps, pv):
     inner_ps = ps | {n.var}
-    p = iris_prop(n.pred, param_set=inner_ps, post_var=pv)
     if n.lower is not None and n.upper is not None:
+        # For small integer ranges, expand to disjunction (nia can handle \/)
+        from .contract_ir import _extract_int_lit, _subst_var
+        lo_v = _extract_int_lit(n.lower)
+        hi_v = _extract_int_lit(n.upper)
+        if lo_v is not None and hi_v is not None and hi_v - lo_v <= 5:
+            terms = []
+            for i in range(lo_v, hi_v):
+                subbed = _subst_var(n.pred, n.var, i)
+                terms.append(f"({iris_prop(subbed, param_set=inner_ps, post_var=pv)})")
+            return " \\/ ".join(terms) if terms else "True"
         lo = iris_prop(n.lower, param_set=inner_ps, post_var=pv)
         hi = iris_prop(n.upper, param_set=inner_ps, post_var=pv)
+        p = iris_prop(n.pred, param_set=inner_ps, post_var=pv)
         return f"(exists ({n.var} : Z), {lo} <= {n.var} < {hi} /\\ {p})"
     return "True"  # phase 3: exists over lists in Iris
 
