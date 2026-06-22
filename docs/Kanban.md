@@ -123,7 +123,9 @@
 These clauses from the full `contract.py` docstring are not yet verified.
 Each needs new infrastructure — none existed in IMP or any prior backend.
 
-- [ ] **Existential quantifier** — `exists e in EventBus.emitted: e.topic == "orders.fulfilled"`
+- [x] **Existential quantifier** — `any(P(i) for i in range(N))` for small ranges (N<=5)
+  expands to disjunction `P(0) \/ P(1) \/ ... \/ P(N-1)`.  Larger ranges produce
+  `exists i, lo <= i < hi /\ P(i)`.  finish_pure handles \/ branches via nia.
 - [ ] **Domain-specific predicates** — `no_lost_inventory(Order(order_id))`
 - [ ] **History model** — `exactly_once_domain_effect(order_id)`: forall histories, count(successful_fulfilments) <= 1
 - [ ] **Event log ghost theory** — `may_emit` / `must_not_emit` frame declarations
