@@ -118,8 +118,20 @@
   → Resolved: typer command added. Shows pre/post conditions and
   frame variables per function.
 
+### Required for fulfil_order
+
+These clauses from the full `contract.py` docstring are not yet verified.
+Each needs new infrastructure — none existed in IMP or any prior backend.
+
+- [ ] **Existential quantifier** — `exists e in EventBus.emitted: e.topic == "orders.fulfilled"`
+- [ ] **Domain-specific predicates** — `no_lost_inventory(Order(order_id))`
+- [ ] **History model** — `exactly_once_domain_effect(order_id)`: forall histories, count(successful_fulfilments) <= 1
+- [ ] **Event log ghost theory** — `may_emit` / `must_not_emit` frame declarations
+- [ ] **Global invariants** — `preserves GlobalInvariant.*` (3 items)
+- [ ] **Resource ownership verification** — `owns queue_item / order_row / payment_auth / stock` compiled to Iris resource preconditions (currently displayed but rejected by verifier)
+- [ ] **Old-value capture** — `old(x)` in docstring ensures (parsed but not compiled)
+
 ### Nice-to-have
-- [ ] **Existential quantifier** — `exists e in EventBus.emitted` (domain-specific)
 - [ ] **For loops over dicts** — `for k, v in d.items()`
 - [ ] **isinstance type dispatch** — tag-based branching
 - [ ] **Multiple loop VCGs** — currently only outermost/last loop gets VCG (IMP)
@@ -136,12 +148,5 @@
   frame-report command.
 
 ### Deferred
-- [ ] History model — `exactly_once_domain_effect`
-- [ ] Event log ghost theory — `may_emit` / `must_not_emit`
-- [ ] Global invariants — `preserves GlobalInvariant.*`
-- [x] **Frame declarations** — `frame: may_modify / must_not_modify / may_emit / must_not_emit`
-  parsed by docstring_contracts, validated against actual body writes
-  in frame-report command.
-- [ ] Old-value capture — `old(x)` in docstring ensures
 - [ ] Termination measures
 - [ ] CI — GitHub Action
