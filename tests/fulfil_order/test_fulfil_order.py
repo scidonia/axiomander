@@ -307,6 +307,14 @@ def test_ghost_model_composition():
             args=['order_id', 'worker_id'],
             side='order_id > 0 /\\ worker_id > 0', result='0',
             post_pred='0 <= r_z /\\ r_z <= 1', post_witness='1'),
+        'no_lost_inventory': OpaqueSpec(
+            args=['order_id'],
+            side='order_id > 0', result='0',
+            post_pred='r_z = 1', post_witness='1'),
+        'exactly_once_domain_effect': OpaqueSpec(
+            args=['order_id'],
+            side='order_id > 0', result='0',
+            post_pred='r_z = 1', post_witness='1'),
     }
 
     src = '''
@@ -345,7 +353,13 @@ def fulfil_order(order_id: int, worker_id: int) -> int:
     assert final_payment == 1
 
     final_queue = OrderQueue_item_state(order_id)
-    assert final_queue == 1
+    assert final_queue == 1            # 1 = COMPLETED
+
+    inv_ok = no_lost_inventory(order_id)
+    assert inv_ok == 1                 # inventory preserved
+
+    exactly_once = exactly_once_domain_effect(order_id)
+    assert exactly_once == 1           # domain effect counted once
 
     result = 1
     return result
