@@ -659,6 +659,25 @@ class ContractLinter(ast.NodeVisitor):
             gen = node.args[0]
             if gen.generators and len(gen.generators) == 1:
                 comp = gen.generators[0]
+                if isinstance(comp.target, ast.Name) and isinstance(comp.iter, ast.List):
+                    var = comp.target.id
+                    elts = [self.visit(e) for e in comp.iter.elts]
+                    elts = [e for e in elts if e]
+                    if not elts:
+                        return BoolLit(value=(name == "all"))
+                    pred = self.visit(gen.elt)
+                    if pred:
+                        if name == "all":
+                            return AllExpr(var=var, lst="__literal__", pred=pred,
+                                          lower=IntLit(value=0), upper=IntLit(value=1))
+                        # For any(): expand to disjunction pred[x := e] for each element
+                        from .contract_ir import _subst_var, Logical as CLogical
+                        terms = [_subst_var(pred, var, e.value if hasattr(e, 'value') and e.kind == 'int' else None)
+                                 for e in elts]
+                        terms = [t for t in terms if t]
+                        if len(terms) == 1:
+                            return terms[0]
+                        return CLogical(op="or", operands=terms)
                 if isinstance(comp.target, ast.Name) and isinstance(comp.iter, ast.Name):
                     var = comp.target.id
                     lst = comp.iter.id
