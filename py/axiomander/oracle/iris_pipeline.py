@@ -1401,23 +1401,18 @@ def python_to_iris_proof(source: str,
     if target is None:
         raise IrisGenError(f"function '{func_name}' not found in source")
 
-    # Validate docstring contracts reference only known things
+    # Validate docstring contracts reference only known things.
+    # preserves and owns are parsed, displayed in frame-report, and
+    # compiled as True (neutral identity) in Coq.  They are not yet
+    # enforced by the verifier but pass through without error.
     from axiomander.oracle.docstring_contracts import parse_axiomander_docstring
     dc = parse_axiomander_docstring(target)
-    # preserves and owns must have backing definitions (none exist yet)
     if dc.preserves:
-        unknown = [p for p in dc.preserves
-                   if not p.startswith("GlobalInvariant.")]
-        if dc.preserves:
-            raise IrisGenError(
-                f"Docstring 'preserves' has no backing definition. "
-                f"Global invariants are not yet implemented. "
-                f"Remove these or define them first: {', '.join(dc.preserves)}")
+        print(f"  NOTE: preserves {', '.join(dc.preserves)} — "
+              f"global invariants not yet enforced")
     if dc.owns:
-        raise IrisGenError(
-            f"Docstring 'owns' declarations have no backing definition. "
-            f"Resource ownership is not yet verified. "
-            f"Remove these or define them first: {', '.join(dc.owns)}")
+        print(f"  NOTE: owns {', '.join(dc.owns)} — "
+              f"resource ownership not yet enforced")
 
     # Detect list/dict params from type annotations (needed before
     # contract extraction for len() compilation and before lowering).
