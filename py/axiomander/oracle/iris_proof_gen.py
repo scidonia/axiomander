@@ -875,7 +875,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
             chosen = (e.then_branch if e.cond.value.lower() == "true"
                       else e.else_branch)
             return ([_mk_stage("pure_step", "pure_step",
-                           comment="literal conditional")] +
+                            comment="literal conditional")] +
                     _gen(chosen, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp))
 
         def after_cond():
@@ -1422,6 +1422,7 @@ _HEADER_EXN = (
     "From iris.base_logic.lib Require Import gen_heap.\n"
     "From Hammer Require Import Hammer.\n"
     "Require Import SnakeletExnLang SnakeletExnWp SnakeletExnTactics.\n"
+    "Require Import ListPredicates.\n"
     "Open Scope Z_scope.\n"
 )
 
@@ -1443,6 +1444,8 @@ class IrisProof:
     """Exception contracts: exc_type -> Coq condition Prop (the RExn arm)."""
     param_types: dict[str, str] = field(default_factory=dict)
     """Parameter type annotations: param_name -> python type (int|str|bool|dict|list|...)."""
+    predicate_fixpoints: list[str] = field(default_factory=list)
+    """Coq Fixpoint definitions for recursive user predicates."""
 
     def stage_list(self) -> list[Stage]:
         """Flattened stages (for trace/cache consumers)."""
@@ -1477,6 +1480,11 @@ class IrisProof:
                        end
         """
         parts = [_HEADER_EXN]
+        # Recursive user predicate Fixpoints (D1/D2).
+        if self.predicate_fixpoints:
+            parts.append("")
+            parts.extend(self.predicate_fixpoints)
+            parts.append("")
         for i, ax in enumerate(self.axioms):
             parts.append(f"Axiom smt_ax_{i} : {ax}.")
         if self.axioms:
@@ -1672,7 +1680,8 @@ def generate(name: str,
                list_params: Optional[dict[str, str]] = None,
                dict_params: Optional[dict[str, str]] = None,
                raises: Optional[dict[str, str]] = None,
-               param_types: Optional[dict[str, str]] = None) -> IrisProof:
+               param_types: Optional[dict[str, str]] = None,
+               predicate_fixpoints: Optional[list[str]] = None) -> IrisProof:
     """Generate a staged Iris proof for a SnakeletIR body.
 
     name: function name (theorem is <name>_correct).
@@ -1708,4 +1717,5 @@ def generate(name: str,
         dict_params=dict_params or {},
         raises=raises or {},
         param_types=param_types or {},
+        predicate_fixpoints=predicate_fixpoints or [],
     )

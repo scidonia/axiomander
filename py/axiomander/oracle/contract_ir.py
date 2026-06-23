@@ -741,6 +741,26 @@ class StringContainsExpr(BaseModel):
         return f'(not {inner})' if self.negated else inner
 
 
+class HexStringExpr(BaseModel):
+    """All characters in a string are hex digits (0-9, a-f).
+
+    Compiles to [str_all_hex name = true] in Coq.
+    """
+    kind: Literal["hex_string"] = "hex_string"
+    name: str       # variable name, e.g. "result"
+
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        v = f's "{self.name}"%string' if scoped else self.name
+        v_coq = f'(asString ({v}))' if scoped else self.name
+        return f"(str_all_hex {v_coq} = true)"
+
+    def to_smt(self) -> str:
+        return f"str_all_hex_{self.name}"
+
+    def to_python(self) -> str:
+        return f"all(c in '0123456789abcdef' for c in {self.name})"
+
+
 class RecursorExpr(BaseModel):
     """User-defined predicate lowered to a recursor combinator.
 
@@ -814,6 +834,30 @@ class ROwnExpr(BaseModel):
         raise NotImplementedError(f"ROwnExpr 'owns({self.obj})' has no executable Python form")
 
 
+class PredicateCallExpr(BaseModel):
+    """A call to a user-defined predicate in a contract expression.
+
+    Unlike OpaqueTerm (which is an external observer), this is a pure
+    user-defined predicate that has been classified as recursive (D1/D2).
+    It compiles to the Fixpoint application name, e.g. is_sorted M_xs.
+    The Fixpoint definition is emitted in the proof preamble.
+    """
+    kind: Literal["predicate_call"] = "predicate_call"
+    name: str           # predicate function name (Fixpoint name)
+    args: list[Expr] = Field(default_factory=list)  # arg expressions
+
+    def to_coq(self, scoped: bool = False, unbound: frozenset[str] = frozenset()) -> str:
+        arg_strs = [a.to_coq(scoped, unbound) for a in self.args]
+        return f"({self.name} {' '.join(arg_strs)})"
+
+    def to_smt(self) -> str:
+        return "true"
+
+    def to_python(self) -> str:
+        args_py = ", ".join(a.to_python() for a in self.args)
+        return f"{self.name}({args_py})"
+
+
 class OpaqueTerm(BaseModel):
     """A function call in a contract expression whose return value is opaque.
 
@@ -840,4 +884,4 @@ class OpaqueTerm(BaseModel):
         raise NotImplementedError(f"OpaqueTerm '{self.name}' has no executable Python form")
 
 
-Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, FieldAccess, ListEqExpr, ReMatchExpr, StringContainsExpr, StringEqualsExpr, RecursorExpr, ROwnExpr, OpaqueTerm]
+Expr = Union[Var, IntLit, BoolLit, BinOp, Logical, LenExpr, IndexExpr, DictLenExpr, DictCountExpr, AllExpr, AnyExpr, SliceLenExpr, MinExpr, MaxExpr, SumExpr, StrLitExpr, FloatExpr, TupleExpr, DictExpr, SetExpr, ImpliesExpr, RaisesExpr, IsShape, IsValid, FieldAccess, ListEqExpr, ReMatchExpr, StringContainsExpr, StringEqualsExpr, HexStringExpr, RecursorExpr, ROwnExpr, OpaqueTerm, PredicateCallExpr]

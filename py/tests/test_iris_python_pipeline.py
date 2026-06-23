@@ -1123,6 +1123,146 @@ def upper_test(s: str):
     assert ok, out
 
 
+# -- String substring containment (str_contains) -------------------------
+
+def test_string_contains_literal():
+    """'needle' in haystack uses StrContainsOp / string_contains Fixpoint."""
+    ok, out = verify_exn('''
+def contains_inv(s: str):
+    assert len(s) > 0
+    result = "inv" in s
+    return result
+''', table=_builtins_table(), func_name="contains_inv")
+    assert ok, out
+
+
+def test_string_contains_variable():
+    """needle in haystack where both are string params."""
+    ok, out = verify_exn('''
+def contains_check(needle: str, haystack: str):
+    result = needle in haystack
+    return result
+''', table=_builtins_table(), func_name="contains_check")
+    assert ok, out
+
+
+def test_string_contains_not_found():
+    """Substring not present returns false."""
+    ok, out = verify_exn('''
+def contains_xyz(s: str):
+    result = "xyz" in s
+    return result
+''', table=_builtins_table(), func_name="contains_xyz")
+    assert ok, out
+
+
+def test_string_lower_contains():
+    """s.lower() + 'inv' in result: ToLowerOp then StrContainsOp."""
+    ok, out = verify_exn('''
+def lower_contains(s: str):
+    ls = s.lower()
+    result = "inv" in ls
+    return result
+''', table=_builtins_table(), func_name="lower_contains")
+    assert ok, out
+
+
+def test_string_contains_not():
+    """'needle' not in haystack via StrContainsOp + EqOp false."""
+    ok, out = verify_exn('''
+def contains_not(s: str):
+    result = "xyz" not in s
+    return result
+''', table=_builtins_table(), func_name="contains_not")
+    assert ok, out
+
+
+def test_bool_param_contains_contract():
+    """bool param in contract compiles to (param <> 0) + StringContainsExpr
+    uses match LitString to extract sn_val strings.
+    Proof completion (finish_pure) is future work — String.index goals
+    need explicit lemma support."""
+    source = '''
+def check_error(goal_name: str, error: str, has_loop: bool) -> int:
+    """
+    axiomander:
+        requires:
+            len(goal_name) > 0
+        ensures:
+            implies(has_loop
+                    and ("inv" in error.lower()
+                         or "invariant" in error.lower()),
+                    result == 0)
+    """
+    error_lower = error.lower()
+    if has_loop and ("inv" in error_lower or "invariant" in error_lower):
+        result = 0
+    else:
+        result = 5
+    return result
+'''
+    from axiomander.oracle.iris_pipeline import python_to_iris_proof, IrisGenError
+    from axiomander.oracle.iris_proof_gen import FunTable
+    try:
+        proof = python_to_iris_proof(source, FunTable(), func_name="check_error")
+    except IrisGenError as e:
+        pytest.fail(f"pipeline raised: {e}")
+    coq = proof.emit_exn()
+    assert 'has_loop <> 0' in coq, "bool param must emit <> 0 in contract"
+    assert 'str_contains_val' in coq, "string contains must use str_contains_val in contract"
+    assert '"inv"%string' in coq, 'needle must be string literal'
+    assert 'asString' not in coq, "asString does not exist in Coq"
+
+
+def test_string_contains_contract():
+    """check_error with string containment + bool param contract proves."""
+    ok, out = verify_exn('''
+def check_error(goal_name: str, error: str, has_loop: bool) -> int:
+    """
+    axiomander:
+        requires:
+            len(goal_name) > 0
+        ensures:
+            implies(has_loop
+                    and ("inv" in error.lower()
+                         or "invariant" in error.lower()),
+                    result == 0)
+    """
+    error_lower = error.lower()
+    if has_loop and ("inv" in error_lower or "invariant" in error_lower):
+        result = 0
+    else:
+        result = 5
+    return result
+''', table=_builtins_table(), func_name="check_error")
+    assert ok, f"check_error should prove but got: {out[:500]}"
+
+
+def test_comprehension_count_contract():
+    """sum(1 for x in xs if x > 0) compiles to countb via RecursorExpr."""
+    from axiomander.oracle.iris_pipeline import python_to_iris_proof, IrisGenError
+    from axiomander.oracle.iris_proof_gen import FunTable
+
+    source = '''
+def identity(xs: list) -> int:
+    """
+    axiomander:
+        ensures:
+            result == sum(1 for x in xs if x > 0)
+    """
+    return 0
+'''
+    try:
+        proof = python_to_iris_proof(source, FunTable(), func_name="identity")
+    except IrisGenError as e:
+        pytest.fail(f"pipeline raised: {e}")
+    coq = proof.emit_exn()
+    assert "countb" in coq, f"must compile to countb, got: {coq[:500]}"
+    assert "Z.ltb 0 x" in coq, f"x > 0 -> Z.ltb 0 x, got: {coq[:500]}"
+    assert "M_xs" in coq, f"list model M_xs must appear, got: {coq[:500]}"
+    assert "Z.of_nat" in coq, "countb result wrapped in Z.of_nat"
+
+
 # -- Dict get with default (d.get) --------------------------------------
 
 def test_dict_get_hit():
@@ -1205,3 +1345,18 @@ def imp_bad(x: int, bogus: int):
     return result
 ''')
     assert not ok, "implication with unconstrained consequent must reject"
+
+
+@pytest.mark.xfail(reason="wp_for_list_forall needs sn_val lambda unwrapping in prover")
+def test_fluid_forallb_list_positive():
+    r"""all(x > 0 for x in xs: list[int]) — forallb lowering correct, prover WIP."""
+    ok, out = verify_exn('''
+def all_positive(xs: list[int]) -> int:
+    assert all(x > 0 for x in xs)
+    result = 0
+    for x in xs:
+        result = result + x
+    assert result > 0
+    return result
+''')
+    assert ok, f"all_positive must verify: {out[:400]}"
