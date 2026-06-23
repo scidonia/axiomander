@@ -847,11 +847,9 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 "(is_list) to expose the model. See "
                 "docs/finite-iterable-relations.md.")
         from axiomander.oracle.contract_ir_iris import iris_prop
-        # Prefer forall predicate from loop invariants (literal lists).
-        # Precondition-derived forallb facts are NOT yet wired through
-        # wp_for_list_forall — the LitUnit continuation premise doesn't
-        # match the accumulator-returning Let wrapper.  Tracked as xfail.
+        # Prefer forall predicate from function precondition (forallb fact).
         inv_pred = _make_forall_predicate(e.invariants, e.var)
+        pre_pred = fp.get(model_coq, "")
         return [ForList(
             var=e.var,
             lst_coq=model_coq,
@@ -860,7 +858,8 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
             invariants=[iris_prop(x) for x in e.invariants],
             continuation_stages=cont,
             iterable_type=iterable_type,
-            forall_predicate=inv_pred,
+            forall_predicate=pre_pred or inv_pred,
+            from_precondition=bool(pre_pred),
         )]  # continuation handled by inferred Phi via wp_for_list' or wp_for_list_forall
 
     if isinstance(e, SAlloc):
@@ -1385,9 +1384,7 @@ def _emit_for_list_stage_exn(fl: ForList, indent: str) -> list[str]:
         if fl.from_precondition:
             # Forall derived from forallb precondition via Hpre.
             lines.append(f'{indent}  iPureIntro. '
-                         f'apply forallb_true in Hpre. '
-                         f'apply Forall_forall. '
-                         f'apply Hpre. }}')
+                         f'apply forallb_to_Forall. exact Hpre. }}')
         else:
             # Literal list: prove structurally.
             lines.append(f'{indent}  iPureIntro. simpl. '

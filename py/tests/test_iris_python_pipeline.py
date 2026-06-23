@@ -1441,3 +1441,21 @@ def forallb_basic(xs: list[int]) -> int:
     return result
 ''')
     assert ok, f"forallb_basic must verify: {out[:400]}"
+
+
+@pytest.mark.xfail(reason="wp_for_list_forall: LitUnit continuation premise "
+                          "doesn't match accumulator-returning Let wrapper. "
+                          "Lowering is correct; prover needs a new WP lemma "
+                          "or sum-induction support in finish_pure.")
+def test_fluid_forallb_with_loop():
+    r"""all(x > 0 for x in xs) + for-loop accumulation — prover WIP."""
+    ok, out = verify_exn('''
+def all_positive(xs: list[int]) -> int:
+    assert all(x > 0 for x in xs)
+    result = 0
+    for x in xs:
+        result = result + x
+    assert result > 0
+    return result
+''')
+    assert ok, f"all_positive must verify: {out[:400]}"

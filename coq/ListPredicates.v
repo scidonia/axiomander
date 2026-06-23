@@ -153,6 +153,20 @@ Proof.
 Qed.
 
 (* ------------------------------------------------------------- *)
+(* Bridge: forallb -> Forall (for wp_for_list_forall).            *)
+(* Connects pure forallb preconditions to per-element loop        *)
+(* invariants in the Iris WP.                                     *)
+(* ------------------------------------------------------------- *)
+
+Lemma forallb_to_Forall {A} (f : A -> bool) (xs : list A) :
+  forallb f xs = true -> Forall (fun x => f x = true) xs.
+Proof.
+  intro H.
+  rewrite forallb_true in H.
+  apply Forall_forall. exact H.
+Qed.
+
+(* ------------------------------------------------------------- *)
 (* dropn: skip n elements; decreases structurally on n.           *)
 (* Allows xs[n:] recursion with a nat counter as the measure.     *)
 (* ------------------------------------------------------------- *)
