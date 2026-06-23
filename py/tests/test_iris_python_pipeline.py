@@ -1443,6 +1443,36 @@ def forallb_basic(xs: list[int]) -> int:
     assert ok, f"forallb_basic must verify: {out[:400]}"
 
 
+def test_fluid_chain_implies():
+    """Chained implies + scalar pre/post — fluid-only composition."""
+    ok, out = verify_exn('''
+def validate_and_compute(a: int, b: int, c: int) -> int:
+    assert a >= 0
+    assert b >= 0
+    assert implies(a > 0, c >= b)
+    result = a + b
+    assert implies(a == 0, result == b)
+    assert implies(a > 0, result >= b)
+    return result
+''')
+    assert ok, f"validate_and_compute must verify: {out[:400]}"
+
+
+def test_fluid_filter_stats():
+    """forallb + len + implies in pre/post — full fluid composition."""
+    ok, out = verify_exn('''
+def filter_stats(items: list[int], limit: int) -> int:
+    assert limit >= 0
+    assert all(x >= 0 for x in items)
+    result = len(items)
+    assert result >= 0
+    assert implies(limit == 0, result >= 0)
+    assert implies(len(items) <= limit, result <= limit)
+    return result
+''')
+    assert ok, f"filter_stats must verify: {out[:400]}"
+
+
 @pytest.mark.xfail(reason="wp_for_list_forall: LitUnit continuation premise "
                           "doesn't match accumulator-returning Let wrapper. "
                           "Lowering is correct; prover needs a new WP lemma "
