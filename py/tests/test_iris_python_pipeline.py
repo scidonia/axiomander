@@ -1347,9 +1347,92 @@ def imp_bad(x: int, bogus: int):
     assert not ok, "implication with unconstrained consequent must reject"
 
 
+# =========================================================================
+# Fluid-lowerer end-to-end tests.
+# These exercise features unique to the fluid lowerer that now verify
+# by default (no flag needed after WP-7 cutover).
+# =========================================================================
+
+def test_fluid_forallb_precondition():
+    """forallb precondition with no loop body — proves via pure forallb_true."""
+    ok, out = verify_exn('''
+def forallb_pre(xs: list[int]) -> int:
+    assert all(x > 0 for x in xs)
+    result = 0
+    assert result >= 0
+    return result
+''')
+    assert ok, f"forallb_pre must verify: {out[:400]}"
+
+
+def test_fluid_forallb_multi():
+    """Multiple forallb preconditions — all decompose via forallb_true."""
+    ok, out = verify_exn('''
+def forallb_multi(xs: list[int]) -> int:
+    assert len(xs) >= 0
+    assert all(x > 0 for x in xs)
+    assert all(x < 100 for x in xs)
+    result = len(xs)
+    assert result >= 0
+    return result
+''')
+    assert ok, f"forallb_multi must verify: {out[:400]}"
+
+
+def test_fluid_hex_string_post():
+    """Hex-string check on result string — str_all_hex + length."""
+    ok, out = verify_exn('''
+def hash_str() -> int:
+    result = 'abc123'
+    assert len(result) == 6
+    assert all(c in '0123456789abcdef' for c in result)
+    x = 1
+    assert x == 1
+    return x
+''')
+    assert ok, f"hash_str must verify: {out[:400]}"
+
+
+def test_fluid_slice_len_pre():
+    """Slice-length precondition: len(xs[0:5]) <= 5 — lowered as (5 - 0) <= 5."""
+    ok, out = verify_exn('''
+def slice_ok(xs: list[int]) -> int:
+    assert len(xs[0:5]) <= 5
+    result = len(xs)
+    assert result >= 0
+    return result
+''')
+    assert ok, f"slice_ok must verify: {out[:400]}"
+
+
+def test_fluid_any_range():
+    """any over a small range — expanded to disjunction, proved by nia."""
+    ok, out = verify_exn('''
+def any_small(n: int) -> int:
+    assert n >= 0
+    assert any(i == 2 for i in range(0, n))
+    result = n
+    assert result >= 0
+    return result
+''')
+    assert ok, f"any_small must verify: {out[:400]}"
+
+
+def test_fluid_forallb_negative():
+    """forallb with a postcondition that contradicts — must FAIL."""
+    ok, _ = verify_exn('''
+def forallb_bad(xs: list[int]) -> int:
+    assert all(x > 0 for x in xs)
+    result = 0
+    assert result < 0
+    return result
+''')
+    assert not ok, "forallb_bad must reject: result >= 0 contradicts result < 0"
+
+
 @pytest.mark.xfail(reason="wp_for_list_forall needs sn_val lambda unwrapping in prover")
-def test_fluid_forallb_list_positive():
-    r"""all(x > 0 for x in xs: list[int]) — forallb lowering correct, prover WIP."""
+def test_fluid_forallb_with_loop():
+    r"""all(x > 0 for x in xs: list[int]) with for-loop body — prover WIP."""
     ok, out = verify_exn('''
 def all_positive(xs: list[int]) -> int:
     assert all(x > 0 for x in xs)

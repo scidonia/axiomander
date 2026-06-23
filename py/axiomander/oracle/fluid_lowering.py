@@ -739,6 +739,41 @@ def _lower_dict_count(node, ctx: LowerCtx, **_kw: object) -> CoqTerm:
 # Pre/postcondition wrappers (compile_precondition / compile_postcondition).
 # ---------------------------------------------------------------------------
 
+def extract_forall_predicate(node) -> str:
+    """Extract an sn_val->Prop predicate from a forallb precondition.
+
+    Walks a contract_ir Expr looking for a list-quantifier AllExpr whose
+    lst matches a known list model.  Returns the Forall predicate string
+    suitable for wp_for_list_forall, or '' if none found.
+
+    Example: all(x > 0 for x in xs) with list model {"xs": "M_xs"}
+             → "(fun v => match v with LitInt n => Z.ltb 0 n = true | _ => False end)"
+    """
+    kind = getattr(node, "kind", "")
+    if kind == "all":
+        lst = getattr(node, "lst", "")
+        if not lst:
+            return ""
+        # Build a LowerCtx to lower the predicate.  No list model needed
+        # here — the predicate is over Z elements.
+        pred = getattr(node, "pred", None)
+        if pred is None:
+            return ""
+        var = node.var
+        child_ctx = LowerCtx(gamma={var: Ty.INT})
+        body = lower(pred, child_ctx, bool_mode=True)
+        # body.text references var (the Python loop variable, e.g. "x").
+        # The match binder is "n" — substitute var → n.
+        body_text = body.text.replace(var, "n")
+        return (f"(fun (_v : sn_val) => match _v with "
+                f"LitInt n => {body_text} = true | _ => False end)")
+    if kind == "logical":
+        for o in getattr(node, "operands", []):
+            pred = extract_forall_predicate(o)
+            if pred:
+                return pred
+    return ""
+
 _RESULT_KIND_WRAPPER: dict[str, tuple[str, str]] = {
     "int": ("Z", "LitInt"),
     "bool": ("bool", "LitBool"),

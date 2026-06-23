@@ -120,8 +120,9 @@ cd vendor/rocq-piler && npm install && npm run build
 # Add to ~/.config/opencode/opencode.json:
 #   "mcp": {
 #     "axiomander": {
-#       "command": ["/path/to/axiomander/.venv/bin/python3", "-u", "-m", "oracle.mcp_server"],
-#       "environment": { "PYTHONPATH": "/path/to/axiomander/py", "AXIOMANDER_ROOT": "/path/to/axiomander", ... }
+#       "command": ["/path/to/axiomander/.venv/bin/python3", "-u", "-m", "axiomander.oracle.mcp_server"],
+#       "cwd": "/path/to/axiomander",
+#       "environment": { "AXIOMANDER_ROOT": "/path/to/axiomander", ... }
 #     },
 #     "rocq-piler": {
 #       "command": ["node", "/path/to/axiomander/vendor/rocq-piler/dist/index.js", "--coq-lsp-path", "/path/to/coq-lsp"]

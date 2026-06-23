@@ -73,6 +73,9 @@ class Contracts:
     predicate_fixpoints: list[str] = field(default_factory=list)
     """Coq Fixpoint definitions for recursive user predicates (D1/D2).
     Emitted in the proof preamble after imports."""
+    forall_predicates: dict[str, str] = field(default_factory=dict)
+    """list_model_name -> Forall predicate for wp_for_list_forall.
+    e.g. {"M_xs": "(fun v => match v with LitInt n => ...)"}"""
 
 
 def extract_contracts(
@@ -180,10 +183,12 @@ def extract_contracts(
     body = _kept
 
     # Leading asserts = precondition
+    pre_irs: list = []
     while body and isinstance(body[0], ast.Assert):
         linted = pre_linter.lint_expression(body[0].test)
         if linted.ir is not None:
             pres.append(_pre(linted.ir))
+            pre_irs.append(linted.ir)
         body = body[1:]
 
     pre = None
@@ -243,7 +248,22 @@ def extract_contracts(
     _extract_while_invariants(body, loop_invs, pre_linter, lm)
 
     return Contracts(pre=pre, post=post, loop_invariants=loop_invs,
-                     raises=raises), body, post_linter
+                     raises=raises, forall_predicates=_collect_forall_predicates(pre_irs, lm)), body, post_linter
+
+
+def _collect_forall_predicates(pre_irs: list, lm: dict[str, str]) -> dict[str, str]:
+    """Extract Forall predicates from precondition IR for wp_for_list_forall."""
+    from axiomander.oracle.fluid_lowering import extract_forall_predicate
+    result: dict[str, str] = {}
+    for ir in pre_irs:
+        pred = extract_forall_predicate(ir)
+        if not pred:
+            continue
+        # Find the list model name — the AllExpr's lst maps to lm.
+        if hasattr(ir, 'lst') and ir.lst:
+            model = lm.get(ir.lst, ir.lst)
+            result[model] = pred
+    return result
 
 
 # -- Statement folding (PyIR statements -> SnakeletIR) ---------------------
@@ -1599,6 +1619,7 @@ def python_to_iris_proof(source: str,
         raises=contracts.raises,
         param_types=param_types,
         predicate_fixpoints=contracts.predicate_fixpoints,
+        forall_predicates=contracts.forall_predicates,
     )
 
     # Collect invariant update obligations from all WhileInv nodes,

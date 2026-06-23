@@ -87,10 +87,29 @@ def _binop(op: str, l: Val, r: Val) -> Val:
     if isinstance(l, VString) and isinstance(r, VString):
         if op == "add": return VString(l.v + r.v)
         if op == "eq":  return VBool(l.v == r.v)
+        if op == "starts_with": return VBool(l.v.startswith(r.v))
+        if op == "ends_with": return VBool(l.v.endswith(r.v))
+        if op == "str_contains": return VBool(r.v in l.v)
+        if op == "in": return VBool(r.v in l.v)
         return VError.type_error(f"unsupported string op: {op}")
 
     if isinstance(l, VString) and isinstance(r, VInt) and op == "mul":
         return VString(l.v * r.v)
+
+    if isinstance(l, VString) and op == "len":
+        return VInt(len(l.v))
+
+    if isinstance(l, VString) and op == "to_lower":
+        return VString(l.v.lower())
+
+    if isinstance(l, VString) and op == "to_upper":
+        return VString(l.v.upper())
+
+    if isinstance(l, VString) and isinstance(r, VInt) and op == "str_index":
+        i = r.v
+        if 0 <= i < len(l.v):
+            return VString(l.v[i])
+        return VError.value_error(f"string index out of range")
 
     # Dict operations
     if isinstance(l, VDict) and isinstance(r, VString):

@@ -43,13 +43,14 @@ class SBinOp:
                   "dict_get": "DictGetOp", "mk_key_err": "MkKeyErrOp",
                   "dict_get_int": "DictGetIntOp",
                   "set_add": "SetAddOp",
-                  "str_index": "StrIndexOp",
-                  "starts_with": "StartsWithOp",
-                  "ends_with": "EndsWithOp",
-                   "to_lower": "ToLowerOp",
-                   "to_upper": "ToUpperOp",
-                   "dict_set": "DictSetOp",
-                   "tuple": "TupleOp"}
+                   "str_index": "StrIndexOp",
+                   "starts_with": "StartsWithOp",
+                   "ends_with": "EndsWithOp",
+                    "to_lower": "ToLowerOp",
+                    "to_upper": "ToUpperOp",
+                    "dict_set": "DictSetOp",
+                    "tuple": "TupleOp",
+                    "str_contains": "StrContainsOp"}
         coq_op = op_map.get(self.op, "AddOp")
         return f"(BinOp {coq_op} {self.left.to_coq()} {self.right.to_coq()})"
 
@@ -300,7 +301,87 @@ class SDictSet:
         return f'(DictSet (Var "{self.loc}") {self.key.to_coq()} {self.value.to_coq()})'
 
 
-SExpr = SLit | SVar | SBinOp | SLoad | SStore | SAlloc | SLet | SIf | SWhile | SFor | SReturn | SApp | SSeq | SFork | SFAA | SRaise | STry | SDictGet | SDictSet
+@dataclass
+class SCompound:
+    """Build a compound value (tuple/list/set/dict) from expressions.
+
+    Lowered to a chain of Let + BinOp (TupleOp / AppendOp / SetAddOp /
+    DictSetOp) that constructs the immutable value step-by-step.
+    """
+    lit_type: str       # "tuple" | "list" | "set" | "dict"
+    value: str          # empty value representation: "()" | "[]" | "{}"
+    elements: list["SExpr"]  # elements (key/value pairs interleaved for dict)
+    kind: Literal["compound"] = "compound"
+
+    def to_coq(self) -> str:
+        if not self.elements:
+            empty = SLit(lit_type=self.lit_type, value=self.value)
+            return empty.to_coq()
+        if self.lit_type == "dict":
+            return self._to_coq_dict()
+        if self.lit_type == "tuple":
+            return self._to_coq_tuple()
+        if self.lit_type == "list":
+            return self._to_coq_list()
+        if self.lit_type == "set":
+            return self._to_coq_set()
+        return "(Val LitUnit)"
+
+    def _to_coq_tuple(self) -> str:
+        return _chain_snoc(
+            self.elements, self.lit_type, self.value,
+            snoc_op="tuple", snoc_left=False)
+
+    def _to_coq_list(self) -> str:
+        return _chain_snoc(
+            self.elements, self.lit_type, self.value,
+            snoc_op="append", snoc_left=True)
+
+    def _to_coq_set(self) -> str:
+        return _chain_snoc(
+            self.elements, self.lit_type, self.value,
+            snoc_op="set_add", snoc_left=True)
+
+    def _to_coq_dict(self) -> str:
+        assert len(self.elements) % 2 == 0, \
+            "dict SCompound must have even number of elements (key, val pairs)"
+        n = len(self.elements) // 2
+        if n == 0:
+            return SLit(lit_type="dict", value="{}").to_coq()
+        empty_dict = SLit(lit_type="dict", value="{}")
+        result = empty_dict.to_coq()
+        for i in range(n - 1, -1, -1):
+            key = self.elements[i * 2]
+            val = self.elements[i * 2 + 1]
+            kv = SBinOp(op="tuple", left=key, right=val)
+            result = f'(BinOp DictSetOp {result} {kv.to_coq()})'
+        return result
+
+
+def _chain_snoc(elements: list["SExpr"], lit_type: str, empty_val: str,
+                snoc_op: str, snoc_left: bool) -> str:
+    """Chain snoc-style construction: build compound value element by element.
+
+    For snoc_left=True (append):  result = AppendOp(result, element)
+    For snoc_left=False (tuple prepend): result = TupleOp(element, result)
+
+    Elements are processed in reverse order.
+    """
+    if not elements:
+        return SLit(lit_type=lit_type, value=empty_val).to_coq()
+    empty = SLit(lit_type=lit_type, value=empty_val).to_coq()
+    op_tag = {"append": "AppendOp", "tuple": "TupleOp",
+               "set_add": "SetAddOp"}[snoc_op]
+    result = empty
+    for elem in reversed(elements):
+        if snoc_left:
+            result = f"(BinOp {op_tag} {result} {elem.to_coq()})"
+        else:
+            result = f"(BinOp {op_tag} {elem.to_coq()} {result})"
+    return result
+
+
+SExpr = SLit | SVar | SBinOp | SLoad | SStore | SAlloc | SLet | SIf | SWhile | SFor | SReturn | SApp | SSeq | SFork | SFAA | SRaise | STry | SDictGet | SDictSet | SCompound
 
 
 # ── Resource layer ───────────────────────────────────────────────
@@ -474,5 +555,7 @@ def _emit_body(lines: list[str], expr: SExpr, indent: int = 2) -> None:
         lines.append(f"{sp}(* dict insert — atomic, like Store *)")
         _emit_body(lines, expr.value, indent)
         lines.append(f"{sp}wp_dict_set.")
+    elif isinstance(expr, SCompound):
+        lines.append(f"{sp}wp_pures.  (* compound {expr.lit_type} *)")
     else:
         lines.append(f"{sp}(* {type(expr).__name__} *)")
