@@ -82,6 +82,7 @@ def extract_contracts(
     source: str, fn_node: ast.FunctionDef,
     list_model: dict[str, str] | None = None,
     ghost_resolver: dict[str, str] | None = None,
+    predicates: dict | None = None,
 ) -> tuple[Contracts, list[ast.stmt], ContractLinter]:
     """Split positional asserts out of the function body.
 
@@ -117,10 +118,12 @@ def extract_contracts(
     _BOOL_PARAMS.update(bool_params)
     pre_linter = ContractLinter(params=params, context="precondition",
                                 ghost_resolver=ghost_resolver,
-                                param_type_hint=param_type_hint)
+                                param_type_hint=param_type_hint,
+                                predicates=predicates)
     post_linter = ContractLinter(params=params, context="postcondition",
                                  ghost_resolver=ghost_resolver,
-                                 param_type_hint=param_type_hint)
+                                 param_type_hint=param_type_hint,
+                                 predicates=predicates)
 
     lm = list_model or {}
 
@@ -264,6 +267,37 @@ def _collect_forall_predicates(pre_irs: list, lm: dict[str, str]) -> dict[str, s
             model = lm.get(ir.lst, ir.lst)
             result[model] = pred
     return result
+
+
+def _detect_predicates(source: str) -> tuple[dict, list[str]]:
+    """Parse source for pure predicate definitions (D1/D2).
+
+    Returns (predicates_dict, fixpoint_defs) where predicates_dict maps
+    name -> (params, body_expr, [], None, None) for the ContractLinter,
+    and fixpoint_defs is a list of Coq Fixpoint strings for the preamble.
+    """
+    predicates: dict = {}
+    fixpoints: list[str] = []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return predicates, fixpoints
+    from axiomander.oracle.predicate_def import classify_recursion, _find_self_calls, RecKind
+    from axiomander.oracle.slice_normalizer import emit_fixpoint
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        self_calls = _find_self_calls(node, node.name)
+        if not self_calls:
+            continue
+        params = [a.arg for a in node.args.args]
+        returns = [s for s in node.body if isinstance(s, ast.Return) and s.value]
+        body_expr = returns[-1].value if returns else None
+        predicates[node.name] = (params, body_expr, [], None, None)
+        pd = classify_recursion(node)
+        if pd.rec_kind in (RecKind.STRUCTURAL, RecKind.MEASURED):
+            fixpoints.append(emit_fixpoint(pd))
+    return predicates, fixpoints
 
 
 # -- Statement folding (PyIR statements -> SnakeletIR) ---------------------
@@ -1572,8 +1606,17 @@ def python_to_iris_proof(source: str,
                 if isinstance(target.body[i], ast.Return):
                     target.body.insert(i, node)
                     break
+    # Detect pure predicate definitions in the source (recursive D1/D2 predicates
+    # used in contracts, e.g. is_sorted).  Classify each, build the predicates
+    # dict for the linter, and generate Fixpoint definitions for the preamble.
+    predicates, predicate_fixpoints_local = _detect_predicates(source)
     contracts, body_ast, _ = extract_contracts(source, target, list_model=ann_lm,
-                                                ghost_resolver=ghost_resolver)
+                                                ghost_resolver=ghost_resolver,
+                                                predicates=predicates)
+    # Merge detected predicate Fixpoints into the contracts
+    for fp in predicate_fixpoints_local:
+        if fp not in contracts.predicate_fixpoints:
+            contracts.predicate_fixpoints.append(fp)
 
     # Strip docstring string-node from the body before lowering (it leaks
     # into the IR as a LitString literal otherwise).

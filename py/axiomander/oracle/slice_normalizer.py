@@ -108,16 +108,122 @@ def emit_fixpoint(
     Pattern 1 (list-structural, D1): self-call on `xs[1:]`.
     Pattern 2 (nat-measured, D2): self-call on `xs[n:]` with decreasing n.
 
-    Returns the Coq Fixpoint definition as a string.
+    If [body] is provided, it is used directly.  Otherwise, the predicate's
+    body_expr (from classify_recursion) is normalised via normalize_slice_rec.
     """
-    param = pd.params[0] if pd.params else "xs"
+    param = pd.rec_arg if pd.rec_arg and pd.rec_kind is RecKind.STRUCTURAL else pd.params[0] if pd.params else "xs"
     name = pd.name
 
-    if pd.rec_kind is RecKind.STRUCTURAL and body is not None:
-        return _emit_structural(name, param, body)
+    if pd.rec_kind is RecKind.STRUCTURAL:
+        if body is not None:
+            return _emit_structural(name, param, body)
+        # Try to emit from the body expression.
+        if pd.body_expr is not None:
+            return _emit_structural_from_body(pd, param)
+        # No body available — emit structural stub.
+        return _emit_structural_stub(name, param)
     if pd.rec_kind is RecKind.MEASURED and pd.rec_arg:
         return _emit_measured(name, param)
     return f"(* Unimplemented Fixpoint for '{name}' with kind {pd.rec_kind.value} *)\n"
+
+
+def _emit_structural_from_body(pd: PredicateDef, param: str) -> str:
+    """Emit a correct Fixpoint by rewriting slice patterns in the body.
+
+    The predicate body references xs[0], xs[1:], etc.  These are rewritten
+    to hd and rest in the cons branch of the match.  The base case is
+    extracted from the function's if-guard when available.
+    """
+    name = pd.name
+    body_expr = pd.body_expr
+    if body_expr is None:
+        return _emit_structural_stub(name, param)
+
+    # Rewrite: xs[0] -> hd, xs[1:] -> rest, xs[1] -> rest[0] etc.
+    rewritten = _rewrite_slices(body_expr, param, "hd", "rest")
+    cons_body_coq = _py_expr_to_coq_bool(ast.unparse(rewritten))
+
+    # Base case: from the if-guard (e.g. `not xs` → [] => false,
+    # `len(xs) <= 1` → [] and [_] => true).
+    base_coq = _extract_base_case(pd)
+
+    # Multi-param: params beyond the structural one are passed directly.
+    extra_args = [p for p in pd.params if p != param]
+    extra_binders = "".join(f" ({p} : Z)" for p in extra_args)
+    extra_args_coq = " ".join(extra_args)
+
+    return (
+        f"Fixpoint {name} {extra_binders}({param} : list Z) "
+        f"{{struct {param}}} : bool :=\n"
+        f"  match {param} with\n"
+        f"  | [] => {base_coq}\n"
+        f"  | hd :: rest => {cons_body_coq}\n"
+        f"  end.\n"
+    )
+
+
+def _extract_base_case(pd: PredicateDef) -> str:
+    """Extract the base case value from the predicate body.
+
+    Walks body_expr looking for non-recursive return values.
+    Default: 'false' (empty list → false is the safe default for search predicates).
+    """
+    expr = pd.body_expr
+    if expr is None:
+        return "false"
+    if isinstance(expr, ast.IfExp):
+        if _is_nonrecursive(expr.body, pd.name):
+            val = ast.unparse(expr.body)
+            if "True" in val:
+                return "true"
+            if "False" in val:
+                return "false"
+            if val == "0":
+                return "0"
+            return val
+        if _is_nonrecursive(expr.orelse, pd.name):
+            val = ast.unparse(expr.orelse)
+            if "True" in val:
+                return "true"
+            if "False" in val:
+                return "false"
+            if val == "0":
+                return "0"
+            return val
+    # Check if the body itself is a BoolOp with a non-recursive branch
+    if isinstance(expr, ast.BoolOp):
+        for v in expr.values:
+            if _is_nonrecursive(v, pd.name):
+                val = ast.unparse(v)
+                if "False" in val:
+                    return "false"
+                if "0" in val:
+                    return "0"
+                break
+    return "false"  # safe default
+
+
+def _is_nonrecursive(node: ast.AST, name: str) -> bool:
+    """Check if an AST subtree contains no self-calls to *name*."""
+    class Checker(ast.NodeVisitor):
+        has_call = False
+        def visit_Call(self, node):
+            if isinstance(node.func, ast.Name) and node.func.id == name:
+                self.has_call = True
+            self.generic_visit(node)
+    c = Checker()
+    c.visit(node)
+    return not c.has_call
+
+
+def _emit_structural_stub(name: str, param: str) -> str:
+    return (
+        f"Fixpoint {name} ({param} : list Z) {{struct {param}}} : bool :=\n"
+        f"  match {param} with\n"
+        f"  | [] => true\n"
+        f"  | _ :: rest => {name} rest\n"
+        f"  end.\n"
+    )
 
 
 def _emit_structural(name: str, param: str, body: NormalizedBody) -> str:

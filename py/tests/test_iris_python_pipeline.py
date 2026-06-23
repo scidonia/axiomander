@@ -1473,6 +1473,51 @@ def filter_stats(items: list[int], limit: int) -> int:
     assert ok, f"filter_stats must verify: {out[:400]}"
 
 
+# =========================================================================
+# F* / Nagini -style contracts.
+# =========================================================================
+
+def test_fstar_abs_nonneg():
+    """abs_nonneg — pure identity: if x>=0, result==x (Nagini-style)."""
+    ok, out = verify_exn('''
+def abs_nonneg(x: int) -> int:
+    assert x >= 0
+    result = x
+    assert result >= 0
+    assert result == x
+    return result
+''')
+    assert ok, f"abs_nonneg must verify: {out[:400]}"
+
+
+def test_fstar_triangle():
+    """Triangle inequality: a+b >= a and a+b >= b (F*-style)."""
+    ok, out = verify_exn('''
+def triangle_check(a: int, b: int) -> int:
+    assert a >= 0
+    assert b >= 0
+    result = a + b
+    assert result >= a
+    assert result >= b
+    return result
+''')
+    assert ok, f"triangle_check must verify: {out[:400]}"
+
+
+@pytest.mark.xfail(reason="integer division (//) not yet handled by the prover")
+def test_fstar_binary_midpoint():
+    """Binary search midpoint: lo <= (lo+hi)//2 <= hi (F*-style)."""
+    ok, out = verify_exn('''
+def binary_midpoint(lo: int, hi: int) -> int:
+    assert lo <= hi
+    result = (lo + hi) // 2
+    assert lo <= result
+    assert result <= hi
+    return result
+''')
+    assert ok, f"binary_midpoint must verify: {out[:400]}"
+
+
 @pytest.mark.xfail(reason="wp_for_list_forall: LitUnit continuation premise "
                           "doesn't match accumulator-returning Let wrapper. "
                           "Lowering is correct; prover needs a new WP lemma "

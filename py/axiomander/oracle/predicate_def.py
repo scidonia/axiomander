@@ -37,6 +37,8 @@ class PredicateDef:
     rec_kind: RecKind
     rec_arg: str = ""
     reason: str = ""
+    base_guard: ast.expr | None = None  # the if-condition for base case
+    base_value: str = "false"  # Coq value for base case (true/false/0)
 
     def is_recursive(self) -> bool:
         return self.rec_kind is not RecKind.NONREC
@@ -71,6 +73,7 @@ def classify_recursion(
 
     # Extract the body expression (return value) for lowering.
     body_expr = _extract_return_expr(func_node)
+    base_value = _extract_base_value(func_node, name)
 
     # Check for `# decreases:` annotation in the body.
     measure = _find_decreases_annotation(func_node)
@@ -78,6 +81,7 @@ def classify_recursion(
         return PredicateDef(
             name=name, params=params, body_expr=body_expr,
             rec_kind=RecKind.MEASURED, rec_arg=measure,
+            base_value=base_value,
         )
 
     # Try structural classification.
@@ -86,13 +90,14 @@ def classify_recursion(
         return PredicateDef(
             name=name, params=params, body_expr=body_expr,
             rec_kind=RecKind.STRUCTURAL, rec_arg=rec_arg,
+            base_value=base_value,
         )
 
     # Could not classify — reject.
     call_sites = [ast.unparse(c) for c in calls]
     return PredicateDef(
         name=name, params=params, body_expr=body_expr,
-        rec_kind=RecKind.REJECT,
+        rec_kind=RecKind.REJECT, base_value=base_value,
         reason=(
             f"'{name}' is recursive but the self-call(s) "
             f"{', '.join(call_sites)} do not structurally decrease "
@@ -101,7 +106,7 @@ def classify_recursion(
     )
 
 
-# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -169,14 +174,19 @@ def _classify_structural(
     for call in calls:
         if not call.args:
             return None
-        arg_node = call.args[0]
-        arg_name, structural = _is_structural_arg(arg_node, params)
-        if not structural:
+        # Check all arguments — the structural arg may be at any position
+        # (e.g. mem(x, xs[1:]) decreases on xs at position 1).
+        found = False
+        for i, arg_node in enumerate(call.args):
+            arg_name, structural = _is_structural_arg(arg_node, params)
+            if structural:
+                if not found:
+                    rec_arg = arg_name
+                    found = True
+                elif rec_arg != arg_name:
+                    return None  # structural on different params
+        if not found:
             return None
-        if rec_arg is None:
-            rec_arg = arg_name
-        elif rec_arg != arg_name:
-            return None  # different params in different self-calls
 
     return rec_arg
 
