@@ -171,8 +171,8 @@ def _compile_logical(expr) -> Optional[str]:
 
 
 def _compile_implies(expr) -> Optional[str]:
-    ante = expr_to_p_expr(expr.antecedent)
-    conse = expr_to_p_expr(expr.consequent)
+    ante = expr_to_p_expr(expr.left)
+    conse = expr_to_p_expr(expr.right)
     if ante is None or conse is None:
         return None
     return f"(PBinOp POrOp (PBinOp PEqOp {ante} (PVal (PLitBool false))) {conse})"
