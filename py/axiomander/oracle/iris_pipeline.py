@@ -51,6 +51,9 @@ from axiomander.oracle.snakelet_ir import (
     SAlloc, SApp, SBinOp, SCompound, SDictGet, SDictSet, SExpr, SIf, SLet, SLit, SLoad, SRaise, SReturn, SSeq,
     SStore, STry, SVar, SWhile, SFor,
 )
+from axiomander.supercompiler_bridge import (
+    expr_to_p_expr, supercompile_p_expr, make_supercompiled_coq_block,
+)
 
 # Binops supported by SnakeletLang's binop_eval on integers.
 _SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge", "ne", "mod", "and", "or", "in", "append", "length", "set_add", "str_index", "starts_with", "ends_with", "to_lower", "to_upper", "dict_set", "tuple", "str_contains"}
@@ -76,6 +79,11 @@ class Contracts:
     forall_predicates: dict[str, str] = field(default_factory=dict)
     """list_model_name -> Forall predicate for wp_for_list_forall.
     e.g. {"M_xs": "(fun v => match v with LitInt n => ...)"}"""
+    pre_exprs: list = field(default_factory=list)
+    """Raw contract_ir.Expr nodes for preconditions (before Prop compilation).
+    Used for optional supercompiler simplification."""
+    post_expr: Optional[object] = field(default=None)
+    """Raw contract_ir.Expr node for postcondition (before Prop compilation)."""
 
 
 def extract_contracts(
@@ -203,6 +211,7 @@ def extract_contracts(
     # Asserts immediately before final return = postcondition.
     # Multiple asserts are conjoined with `and`.
     post = "True"
+    _post_expr = None  # raw contract_ir.Expr for supercompiler
     if body and isinstance(body[-1], ast.Return):
         ret_node = body[-1]
         ret_var = None
@@ -227,6 +236,8 @@ def extract_contracts(
             if len(posts) == 1:
                 # Single assert: use the standard wrapper.
                 linted = post_linter.lint_expression(post_asserts[0].test)
+                if linted.ir is not None:
+                    _post_expr = linted.ir
                 post = _post(linted.ir, ret_var, result_kind, ghost_resolver)
             elif posts:
                 # Shared existential: exists z, v = LitInt z /\ P1 /\ P2.
@@ -251,7 +262,8 @@ def extract_contracts(
     _extract_while_invariants(body, loop_invs, pre_linter, lm)
 
     return Contracts(pre=pre, post=post, loop_invariants=loop_invs,
-                     raises=raises, forall_predicates=_collect_forall_predicates(pre_irs, lm)), body, post_linter
+                     raises=raises, forall_predicates=_collect_forall_predicates(pre_irs, lm),
+                     pre_exprs=pre_irs, post_expr=_post_expr), body, post_linter
 
 
 def _collect_forall_predicates(pre_irs: list, lm: dict[str, str]) -> dict[str, str]:
@@ -1526,6 +1538,7 @@ def python_to_iris_proof(source: str,
                          pre_overrides: Optional[dict[str, str]] = None,
                          dict_params: Optional[set[str]] = None,
                          _cwd: str = ".",
+                         supercompile_contracts: bool = False,
                          ) -> IrisProof:
     """Lower a Python function with assert contracts to a staged Iris proof.
 
@@ -1665,12 +1678,79 @@ def python_to_iris_proof(source: str,
         forall_predicates=contracts.forall_predicates,
     )
 
+    # Optional supercompiler simplification of contract expressions
+    if supercompile_contracts:
+        _apply_supercompiler(proof, contracts, fn.name)
+
     # Collect invariant update obligations from all WhileInv nodes,
     # discharge via SMT in one batch, and inject as smt_ax_N axioms.
     inv_axs = discharge_inv_obligations(proof, axiom_offset=len(proof.axioms))
     proof.axioms.extend(inv_axs)
 
     return proof
+
+
+def _apply_supercompiler(proof: IrisProof, contracts: Contracts, func_name: str) -> None:
+    """Apply supercompiler-based contract simplification to an IrisProof.
+
+    Only replaces the contract when the supercompiler reduces the expression
+    to a literal boolean constant (PVal (PLitBool true/false)), which is
+    trivially sound.  For all other cases the supercompiled definition is
+    added as a helper but does NOT replace the Lemma's contract statement.
+    """
+    try:
+        param_types = proof.param_types
+        params = proof.params
+
+        def _try_supercompile_p_expr(expr: object) -> str | None:
+            """Compile expr to p_expr, supercompile, return result."""
+            p_str = expr_to_p_expr(expr)
+            if p_str is None:
+                return None
+            result = supercompile_p_expr(p_str)
+            return result
+
+        def _is_constant_bool(p_expr_str: str) -> bool:
+            """Check if the supercompiled result is a literal boolean."""
+            s = p_expr_str.strip()
+            return s.startswith("PVal (PLitBool true)") or s.startswith("PVal (PLitBool false)")
+
+        # Supercompile preconditions
+        pre_result = None
+        if contracts.pre_exprs:
+            for expr in contracts.pre_exprs:
+                r = _try_supercompile_p_expr(expr)
+                if r is not None:
+                    pre_result = r
+                    break
+
+        post_result = None
+        if contracts.post_expr is not None:
+            post_result = _try_supercompile_p_expr(contracts.post_expr)
+
+        # Generate Coq definitions block and Props
+        pre_prop = None
+        post_prop = None
+        coq_block = ""
+
+        if pre_result or post_result:
+            pre_prop, post_prop, coq_block = make_supercompiled_coq_block(
+                pre_result, post_result, params, param_types)
+
+        # Only REPLACE the contract if the supercompiler reduced to a constant.
+        # Otherwise, add as a helper definition only (for proof body use).
+        if pre_result and _is_constant_bool(pre_result):
+            if pre_prop:
+                proof.supercompiled_pre = pre_prop
+        if post_result and _is_constant_bool(post_result):
+            if post_prop:
+                proof.supercompiled_post = post_prop
+
+        if coq_block:
+            proof.supercompiled_block = coq_block
+
+    except Exception:
+        pass  # Optional pass — any failure falls back to original contracts
 
 
 def capture_residual(source: str,
