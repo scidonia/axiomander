@@ -51,6 +51,9 @@ from axiomander.oracle.snakelet_ir import (
     SAlloc, SApp, SBinOp, SCompound, SDictGet, SDictSet, SExpr, SIf, SLet, SLit, SLoad, SRaise, SReturn, SSeq,
     SStore, STry, SVar, SWhile, SFor,
 )
+from axiomander.supercompiler_bridge import (
+    expr_to_p_expr, supercompile_p_expr, make_supercompiled_coq_block,
+)
 
 # Binops supported by SnakeletLang's binop_eval on integers.
 _SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge", "ne", "mod", "and", "or", "in", "append", "length", "set_add", "str_index", "starts_with", "ends_with", "to_lower", "to_upper", "dict_set", "tuple", "str_contains"}
@@ -76,6 +79,11 @@ class Contracts:
     forall_predicates: dict[str, str] = field(default_factory=dict)
     """list_model_name -> Forall predicate for wp_for_list_forall.
     e.g. {"M_xs": "(fun v => match v with LitInt n => ...)"}"""
+    pre_exprs: list = field(default_factory=list)
+    """Raw contract_ir.Expr nodes for preconditions (before Prop compilation).
+    Used for optional supercompiler simplification."""
+    post_expr: Optional[object] = field(default=None)
+    """Raw contract_ir.Expr node for postcondition (before Prop compilation)."""
 
 
 def extract_contracts(
@@ -250,8 +258,18 @@ def extract_contracts(
     loop_invs: list[list[str]] = []
     _extract_while_invariants(body, loop_invs, pre_linter, lm)
 
+    # Capture raw Expr nodes for optional supercompiler simplification
+    _post_expr = None
+    if body and isinstance(body[-1], ast.Return):
+        post_asserts = [s for s in body if isinstance(s, ast.Assert)]
+        if post_asserts:
+            linted = post_linter.lint_expression(post_asserts[0].test)
+            if linted.ir is not None:
+                _post_expr = linted.ir
+
     return Contracts(pre=pre, post=post, loop_invariants=loop_invs,
-                     raises=raises, forall_predicates=_collect_forall_predicates(pre_irs, lm)), body, post_linter
+                     raises=raises, forall_predicates=_collect_forall_predicates(pre_irs, lm),
+                     pre_exprs=pre_irs, post_expr=_post_expr), body, post_linter
 
 
 def _collect_forall_predicates(pre_irs: list, lm: dict[str, str]) -> dict[str, str]:
@@ -1526,6 +1544,7 @@ def python_to_iris_proof(source: str,
                          pre_overrides: Optional[dict[str, str]] = None,
                          dict_params: Optional[set[str]] = None,
                          _cwd: str = ".",
+                         supercompile_contracts: bool = False,
                          ) -> IrisProof:
     """Lower a Python function with assert contracts to a staged Iris proof.
 
@@ -1665,12 +1684,60 @@ def python_to_iris_proof(source: str,
         forall_predicates=contracts.forall_predicates,
     )
 
+    # Optional supercompiler simplification of contract expressions
+    if supercompile_contracts:
+        _apply_supercompiler(proof, contracts, fn.name)
+
     # Collect invariant update obligations from all WhileInv nodes,
     # discharge via SMT in one batch, and inject as smt_ax_N axioms.
     inv_axs = discharge_inv_obligations(proof, axiom_offset=len(proof.axioms))
     proof.axioms.extend(inv_axs)
 
     return proof
+
+
+def _apply_supercompiler(proof: IrisProof, contracts: Contracts, func_name: str) -> None:
+    """Apply supercompiler-based contract simplification to an IrisProof.
+
+    Attempts to supercompile the pre/post contract expressions.  If the
+    supercompiler reduces any expression to a constant boolean or a
+    strictly simpler form, the simplified Prop replaces the original.
+    Falls back silently on failure (the original contract is used).
+    """
+    try:
+        param_types = proof.param_types
+        params = proof.params
+        pre_p_expr = None
+        post_p_expr = None
+
+        # Compile pre Expr nodes to p_expr and supercompile
+        if contracts.pre_exprs:
+            for expr in contracts.pre_exprs:
+                p_str = expr_to_p_expr(expr)
+                if p_str:
+                    result = supercompile_p_expr(p_str)
+                    if result:
+                        pre_p_expr = result
+                        break  # Use first successfully supercompiled pre
+
+        if contracts.post_expr is not None:
+            p_str = expr_to_p_expr(contracts.post_expr)
+            if p_str:
+                result = supercompile_p_expr(p_str)
+                if result:
+                    post_p_expr = result
+
+        if pre_p_expr or post_p_expr:
+            sp_pre, sp_post, coq_block = make_supercompiled_coq_block(
+                pre_p_expr, post_p_expr, params, param_types)
+            proof.supercompiled_block = coq_block
+            if sp_pre:
+                proof.supercompiled_pre = sp_pre
+            if sp_post:
+                proof.supercompiled_post = sp_post
+
+    except Exception:
+        pass  # Supercompiler is optional; any failure uses original contracts
 
 
 def capture_residual(source: str,

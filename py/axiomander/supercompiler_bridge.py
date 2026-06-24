@@ -324,3 +324,58 @@ def supercompile_contract_to_prop(expr: Expr, fn_table: str = "nil", fuel: int =
     if simplified is None:
         return None
     return f"(p_expr_prop_Z ({simplified}))"
+
+
+def make_supercompiled_coq_block(pre_p_expr: Optional[str], post_p_expr: Optional[str],
+                                  params: list[str], param_types: dict[str, str],
+                                  result_varname: str = "v") -> tuple[Optional[str], Optional[str], str]:
+    """Generate a Coq block that defines supercompiled contract Props.
+
+    Args:
+        pre_p_expr: Supercompiled precondition p_expr string (or None)
+        post_p_expr: Supercompiled postcondition p_expr string (or None)
+        params: Function parameter names
+        param_types: Parameter type annotations (param_name -> "int"|"bool"|"float"|...)
+        result_varname: Variable name for the return value in postconditions
+
+    Returns:
+        (supercompiled_pre_prop, supercompiled_post_prop, coq_block)
+        where coq_block is a Coq text block to insert before the Lemma,
+        and supercompiled_*_prop are the Prop strings to use in the Lemma statement.
+    """
+    lines = ["From SCoqShared Require Import PExprToProp."]
+    pre_prop = None
+    post_prop = None
+
+    if pre_p_expr:
+        lines.append(f"Definition _super_pre_body : p_expr := {pre_p_expr}.")
+        lines.append(f"Definition _super_pre_prop {' '.join(f'({p} : Z)' for p in params if param_types.get(p, 'int') in ('int', 'bool', 'float'))} : Prop :=")
+        env_body = _build_env_body(params, param_types)
+        lines.append(f"  let env (name : string) : Z := {env_body} in")
+        lines.append(f"  p_expr_bool_typed env default_envB default_envS default_envF _super_pre_body = true.")
+        pre_prop = "_super_pre_prop " + " ".join(p for p in params if param_types.get(p, 'int') in ('int', 'bool', 'float'))
+
+    if post_p_expr:
+        lines.append(f"Definition _super_post_body : p_expr := {post_p_expr}.")
+        all_params = list(params) + [result_varname]
+        lines.append(f"Definition _super_post_prop {' '.join(f'({p} : Z)' for p in all_params if param_types.get(p, 'int') in ('int', 'bool', 'float'))} : Prop :=")
+        env_body = _build_env_body(params, param_types, extra_var=result_varname)
+        lines.append(f"  let env (name : string) : Z := {env_body} in")
+        lines.append(f"  p_expr_bool_typed env default_envB default_envS default_envF _super_post_body = true.")
+        post_prop = "_super_post_prop " + " ".join(p for p in (list(params) + [result_varname]) if param_types.get(p, 'int') in ('int', 'bool', 'float'))
+
+    return pre_prop, post_prop, "\n".join(lines)
+
+
+def _build_env_body(params: list[str], param_types: dict[str, str], extra_var: str = "") -> str:
+    """Build the Coq let-env body that maps parameter names to Z values."""
+    all_vars = list(params) + ([extra_var] if extra_var else [])
+    if not all_vars:
+        return "0%Z"
+    parts = []
+    for p in all_vars:
+        ty = param_types.get(p, "int")
+        if ty in ("int", "bool", "float"):
+            parts.insert(0, f'if String.eqb "{p}"%string name then {p} else ')
+    parts.append("0%Z")
+    return "".join(parts)

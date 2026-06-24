@@ -1459,6 +1459,12 @@ class IrisProof:
     """Parameter type annotations: param_name -> python type (int|str|bool|dict|list|...)."""
     predicate_fixpoints: list[str] = field(default_factory=list)
     """Coq Fixpoint definitions for recursive user predicates."""
+    supercompiled_pre: Optional[str] = None
+    """Supercompiled precondition Prop (with parameter binding)."""
+    supercompiled_post: Optional[str] = None
+    """Supercompiled postcondition Prop (with parameter binding)."""
+    supercompiled_block: str = ""
+    """Raw Coq definitions block for supercompiled contract expressions."""
 
     def stage_list(self) -> list[Stage]:
         """Flattened stages (for trace/cache consumers)."""
@@ -1511,6 +1517,9 @@ class IrisProof:
         parts.append("  Local Notation \"l ↦ v\" := (pointsto l (DfracOwn 1) v)")
         parts.append("    (at level 20) : bi_scope.")
         parts.append("")
+        if self.supercompiled_block:
+            parts.append(self.supercompiled_block)
+            parts.append("")
         # Emit per-loop lemmas for WhileInv nodes
         for wi in _collect_while_invs_exn(self.stages):
             parts.append(_emit_while_inv_lemma_exn(wi))
@@ -1539,7 +1548,7 @@ class IrisProof:
         if model_premises:
             parts.append(f"    ({' -> '.join(model_premises)}) ->")
         if self.pre:
-            parts.append(f"    ({self.pre}) ->")
+            parts.append(f"    ({self.supercompiled_pre if self.supercompiled_pre else self.pre}) ->")
         # Result-match postcondition.  The RVal arm is the normal post;
         # the RExn arm dispatches on the exception label.  Each raises()
         # contract becomes [RExn "Type" _ => cond]; un-listed exceptions
@@ -1555,13 +1564,13 @@ class IrisProof:
                 )
             post_match = (
                 f"(fun r => match r with "
-                f"RVal v => {LCEIL}({self.post})%Z{RCEIL} | "
+                f"RVal v => {LCEIL}({self.supercompiled_post if self.supercompiled_post else self.post})%Z{RCEIL} | "
                 f"RExn lbl _ => {exn_arm} end)%I"
             )
         else:
             post_match = (
                 f"(fun r => match r with "
-                f"RVal v => {LCEIL}({self.post})%Z{RCEIL} | "
+                f"RVal v => {LCEIL}({self.supercompiled_post if self.supercompiled_post else self.post})%Z{RCEIL} | "
                 f"RExn _ _ => False end)%I"
             )
         parts.append(f"    {TSTILE} WPE {self.body_coq} "
