@@ -1496,6 +1496,12 @@ class IrisProof:
     """Supercompiled postcondition Prop (with parameter binding)."""
     supercompiled_block: str = ""
     """Raw Coq definitions block for supercompiled contract expressions."""
+    resource_premises: list[str] = field(default_factory=list)
+    """Spatial Iris premises from owns declarations, e.g. ['l ↦ LitString "ready"'].
+    Emitted as -∗ premises before the pure contract in the Lemma statement."""
+    resource_post_owns: list[str] = field(default_factory=list)
+    """Location names from owns declarations that appear in the postcondition
+    as existentials (may_modify → ∃ v', l ↦ v')."""
 
     def stage_list(self) -> list[Stage]:
         """Flattened stages (for trace/cache consumers)."""
@@ -1548,6 +1554,16 @@ class IrisProof:
         parts.append("  Local Notation \"l ↦ v\" := (pointsto l (DfracOwn 1) v)")
         parts.append("    (at level 20) : bi_scope.")
         parts.append("")
+        # Declare resource locations from owns declarations.
+        if self.resource_premises:
+            locs = set()
+            for rp in self.resource_premises:
+                # Extract location name from "l_foo ↦ ..."
+                loc = rp.split()[0]
+                if loc not in locs:
+                    locs.add(loc)
+                    parts.append(f"  Context ({loc} : loc).")
+            parts.append("")
         if self.supercompiled_block:
             parts.append(self.supercompiled_block)
             parts.append("")
@@ -1578,12 +1594,29 @@ class IrisProof:
             f"{lp} = LitList {mv}" for lp, mv in self.list_params.items()]
         if model_premises:
             parts.append(f"    ({' -> '.join(model_premises)}) ->")
+        # Spatial resource premises from owns declarations (l ↦ v).
+        if self.resource_premises:
+            parts.append(f"    ({' -∗ '.join(self.resource_premises)}) -∗")
         if self.pre:
-            parts.append(f"    ({self.supercompiled_pre if self.supercompiled_pre else self.pre}) ->")
-        # Result-match postcondition.  The RVal arm is the normal post;
-        # the RExn arm dispatches on the exception label.  Each raises()
-        # contract becomes [RExn "Type" _ => cond]; un-listed exceptions
-        # default to False (the function must not raise them).
+            p = self.supercompiled_pre if self.supercompiled_pre else self.pre
+            if self.resource_premises:
+                # Wrap pure premise as Iris-pure proposition ⌜P⌝
+                parts.append(f"    ⌜({p})⌝ -∗")
+            else:
+                parts.append(f"    ({p}) ->")
+        # Build the RVal postcondition arm, wrapping pure post with
+        # spatial existentials for modified locations (may_modify).
+        if self.resource_post_owns:
+            loc_binders = " ".join(
+                f"(v_{loc} : Z)" for loc in self.resource_post_owns)
+            loc_spatial = " ∗ ".join(
+                f"{loc} ↦ LitInt v_{loc}" for loc in self.resource_post_owns)
+            pure_post = self.supercompiled_post if self.supercompiled_post else self.post
+            rval_body = f"∃ {loc_binders}, {loc_spatial} ∗ {LCEIL}({pure_post})%Z{RCEIL}"
+        else:
+            rval_body = f"{LCEIL}({self.supercompiled_post if self.supercompiled_post else self.post})%Z{RCEIL}"
+
+        # Result-match postcondition.
         if self.raises:
             # Nest String.eqb checks: dispatch the exception label to its
             # condition, defaulting un-listed labels to False.
@@ -1595,24 +1628,37 @@ class IrisProof:
                 )
             post_match = (
                 f"(fun r => match r with "
-                f"RVal v => {LCEIL}({self.supercompiled_post if self.supercompiled_post else self.post})%Z{RCEIL} | "
+                f"RVal v => {rval_body} | "
                 f"RExn lbl _ => {exn_arm} end)%I"
             )
         else:
             post_match = (
                 f"(fun r => match r with "
-                f"RVal v => {LCEIL}({self.supercompiled_post if self.supercompiled_post else self.post})%Z{RCEIL} | "
+                f"RVal v => {rval_body} | "
                 f"RExn _ _ => False end)%I"
             )
-        parts.append(f"    {TSTILE} WPE {self.body_coq} "
+        prefix = "" if self.resource_premises else f"{TSTILE} "
+        parts.append(f"    {prefix}WPE {self.body_coq} "
                      f"{{{{ {post_match} }}}}.")
         parts.append("  Proof.")
         for lp, _ in self.list_params.items():
             parts.append(f"    intros H_{lp}.")
             parts.append(f"    subst {lp}.")
-        if self.pre:
-            parts.append("    intros Hpre.")
-        parts.append("    iStartProof.")
+        if self.resource_premises:
+            parts.append("    iStartProof.")
+            rp_count = len(self.resource_premises)
+            rp_names = " ".join(
+                f"Hrp{i}" for i in range(rp_count))
+            if self.pre:
+                parts.append(
+                    f'    iIntros "{rp_names} %Hpre".')
+            else:
+                parts.append(
+                    f'    iIntros "{rp_names} _".')
+        else:
+            if self.pre:
+                parts.append("    intros Hpre.")
+            parts.append("    iStartProof.")
         parts.extend(_emit_stage_lines(self.stages, 0, "    ", self.post))
         parts.append("  Qed.")
         parts.append("End generated_proofs.")
@@ -1735,7 +1781,9 @@ def generate(name: str,
                raises: Optional[dict[str, str]] = None,
                param_types: Optional[dict[str, str]] = None,
                predicate_fixpoints: Optional[list[str]] = None,
-               forall_predicates: Optional[dict[str, str]] = None) -> IrisProof:
+               forall_predicates: Optional[dict[str, str]] = None,
+               resource_premises: Optional[list[str]] = None,
+               resource_post_owns: Optional[list[str]] = None) -> IrisProof:
     """Generate a staged Iris proof for a SnakeletIR body.
 
     name: function name (theorem is <name>_correct).
@@ -1773,4 +1821,6 @@ def generate(name: str,
         raises=raises or {},
         param_types=param_types or {},
         predicate_fixpoints=predicate_fixpoints or [],
+        resource_premises=resource_premises or [],
+        resource_post_owns=resource_post_owns or [],
     )

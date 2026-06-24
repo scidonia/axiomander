@@ -312,6 +312,41 @@ def _detect_predicates(source: str) -> tuple[dict, list[str]]:
     return predicates, fixpoints
 
 
+def _build_resource_premises(dc) -> tuple[list[str], list[str]]:
+    """Build spatial Iris premises from docstring owns declarations.
+
+    Returns (premises, post_owns) where:
+      premises: spatial -∗ premises for the Lemma (l_<name> ↦ LitUnit)
+      post_owns: location names that appear in postcondition existentials
+                 (may_modify → ∃ v', l ↦ v')
+    """
+    premises: list[str] = []
+    post_owns: list[str] = []
+    # Map of owned variable name -> location
+    owned_locs: dict[str, str] = {}
+    for own in dc.owns:
+        name = own.split(":")[0].strip()
+        loc = f"l_{name}"
+        owned_locs[name] = loc
+        premises.append(f"{loc} ↦ LitUnit")
+    # may_modify entries use the same owned-location mapping
+    for mod in dc.frame.get("may_modify", []):
+        # mod is like "Orders.row(order_id)" — extract the owned variable
+        parts = mod.split("(")[0].strip().split(".")
+        owned_var = parts[0].lower()  # "Orders" -> "order_row" 
+        # Try to match against owned locations
+        matched = owned_locs.get(owned_var)
+        if not matched:
+            # Try to use just the first part of their class path
+            for oname, loc in owned_locs.items():
+                if oname in mod.lower() or mod.lower().startswith(oname):
+                    matched = loc
+                    break
+        if matched and matched not in post_owns:
+            post_owns.append(matched)
+    return premises, post_owns
+
+
 # -- Statement folding (PyIR statements -> SnakeletIR) ---------------------
 
 _AUG_OPS = {"+": "add", "-": "sub", "*": "mul"}
@@ -1660,7 +1695,8 @@ def python_to_iris_proof(source: str,
     body = _anf(body, [0])
     _validate_ops(body)
 
-    # Build the proof first with the caller-supplied axioms
+    # Build the proof with resource premises and supercompiler support.
+    resource_premises, resource_post_owns = _build_resource_premises(dc)
     proof = generate(
         name=fn.name,
         body=body,
@@ -1676,6 +1712,8 @@ def python_to_iris_proof(source: str,
         param_types=param_types,
         predicate_fixpoints=contracts.predicate_fixpoints,
         forall_predicates=contracts.forall_predicates,
+        resource_premises=resource_premises,
+        resource_post_owns=resource_post_owns,
     )
 
     # Optional supercompiler simplification of contract expressions
