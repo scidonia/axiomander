@@ -68,3 +68,23 @@ class Obligation:
         if self.is_proved():
             return preamble + (tactics + "\n" if tactics else "") + "Qed.\n"
         return preamble + (tactics + "\n" if tactics else "") + "Admitted.\n"
+
+
+def _spec_coq_block_ending(is_proved: int) -> int:
+    """Scalar specification of Obligation.coq_block's Qed/Admitted decision.
+
+    Encoding: 0 = Qed ending, 1 = Admitted ending.
+
+    axiomander:
+        requires:
+            is_proved >= 0
+            is_proved <= 1
+        ensures:
+            implies(is_proved == 1, result == 0)
+            implies(is_proved == 0, result == 1)
+    """
+    if is_proved == 1:
+        result = 0
+    else:
+        result = 1
+    return result

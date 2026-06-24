@@ -3,8 +3,7 @@
 End-to-end pipeline for the Iris backend on the pure-integer fragment.
 
     Python ast
-      -> contract extraction        (ContractLinter -> contract_ir -> Iris Prop
-                                     via contract_ir_iris; positional classifies)
+      -> contract extraction        (ContractLinter -> contract_ir -> fluid_lowering)
       -> PyIR                      (py_ir_translator)
       -> SnakeletIR                (continuation-folded statement lowering)
       -> ANF normalization
@@ -29,10 +28,11 @@ The compilation to Iris Props is handled by contract_ir_iris.
 from __future__ import annotations
 
 import ast
+import os
 from dataclasses import dataclass, field
 from typing import Optional
 
-from axiomander.oracle.contract_ir_iris import compile_postcondition, compile_precondition, _collect_vars, iris_prop
+from axiomander.oracle.contract_ir_iris import _collect_vars
 from axiomander.oracle.contract_linter import ContractLinter
 from axiomander.oracle.iris_lowerer import IrisLowerer
 from axiomander.oracle.iris_proof_gen import (
@@ -48,12 +48,12 @@ from axiomander.oracle.py_ir import (
 )
 from axiomander.oracle.py_ir_translator import PyIRTranslator
 from axiomander.oracle.snakelet_ir import (
-    SAlloc, SApp, SBinOp, SDictGet, SDictSet, SExpr, SIf, SLet, SLit, SLoad, SRaise, SReturn, SSeq,
+    SAlloc, SApp, SBinOp, SCompound, SDictGet, SDictSet, SExpr, SIf, SLet, SLit, SLoad, SRaise, SReturn, SSeq,
     SStore, STry, SVar, SWhile, SFor,
 )
 
 # Binops supported by SnakeletLang's binop_eval on integers.
-_SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge", "ne", "mod", "and", "or", "in", "append", "length", "set_add", "str_index", "starts_with", "ends_with", "to_lower", "to_upper", "dict_set", "tuple"}
+_SUPPORTED_OPS = {"add", "sub", "mul", "eq", "le", "lt", "gt", "ge", "ne", "mod", "and", "or", "in", "append", "length", "set_add", "str_index", "starts_with", "ends_with", "to_lower", "to_upper", "dict_set", "tuple", "str_contains"}
 
 
 # -- Contract extraction ----------------------------------------------------
@@ -70,12 +70,19 @@ class Contracts:
     """Exception contracts: exc_type -> compiled Coq condition Prop.
     Each becomes a [RExn "exc_type" _ => cond] arm of the exception
     postcondition in the exception backend (emit_exn)."""
+    predicate_fixpoints: list[str] = field(default_factory=list)
+    """Coq Fixpoint definitions for recursive user predicates (D1/D2).
+    Emitted in the proof preamble after imports."""
+    forall_predicates: dict[str, str] = field(default_factory=dict)
+    """list_model_name -> Forall predicate for wp_for_list_forall.
+    e.g. {"M_xs": "(fun v => match v with LitInt n => ...)"}"""
 
 
 def extract_contracts(
     source: str, fn_node: ast.FunctionDef,
     list_model: dict[str, str] | None = None,
     ghost_resolver: dict[str, str] | None = None,
+    predicates: dict | None = None,
 ) -> tuple[Contracts, list[ast.stmt], ContractLinter]:
     """Split positional asserts out of the function body.
 
@@ -101,19 +108,57 @@ def extract_contracts(
         if isinstance(fn_node.returns, ast.Name):
             if lookup_shape(fn_node.returns.id) is not None:
                 result_kind = "sn_val"
-    from axiomander.oracle.contract_ir_iris import _FLOAT_PARAMS, _STRING_PARAMS
+    from axiomander.oracle.contract_ir_iris import _FLOAT_PARAMS, _STRING_PARAMS, _BOOL_PARAMS
     _FLOAT_PARAMS.clear()
     _FLOAT_PARAMS.update(float_params)
     _STRING_PARAMS.clear()
     _STRING_PARAMS.update(string_params)
+    bool_params = {p for p, t in param_type_hint.items() if t == "bool"}
+    _BOOL_PARAMS.clear()
+    _BOOL_PARAMS.update(bool_params)
     pre_linter = ContractLinter(params=params, context="precondition",
                                 ghost_resolver=ghost_resolver,
-                                param_type_hint=param_type_hint)
+                                param_type_hint=param_type_hint,
+                                predicates=predicates)
     post_linter = ContractLinter(params=params, context="postcondition",
                                  ghost_resolver=ghost_resolver,
-                                 param_type_hint=param_type_hint)
+                                 param_type_hint=param_type_hint,
+                                 predicates=predicates)
 
     lm = list_model or {}
+
+    # --- Fluid lowerer: build LowerCtx from param type hints ---
+    from axiomander.oracle.fluid_lowering import (
+        LowerCtx, Ty,
+        lower as _fluid_lower,
+        compile_precondition_fluid,
+        compile_postcondition_fluid,
+    )
+    gamma: dict[str, Ty] = {}
+    for p in params:
+        t = param_type_hint.get(p, "int")
+        ty = {"int": Ty.INT, "float": Ty.FLOAT, "bool": Ty.BOOL,
+              "str": Ty.STR, "string": Ty.STR,
+              "list": Ty.LIST, "dict": Ty.DICT, "set": Ty.SET,
+              "tuple": Ty.TUPLE}.get(t, Ty.INT)
+        gamma[p] = ty
+    _fluid_ctx = LowerCtx(gamma=gamma, list_model=lm)
+
+    def _prop(node, *, post_var="", post_bound="z", list_model_override=None):
+        ctx = _fluid_ctx
+        if post_var:
+            ctx = LowerCtx(gamma=_fluid_ctx.gamma,
+                           post_var=post_var, post_bound=post_bound,
+                           list_model=list_model_override or lm)
+        return _fluid_lower(node, ctx).text
+
+    def _pre(node):
+        return compile_precondition_fluid(node, _fluid_ctx)
+
+    def _post(node, ret_var, result_kind, ghost_resolver):
+        ctx = LowerCtx(gamma=_fluid_ctx.gamma, post_var=ret_var,
+                       post_bound="z", list_model=lm)
+        return compile_postcondition_fluid(node, ctx, result_kind=result_kind or "int")
 
     body = list(fn_node.body)
     pres: list[str] = []
@@ -123,14 +168,13 @@ def extract_contracts(
     # pre/post scan prevents a trailing raises() assert from being mistaken
     # for the postcondition.  Multiple conditions per exc_type are ANDed.
     from axiomander.oracle.contract_ir import RaisesExpr
-    from axiomander.oracle.contract_ir_iris import iris_prop
     raises: dict[str, str] = {}
     _kept: list[ast.stmt] = []
     for stmt in body:
         if isinstance(stmt, ast.Assert):
             linted = post_linter.lint_expression(stmt.test)
             if linted.ir is not None and isinstance(linted.ir, RaisesExpr):
-                cond_coq = iris_prop(linted.ir.cond)
+                cond_coq = _prop(linted.ir.cond)
                 stmt_exc = linted.ir.exc_type
                 if stmt_exc:
                     if stmt_exc in raises:
@@ -142,10 +186,12 @@ def extract_contracts(
     body = _kept
 
     # Leading asserts = precondition
+    pre_irs: list = []
     while body and isinstance(body[0], ast.Assert):
         linted = pre_linter.lint_expression(body[0].test)
         if linted.ir is not None:
-            pres.append(compile_precondition(linted.ir, list_model=lm))
+            pres.append(_pre(linted.ir))
+            pre_irs.append(linted.ir)
         body = body[1:]
 
     pre = None
@@ -162,6 +208,8 @@ def extract_contracts(
         ret_var = None
         if isinstance(ret_node.value, ast.Name):
             ret_var = ret_node.value.id
+        if ret_var is None:
+            ret_var = "result"  # canonical return-value name in docstring contracts
         post_asserts: list[ast.Assert] = []
         idx = len(body) - 2
         while idx >= 0 and isinstance(body[idx], ast.Assert):
@@ -173,15 +221,13 @@ def extract_contracts(
                 linted = post_linter.lint_expression(a.test)
                 if linted.ir is not None:
                     # Strip the existential wrapper so we can share [z].
-                    prop = iris_prop(linted.ir, post_var=ret_var,
-                                     post_bound="z")
+                    prop = _prop(linted.ir, post_var=ret_var,
+                                  post_bound="z")
                     posts.append(prop)
             if len(posts) == 1:
                 # Single assert: use the standard wrapper.
                 linted = post_linter.lint_expression(post_asserts[0].test)
-                post = compile_postcondition(linted.ir, ret_var, list_model=lm,
-                                               result_kind=result_kind,
-                                               ghost_resolver=ghost_resolver)
+                post = _post(linted.ir, ret_var, result_kind, ghost_resolver)
             elif posts:
                 # Shared existential: exists z, v = LitInt z /\ P1 /\ P2.
                 # Ghost vars from ghost_resolver are nested inside.
@@ -205,7 +251,53 @@ def extract_contracts(
     _extract_while_invariants(body, loop_invs, pre_linter, lm)
 
     return Contracts(pre=pre, post=post, loop_invariants=loop_invs,
-                     raises=raises), body, post_linter
+                     raises=raises, forall_predicates=_collect_forall_predicates(pre_irs, lm)), body, post_linter
+
+
+def _collect_forall_predicates(pre_irs: list, lm: dict[str, str]) -> dict[str, str]:
+    """Extract Forall predicates from precondition IR for wp_for_list_forall."""
+    from axiomander.oracle.fluid_lowering import extract_forall_predicate
+    result: dict[str, str] = {}
+    for ir in pre_irs:
+        pred = extract_forall_predicate(ir)
+        if not pred:
+            continue
+        # Find the list model name — the AllExpr's lst maps to lm.
+        if hasattr(ir, 'lst') and ir.lst:
+            model = lm.get(ir.lst, ir.lst)
+            result[model] = pred
+    return result
+
+
+def _detect_predicates(source: str) -> tuple[dict, list[str]]:
+    """Parse source for pure predicate definitions (D1/D2).
+
+    Returns (predicates_dict, fixpoint_defs) where predicates_dict maps
+    name -> (params, body_expr, [], None, None) for the ContractLinter,
+    and fixpoint_defs is a list of Coq Fixpoint strings for the preamble.
+    """
+    predicates: dict = {}
+    fixpoints: list[str] = []
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return predicates, fixpoints
+    from axiomander.oracle.predicate_def import classify_recursion, _find_self_calls, RecKind
+    from axiomander.oracle.slice_normalizer import emit_fixpoint
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        self_calls = _find_self_calls(node, node.name)
+        if not self_calls:
+            continue
+        params = [a.arg for a in node.args.args]
+        returns = [s for s in node.body if isinstance(s, ast.Return) and s.value]
+        body_expr = returns[-1].value if returns else None
+        predicates[node.name] = (params, body_expr, [], None, None)
+        pd = classify_recursion(node)
+        if pd.rec_kind in (RecKind.STRUCTURAL, RecKind.MEASURED):
+            fixpoints.append(emit_fixpoint(pd))
+    return predicates, fixpoints
 
 
 # -- Statement folding (PyIR statements -> SnakeletIR) ---------------------
@@ -1045,7 +1137,11 @@ def _subst_params(e: SExpr, params: set[str], bound: set[str],
             if ptype == "float":
                 return SLit(lit_type="float_param", value=e.name)
             if ptype in ("int", "bool"):
-                return SLit(lit_type="int", value=e.name)
+                val = SLit(lit_type="int", value=e.name)
+                if ptype == "bool":
+                    return SBinOp(op="ne", left=val,
+                                  right=SLit(lit_type="int", value="0"))
+                return val
             return SLit(lit_type="val", value=e.name)
         return e
     if isinstance(e, SLit):
@@ -1096,11 +1192,55 @@ def _subst_params(e: SExpr, params: set[str], bound: set[str],
         return STry(body=_subst_params(e.body, params, bound, lp, pt),
                     exc_var=e.exc_var,
                     handler=_subst_params(e.handler, params, bound, lp, pt))
+    if isinstance(e, SCompound):
+        return SCompound(lit_type=e.lit_type, value=e.value,
+                         elements=[_subst_params(el, params, bound, lp, pt)
+                                   for el in e.elements])
     raise IrisGenError(
         f"unsupported node in parameter substitution: {type(e).__name__}")
 
 
 # -- ANF normalization -------------------------------------------------------
+
+def _anf_compound(e: SCompound, ctr: list[int]) -> SExpr:
+    """Normalize a compound literal constructor into a chain of Let + BinOp.
+
+    Compound values (tuple/list/set/dict) are immutable in SnakeletLang and
+    must be built from atoms via binary operations (TupleOp/AppendOp/
+    SetAddOp/DictSetOp).  This pass atomizes each element and wraps them
+    in a right-to-left (or left-to-right) chain.
+    """
+    elements = e.elements
+    if not elements:
+        return SLit(lit_type=e.lit_type, value=e.value)
+    binds: list[tuple[str, SExpr]] = []
+    atomized = [_atomize(el, ctr, binds) for el in elements]
+    if e.lit_type == "tuple":
+        result = SLit(lit_type="tuple", value="()")
+        for el in reversed(atomized):
+            result = SBinOp(op="tuple", left=el, right=result)
+    elif e.lit_type == "list":
+        result = SLit(lit_type="list", value="[]")
+        for el in atomized:
+            result = SBinOp(op="append", left=result, right=el)
+    elif e.lit_type == "set":
+        result = SLit(lit_type="set", value="{}")
+        for el in reversed(atomized):
+            result = SBinOp(op="set_add", left=result, right=el)
+    elif e.lit_type == "dict":
+        result = SLit(lit_type="dict", value="{}")
+        for i in range(len(atomized) // 2):
+            _kv = SBinOp(op="tuple",
+                         left=atomized[i * 2],
+                         right=atomized[i * 2 + 1])
+            ctr[0] += 1
+            name = f"_kv{ctr[0]}"
+            binds.append((name, _kv))
+            result = SBinOp(op="dict_set", left=result, right=SVar(name=name))
+    else:
+        return SLit(lit_type=e.lit_type, value=e.value)
+    return _wrap(binds, result)
+
 
 def _is_atom(e: SExpr) -> bool:
     return isinstance(e, (SLit, SVar))
@@ -1216,6 +1356,8 @@ def _anf(e: SExpr, ctr: list[int]) -> SExpr:
         handler_nf = _anf(e.handler, ctr)
         return _wrap(binds, STry(body=body_atom, exc_var=e.exc_var,
                                  handler=handler_nf))
+    if isinstance(e, SCompound):
+        return _anf_compound(e, ctr)
     raise IrisGenError(f"unsupported node in ANF: {type(e).__name__}")
 
 
@@ -1310,6 +1452,9 @@ def _detect_list_params(body: SExpr, params: set[str]) -> dict[str, str]:
         elif isinstance(e, STry):
             walk(e.body)
             walk(e.handler)
+        elif isinstance(e, SCompound):
+            for el in e.elements:
+                walk(el)
         elif isinstance(e, (SLit, SVar)):
             pass
         else:
@@ -1362,6 +1507,9 @@ def _detect_dict_params(body: SExpr, params: set[str]) -> dict[str, str]:
         elif isinstance(e, STry):
             walk(e.body)
             walk(e.handler)
+        elif isinstance(e, SCompound):
+            for el in e.elements:
+                walk(el)
         elif isinstance(e, (SLit, SVar)):
             pass
         else:
@@ -1458,8 +1606,17 @@ def python_to_iris_proof(source: str,
                 if isinstance(target.body[i], ast.Return):
                     target.body.insert(i, node)
                     break
+    # Detect pure predicate definitions in the source (recursive D1/D2 predicates
+    # used in contracts, e.g. is_sorted).  Classify each, build the predicates
+    # dict for the linter, and generate Fixpoint definitions for the preamble.
+    predicates, predicate_fixpoints_local = _detect_predicates(source)
     contracts, body_ast, _ = extract_contracts(source, target, list_model=ann_lm,
-                                                ghost_resolver=ghost_resolver)
+                                                ghost_resolver=ghost_resolver,
+                                                predicates=predicates)
+    # Merge detected predicate Fixpoints into the contracts
+    for fp in predicate_fixpoints_local:
+        if fp not in contracts.predicate_fixpoints:
+            contracts.predicate_fixpoints.append(fp)
 
     # Strip docstring string-node from the body before lowering (it leaks
     # into the IR as a LitString literal otherwise).
@@ -1504,6 +1661,8 @@ def python_to_iris_proof(source: str,
         dict_params=detected_dict,
         raises=contracts.raises,
         param_types=param_types,
+        predicate_fixpoints=contracts.predicate_fixpoints,
+        forall_predicates=contracts.forall_predicates,
     )
 
     # Collect invariant update obligations from all WhileInv nodes,

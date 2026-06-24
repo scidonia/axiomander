@@ -18,7 +18,7 @@ from .py_ir import (
 )
 from .snakelet_ir import (
     SExpr, SLit, SVar, SBinOp, SLoad, SStore, SAlloc, SLet, SIf, SWhile,
-    SReturn, SApp, SSeq,
+    SReturn, SApp, SSeq, SCompound,
     SField, SOwns, SPure, SFunction,
     SRaise, STry, SFork, SFAA,
     SDictGet, SDictSet,
@@ -82,23 +82,18 @@ class IrisLowerer:
         if isinstance(expr, PyListLiteral):
             return self._lower_compound(expr.elements, "list", "[]")
         if isinstance(expr, PyDictLiteral):
-            keys = []
-            vals = []
+            interleaved: list[SExpr] = []
             for p in expr.pairs:
                 k = self.lower_expr(p["key"])
                 v = self.lower_expr(p["value"])
                 if k is None or v is None:
                     return None
-                if not isinstance(k, SLit) or not isinstance(v, SLit):
-                    return None
-                keys.append(k)
-                vals.append(v)
-            # Interleave keys and values: [k1, v1, k2, v2, ...]
-            elements: list[SLit] = []
-            for k, v in zip(keys, vals):
-                elements.append(k)
-                elements.append(v)
-            return SLit(lit_type="dict", value="", elements=elements)
+                interleaved.append(k)
+                interleaved.append(v)
+            if all(isinstance(el, SLit) for el in interleaved):
+                lit_elements = [el for el in interleaved if isinstance(el, SLit)]
+                return SLit(lit_type="dict", value="", elements=lit_elements)
+            return SCompound(lit_type="dict", value="{}", elements=interleaved)
         if isinstance(expr, PySetLiteral):
             return self._lower_compound(expr.elements, "set", "{}")
         if isinstance(expr, PyTupleLiteral):
@@ -106,13 +101,16 @@ class IrisLowerer:
         return None
 
     def _lower_compound(self, exprs, lit_type, empty_val):
-        lowered = [self.lower_expr(e) for e in exprs]
-        if any(l is None for l in lowered):
-            return None
-        items = [l for l in lowered if isinstance(l, SLit)]
-        if len(items) != len(lowered):
-            return None  # non-constant elements unsupported
-        return SLit(lit_type=lit_type, value=empty_val, elements=items)
+        lowered: list[SExpr] = []
+        for e in exprs:
+            l = self.lower_expr(e)
+            if l is None:
+                return None
+            lowered.append(l)
+        if all(isinstance(l, SLit) for l in lowered):
+            lit_elements = [l for l in lowered if isinstance(l, SLit)]
+            return SLit(lit_type=lit_type, value=empty_val, elements=lit_elements)
+        return SCompound(lit_type=lit_type, value=empty_val, elements=lowered)
 
     def _lower_constant(self, expr: PyConstant) -> SExpr:
         if expr.py_type == "int":
@@ -274,6 +272,29 @@ class IrisLowerer:
                                 value=SBinOp(op="append",
                                     left=SVar(tmp_var),
                                     right=v)))
+            # String method calls: lower to known binops
+            if method == "lower":
+                return SBinOp(op="to_lower",
+                              left=SVar(name=self._current_var(obj_name)),
+                              right=SLit(lit_type="unit", value=""))
+            if method == "upper":
+                return SBinOp(op="to_upper",
+                              left=SVar(name=self._current_var(obj_name)),
+                              right=SLit(lit_type="unit", value=""))
+            if method == "startswith":
+                v = self.lower_expr(expr.args[0]) if expr.args else None
+                if v is None:
+                    return None
+                return SBinOp(op="starts_with",
+                              left=SVar(name=self._current_var(obj_name)),
+                              right=v)
+            if method == "endswith":
+                v = self.lower_expr(expr.args[0]) if expr.args else None
+                if v is None:
+                    return None
+                return SBinOp(op="ends_with",
+                              left=SVar(name=self._current_var(obj_name)),
+                              right=v)
             # Other method calls: pass the object as first argument
             # so the callee table entry (params=[obj, ...]) matches.
             obj_expr = SVar(name=obj_name)
@@ -296,8 +317,17 @@ class IrisLowerer:
                    ">": "gt", ">=": "ge", "is": "eq", "is not": "ne",
                    "in": "in", "not in": "notin"}
         op = op_map.get(expr.op, "eq")
+        # String containment: needle in haystack uses StrContainsOp
+        # String containment: string literal needle → StrContainsOp
+        if op == "in" and isinstance(left, SLit) and left.lit_type == "string":
+            op = "str_contains"
+        if op == "notin" and isinstance(left, SLit) and left.lit_type == "string":
+            op = "str_contains"
+            # not in -> str_contains == false
+            return SBinOp(op="eq",
+                          left=SBinOp(op="str_contains", left=left, right=right),
+                          right=SLit(lit_type="bool", value="false"))
         if op == "notin":
-            # Emit [in(left,right) == false]
             return SBinOp(op="eq",
                           left=SBinOp(op="in", left=left, right=right),
                           right=SLit(lit_type="bool", value="false"))
@@ -419,6 +449,15 @@ class IrisLowerer:
         if val is None:
             return None
         return SReturn(value=val)
+
+    def _is_string_like(self, expr: SExpr) -> bool:
+        """True if expr is a string-typed literal or refs a string param."""
+        if isinstance(expr, SLit) and expr.lit_type == "string":
+            return True
+        if isinstance(expr, SVar):
+            root = self._rename_root.get(expr.name, expr.name)
+            return self._param_types.get(root) in ("str", "string")
+        return False
 
     def _lower_raise(self, stmt: "PyRaise") -> Optional[SExpr]:
         """Raise exception — becomes SRaise of a LitExn (label + unit payload)."""

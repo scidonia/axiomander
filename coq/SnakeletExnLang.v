@@ -64,7 +64,7 @@ Inductive binop := AddOp | SubOp | MulOp | DivOp | EqOp | LeOp | LtOp | GtOp | G
   | AndOp | OrOp | NeOp | ModOp | InOp | LenOp | UnionOp | InterOp
   | AppendOp | LengthOp | DictGetOp | DictGetIntOp | MkKeyErrOp | SetAddOp
   | StrIndexOp | StartsWithOp | EndsWithOp | ToLowerOp | ToUpperOp | DictSetOp
-  | TupleOp.
+  | StrContainsOp | TupleOp.
 
 Inductive sn_expr :=
   | Val (v : sn_val)
@@ -312,6 +312,18 @@ Fixpoint str_to_upper (s : string) : string :=
   | String c rest => String (ascii_to_upper c) (str_to_upper rest)
   end.
 
+(** Check if an ASCII character is a hex digit (0-9, a-f). *)
+Definition is_hex_char (c : Ascii.ascii) : bool :=
+  let n := Ascii.N_of_ascii c in
+  ((48 <=? n)%N && (n <=? 57)%N) || ((97 <=? n)%N && (n <=? 102)%N).
+
+(** Check if every character in a string is a hex digit. *)
+Fixpoint str_all_hex (s : string) : bool :=
+  match s with
+  | EmptyString => true
+  | String c rest => is_hex_char c && str_all_hex rest
+  end.
+
 (** * Z to float conversion (Python int → float coercion).
 
     IEEE 754 double-precision; integers > 2^63-1 lose precision but our
@@ -322,6 +334,48 @@ Definition z2float (z : Z) : float :=
   then PrimFloat.opp (PrimFloat.of_uint63 (of_Z (Z.abs z)))
   else PrimFloat.of_uint63 (of_Z z).
 
+(** Substring containment: true iff [needle] occurs anywhere in [haystack]. *)
+Fixpoint string_contains (needle haystack : string) : bool :=
+  match haystack with
+  | EmptyString => false
+  | String _ rest =>
+      if String.prefix needle haystack
+      then true
+      else string_contains needle rest
+  end.
+
+(** Total to-lower / to-upper over sn_val: non-strings pass through unchanged. *)
+Definition str_to_lower_val (v : sn_val) : sn_val :=
+  match v with LitString s => LitString (str_to_lower s) | _ => v end.
+
+Definition str_to_upper_val (v : sn_val) : sn_val :=
+  match v with LitString s => LitString (str_to_upper s) | _ => v end.
+
+(** Substring containment over sn_val: false if either arg is non-string. *)
+Definition str_contains_val (needle haystack : sn_val) : bool :=
+  match needle, haystack with
+  | LitString n, LitString h => string_contains n h
+  | _, _ => false
+  end.
+
+(** Start/end checks over sn_val: false if either arg is non-string. *)
+Definition starts_with_val (a p : sn_val) : bool :=
+  match a, p with
+  | LitString a', LitString p' => String.prefix p' a'
+  | _, _ => false
+  end.
+
+Definition ends_with_val (a s : sn_val) : bool :=
+  match a, s with
+  | LitString a', LitString s' =>
+      let l1 := String.length a' in
+      let l2 := String.length s' in
+      if Nat.leb l2 l1
+      then String.prefix s' (String.substring (Nat.sub l1 l2) l2 a')
+      else false
+  | _, _ => false
+  end.
+
 (** * Binary operation evaluation (minimal: ints + comparisons). *)
 Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
   match op with
@@ -330,6 +384,11 @@ Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
   | MkKeyErrOp => LitExn "KeyError" v1
   | TupleOp => LitTuple [v1; v2]
   | InOp => LitBool (dict_has v1 v2)
+  | ToLowerOp => str_to_lower_val v1
+  | ToUpperOp => str_to_upper_val v1
+  | StrContainsOp => LitBool (str_contains_val v1 v2)
+  | StartsWithOp => LitBool (starts_with_val v1 v2)
+  | EndsWithOp => LitBool (ends_with_val v1 v2)
   (* DictGetIntOp: integer-valued projection that ALWAYS returns LitInt,
      even for non-dict receivers (model_field_Z returns 0).  This
      guarantees [exists z, v = LitInt z /\ ...] is provable by reflexivity
@@ -433,6 +492,7 @@ Definition binop_eval (op : binop) (v1 v2 : sn_val) : sn_val :=
           then LitBool (String.prefix s2
                           (String.substring (Nat.sub l1 l2) l2 s1))
           else LitBool false
+      | StrContainsOp => LitBool (string_contains s2 s1)
       | _ => LitUnit
       end
   | LitString s, v =>

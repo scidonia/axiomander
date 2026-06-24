@@ -314,6 +314,58 @@ def _spec_classify_failure(
     return result
 
 
+def _spec_outcome_for(
+    level: int,
+    is_proved_result: int,
+    error_detail: int,
+    counterexample: int,
+    theory_counterexample: int,
+) -> int:
+    """Scalar specification of _outcome_for().
+
+    Encoding:
+      level: 0=LEVEL1..3=LEVEL3, 4=UNPROVED, 5=COUNTEREXAMPLE
+      is_proved_result: 0=not proved, 1=proved
+      error_detail, counterexample, theory_counterexample: 0=absent, 1=present
+      result: 0=COUNTEREXAMPLE, 1=VERIFIED, 2=ERROR, 3=UNPROVED
+
+    axiomander:
+        requires:
+            level >= 0
+            level <= 5
+            is_proved_result >= 0
+            is_proved_result <= 1
+            error_detail >= 0
+            error_detail <= 1
+            counterexample >= 0
+            counterexample <= 1
+            theory_counterexample >= 0
+            theory_counterexample <= 1
+        ensures:
+            implies(level == 5, result == 0)
+            implies(level != 5 and is_proved_result == 1, result == 1)
+            implies(level != 5 and is_proved_result == 0
+                    and error_detail == 1
+                    and counterexample == 0
+                    and theory_counterexample == 0,
+                    result == 2)
+            implies(level != 5 and is_proved_result == 0
+                    and not (error_detail == 1
+                             and counterexample == 0
+                             and theory_counterexample == 0),
+                    result == 3)
+    """
+    if level == 5:
+        result = 0
+    elif is_proved_result == 1:
+        result = 1
+    elif error_detail == 1 and counterexample == 0 and theory_counterexample == 0:
+        result = 2
+    else:
+        result = 3
+    return result
+
+
 def action_guidance(action: Action, goal_name: str) -> str:
     """Human-readable guidance for an action."""
     guidance = {
@@ -389,6 +441,25 @@ def build_report(
         goals=goals,
         elapsed_total_ms=elapsed_total_ms,
     )
+
+
+def _spec_build_report(total_goals: int, proved_goals: int) -> int:
+    """Scalar specification of build_report's counting invariant.
+
+    Every goal list must satisfy: 0 <= proved_count <= len(goals).
+    An empty list has zero proved goals.
+
+    axiomander:
+        requires:
+            total_goals >= 0
+            proved_goals >= 0
+            proved_goals <= total_goals
+        ensures:
+            result == proved_goals
+            result <= total_goals
+            implies(total_goals == 0, result == 0)
+    """
+    return proved_goals
 
 
 # ─── MCP Tool interface ───────────────────────────────────────────

@@ -150,5 +150,208 @@ Each needs new infrastructure — none existed in IMP or any prior backend.
   frame-report command.
 
 ### Deferred
-- [ ] Termination measures
-- [ ] CI — GitHub Action
+- [x] **Termination measures** — D2 measured recursion (WP-11) + `while` user
+      variant (WP-13) in the fluid-lowerer phase 2.
+- [ ] **Super compiler** — partial evaluation over λ_A contract expressions.
+      Evaluate literal lists, small-range forall/exists, and constant-fold
+      arithmetic before lowering.  Reuses `snakelet_eval.py` as the oracle.
+- [ ] **Reflection-adequacy theorem** — prove `R(t) ⇝* lit(⟦t⟧_E)` in Coq.
+      The theorem that the fluid-lowerer's Coq term always reduces to the
+      same value as the executable semantics (theory §2.3).  Closes the
+      TCB gap between trusted Python→IR lowering and kernel-checked Coq.
+- [ ] **CI** — GitHub Action
+
+### Fluid lowerer — `R : lambda_A^tot -> CoqTerm` (reflection-first)
+
+Design at [`docs/fluid-lowerer-design.md`](fluid-lowerer-design.md);
+theory at [`docs/fluid-contract-language-theory.md`](fluid-contract-language-theory.md).
+
+A single, total, type-directed function `lower(node, ctx) -> CoqTerm` that
+subsumes `contract_ir_iris.iris_prop` + per-node `to_coq(...)` emitters into
+one principled recursion over an explicit type environment.  Carries the
+totality judgment `Gamma |- t : tau (down)`; nodes outside the fragment are
+**rejected** with a diagnostic, never silently mistranslated.
+
+Key design decisions:
+- **Type-directed coercions** — comparison form `= true`, float wrapping, string
+  equality are chosen from the *inferred type* of subterms, not from positional
+  position (replaces `z_scope` flag).
+- **Explicit immutable `LowerCtx`** — no module globals (replaces `_LIST_MODEL`,
+  `_POST_BOUND`, `_FLOAT_PARAMS`, `_STRING_PARAMS`, `_BOOL_PARAMS`).
+- **Reuse `contract_linter` front-end** (AST -> IR stays as-is); replace the
+  IR -> Coq back-end.
+- **Value-model closure:** `index/dict_len/dict_count/sum/tuple/dict/set/list_eq`
+  (currently stubbed to `"True"`) lowered through `LitList/LitTuple/LitDict/LitSet`.
+
+#### Phase 1 — core bounded-recursor lowerer (D0)
+
+- [x] **WP-0 — Module scaffold + types** (S).  `fluid_lowering.py`: `Ty`,
+      `CoqTerm`, `FluidLowerError`, `LowerCtx`.  No lowering yet.
+- [x] **WP-1 — Scalar core** (M).  `var/int/bool/strlit/float/binop/logical/
+      implies/min/max/slice_len` clauses.  Byte-for-byte parity with `iris_prop`
+      on the existing scalar corpus; positional `z_scope` replaced by
+      type-directed coercion.
+- [x] **WP-2 — Bounded recursors** (M).  `all`/`any` over list & range;
+      `sum(1 for x in xs if p)` via `countb`.  Closes the current `"True"` stub
+      for list quantifiers.  Predicate body lowered via `lower` (not the
+      string-based `_compile_comprehension_filter`).
+- [x] **WP-3 — Totality gate + diagnostics** (S).  Reject: unknown call,
+      self-recursive predicate, unbounded quantifier over non-range/non-list
+      domain, untyped variable.  Each → `FluidLowerError` with construct name.
+- [x] **WP-4 — Value-model closure** (L).  Immutable structures:
+      `LenExpr`/`IndexExpr` over `LitList`; `list_eq`; `tuple`/`set`/`dict`
+      literals; `dict_len`/`dict_count` via dict model.  May require small Coq
+      lemmas (`nth`/`length` over `LitList`) in `ListPredicates.v`.
+- [x] **WP-5 — Pre/postcondition wrappers** (S).  `compile_precondition_fluid`,
+      `compile_postcondition_fluid` using inferred result type for existential
+      binder/constructor (replaces `_result_value_kind` heuristic).
+- [x] **WP-6 — Pipeline wiring behind a flag** (M).  `AXIOMANDER_FLUID=1` env
+      or `Contracts` flag.  Default stays legacy until WP-1..5 reach parity.
+- [x] **WP-7 — Cutover + delete legacy** (M).  Flip default.  Delete `iris_prop`
+      `_placeholder` paths, per-node `to_coq(scoped=...)`, string-based
+      `_compile_comprehension_filter`.  `predicate_lowering.Recursor` enum kept
+      or inlined.
+- [x] **WP-8 — Adequacy harness** (M).  Property test: compare `snakelet_eval`
+      vs `vm_compute` lowered Coq term on random (value, predicate) pairs.
+      Translation validation (theory §7), short of a Coq-verified `R`.
+
+#### Phase 2 — recursive and loop predicates (D1/D2)
+
+See [`docs/fluid-lowerer-design.md` §9](fluid-lowerer-design.md#9-recursive-and-loop-predicates-d1d2).
+
+- [x] **WP-9 — `classify_recursion` + `PredicateDef`** (M).  AST walk:
+      `NONREC` / `STRUCTURAL(arg)` / `MEASURED(expr)` / `REJECT(reason)`.
+      Call sites lower to application of the emitted definition name.
+- [x] **WP-10 — Slice-to-match reassociation** (L).  Normalize `xs[1:]`,
+      `xs[0]` recursion → `match xs with [] | x :: rest` so Coq's guard checker
+      accepts the emitted `Fixpoint`.  Partial + honest: returns `None` if no
+      subterm can be exposed → reclassify as MEASURED/REJECT.
+- [x] **WP-11 — Emit `Fixpoint` (D1) / `Equations` (D2)** (L).  D1: emit
+      guarded `Fixpoint` → kernel acceptance *is* the proof.  D2: emit
+      `Equations`/`Program Fixpoint` + route decrease obligations to the 3-tier
+      prover; reject on failure.
+- [x] **WP-12 — Loop predicate → recursor normalization** (M).  Imperative
+      `for x in xs:` body that accumulates a boolean/count → `forallb`/
+      `existsb`/`countb` (D0 recursors).  Replaces `detect_loop_pattern` dead
+      code.
+- [x] **WP-13 — `while` user variant** (L).  Generalize `wp_while_str`
+      (guard-falsification special case) to a user `decreases` variant
+      decreasing in `<` on `N`.  WP-side decrease obligation.
+
+### Predicate lifting — legacy (to be retired)
+
+The pattern-matcher (`predicate_lowering.py`) is the wrong foundation
+(string-templated Coq, can't compose, never checks output).  It is superseded
+by the fluid lowerer above.  Only the `Recursor` enum is still referenced
+(`contract_linter.py:386`); all other code (`detect_loop_pattern`,
+`_py_expr_to_coq`, `_extract_lambda`) has zero live callers.
+
+- [x] **Delete** `predicate_lowering.py` dead code (after WP-7 cutover).
+
+### Translation gap — verify or validate the lowerer
+
+Highest-value theoretical investment (see comparative-assessment §3.1).
+The Python→IR lowerer is trusted; "Coq is the trust base" is only true below
+the IR boundary.
+
+- [ ] **Translation validation** — check each lowering instance against a
+      reference semantics (cheaper than full verification; CompCert-style).
+- [ ] **OR verified extraction** — extract the lowerer from a Coq definition.
+
+### Dual search — simultaneous proof + refutation at Level 3
+
+Plan at [`docs/dual-search-refutation.md`](dual-search-refutation.md).
+Turns "could not prove, retry" into "this contract is false; here is the
+input that breaks it; here is the fix" — with a kernel-checked disproof.
+Concrete counterexamples are provable in Coq by `vm_compute; discriminate`,
+so refutations are *sound*, not heuristic SMT models.
+
+- [ ] **Step 1 — disproof emitter** (`refutation.py`): given a witness, emit
+      `Lemma ..._refuted : ~ O. intros H. specialize (H c). vm_compute in H.
+      discriminate.` and check with coqc.
+- [ ] **Step 2 — refuter lane**: `property_test_gen` returns the first failing
+      input; validate via `snakelet_eval` (fast, no Coq) before certifying.
+- [ ] **Step 3 — race harness**: prover and refuter race a shared deadline at
+      Level 3; first kernel-checked result wins → VERIFIED / REFUTED / UNKNOWN.
+- [ ] **Step 4 — grounded LLM explanation**: on REFUTED, feed witness + trace
+      to the LLM for a diagnosis + minimal fix.  LLM narrates a kernel-checked
+      fact (cannot hallucinate the failure).
+- [ ] **Step 5 — reporting**: populate `ProofLevel.COUNTEREXAMPLE` from the
+      refuter (today only SMT does); show witness + trace + diagnosis.
+
+---
+
+## Self-verification — Contracts on Axiomander's own code
+
+The goal: fully characterize the behaviour of axiomander's own decision
+functions with axiomander contracts.  Contracts must be *complete* — every
+possible input must have a specified output.  No `result >= 0`-style weak bounds.
+
+### Verified (Level 1)
+
+- [x] **`implies(antecedent, consequent) -> bool`** — truth table: `(not A) or C`
+  (`contract_runtime.py:25`)
+- [x] **`_spec_is_proved(level: int) -> int`** — all 5 input levels mapped
+  (`reporting.py:255`)
+- [x] **`_spec_classify_failure(...) -> int`** — all 4 branches + default
+  (`reporting.py:278`)
+- [x] **`_spec_outcome_for(...) -> int`** — all 4 branches covering
+  COUNTEREXAMPLE/VERIFIED/ERROR/UNPROVED (`reporting.py:317`)
+
+### Contract gaps in `reporting.py`
+
+These functions have incomplete or missing contracts in the live source.
+The ideal complete contract is described; most require verifier features
+that don't exist yet (see "Verifier Contracts Needed" below).
+
+> **Progress:** Scalar specs (int-encoded decision logic) verified for all
+> four functions.  The real functions need field-access lowering (#1, #2),
+> string-substring matching (#3), and comprehension lowering (#4).
+
+- [x] **`GoalStatus.is_proved() -> bool`** — already has a complete contract
+      (3 cases covering all 6 ProofLevel values).  Scalar spec `_spec_is_proved`
+      verified.  Real method needs `self.level` field-access lowering.
+      (`reporting.py:92`)
+
+- [x] **`_outcome_for(goal: GoalStatus) -> GoalOutcome`** — no contract existed.
+      Scalar spec `_spec_outcome_for` added and verified (4 branches).
+      Real function needs `goal.level` / `goal.error_detail` field-access
+      lowering.  Contract vocabulary: `not`, `and` with negation, enum refs
+      all working.  (`reporting.py:48`)
+
+- [x] **`classify_failure(goal_name, error, has_loop) -> Action`** — body proves
+      (Level 1).  Contract verified.  `close_case_contradiction` tactic
+      handles `case_bool` Hcond decomposition in `finish_pure`.
+      (`reporting.py:208`)
+
+- [x] **`build_report(source_file, goals, elapsed_total_ms) -> PipelineReport`**
+      — contract compiles via `countb (fun g => Z.leb 2 g) M_goals`.  Body needs
+      for-loop lowering for the comprehension.  Scalar spec `_spec_build_report`
+      verified (proved ≤ total invariant).  (`reporting.py:367`)
+
+### Contracts needed in other modules
+
+- [x] **`_sha256(*parts: str) -> str`** — scalar spec `_spec_sha256_length`
+      verified: always returns length 64.  Full body verification needs
+      `hashlib.sha256()`/`update()`/`hexdigest()` opaque specs (future).
+      (`cache.py:145`)
+
+- [x] **`Obligation.coq_block -> str`** — scalar spec `_spec_coq_block_ending`
+      verified (Qed vs Admitted dispatch).  Same logic as `_spec_is_proved`.
+      (`obligations.py:64`)
+
+### Verifier features needed to support these contracts
+
+> **Note:** Most features are now built.  `not`, `str in str`, enum refs,
+> `and`/`or` with `not`, and comprehension in contracts all work.
+
+| Feature | Needed by | Status |
+|---|---|---|
+| `not` on booleans in contracts | `classify_failure`, `_outcome_for` | Done |
+| `str in str` (substring check) | `classify_failure` | Done |
+| Enum literals in contracts | `is_proved`, `_outcome_for` | Done |
+| `and`/`or` with `not` combinations | `classify_failure` | Done |
+| Comprehension in contracts (`sum(...)`) | `build_report` | Done |
+| Comprehension/for-loop in body | `build_report` | Remaining |
+| Method calls in contracts (`g.is_proved()`) | `build_report` | Done (in comprehension) |
+| `len(str)` in contracts | `_sha256`, `classify_failure` | Done |

@@ -87,6 +87,7 @@ def iris_prop(node: Expr, *,
         "list_eq": _placeholder, "re_match": _re_match,
         "string_contains": _string_contains,
         "string_eq": _string_eq,
+        "hex_string": _hex_string,
         "recursor": _recursor, "rown": _placeholder,
         "opaque_term": _placeholder,
         "field_access": _field_access,
@@ -101,6 +102,8 @@ def iris_prop(node: Expr, *,
 
 _STRING_PARAMS: set[str] = set()
 
+_BOOL_PARAMS: set[str] = set()
+
 
 def _list_len(n, ps, pv, list_model):
     """len(x) for a list or string parameter."""
@@ -114,10 +117,12 @@ def _list_len(n, ps, pv, list_model):
 
 
 def _var(n, ps, pv):
-    if n.name == pv:
+    if n.name == pv or n.name == "result":
         return _POST_BOUND
     if n.name in _FLOAT_PARAMS:
         return f"z2float {n.name}"
+    if n.name in _BOOL_PARAMS:
+        return f"({n.name} <> 0)"
     return n.name
 
 
@@ -306,8 +311,9 @@ def _re_match(n, ps, pv):
 
 
 def _string_contains(n, ps, pv):
-    op = "=" if n.negated else "<>"
-    return f"(String.index 0 {n.needle} {n.haystack} {op} None)"
+    op = "<>" if n.negated else "="
+    needle_coq = f'"{n.needle}"%string'
+    return f"(str_contains_val (LitString {needle_coq}) (str_to_lower_val {n.haystack}) {op} true)"
 
 
 def _string_eq(n, ps, pv):
@@ -316,8 +322,14 @@ def _string_eq(n, ps, pv):
     return f'(String.eqb {var} "{n.literal}"%string {op} true)'
 
 
+def _hex_string(n, ps, pv):
+    var = _POST_BOUND if n.name == pv or n.name == "result" else n.name
+    return f"(str_all_hex (match {var} with LitString raw => raw | _ => \"\"%string end) = true)"
+
+
 def _recursor(n, ps, pv):
-    return f"({n.recursor} {n.predicate} {n.arg})"
+    arg = _LIST_MODEL.get(n.arg, n.arg)
+    return f"Z.of_nat ({n.recursor} {n.predicate} {arg})"
 
 
 def _is_valid(n, ps, pv):

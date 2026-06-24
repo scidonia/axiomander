@@ -1123,6 +1123,146 @@ def upper_test(s: str):
     assert ok, out
 
 
+# -- String substring containment (str_contains) -------------------------
+
+def test_string_contains_literal():
+    """'needle' in haystack uses StrContainsOp / string_contains Fixpoint."""
+    ok, out = verify_exn('''
+def contains_inv(s: str):
+    assert len(s) > 0
+    result = "inv" in s
+    return result
+''', table=_builtins_table(), func_name="contains_inv")
+    assert ok, out
+
+
+def test_string_contains_variable():
+    """needle in haystack where both are string params."""
+    ok, out = verify_exn('''
+def contains_check(needle: str, haystack: str):
+    result = needle in haystack
+    return result
+''', table=_builtins_table(), func_name="contains_check")
+    assert ok, out
+
+
+def test_string_contains_not_found():
+    """Substring not present returns false."""
+    ok, out = verify_exn('''
+def contains_xyz(s: str):
+    result = "xyz" in s
+    return result
+''', table=_builtins_table(), func_name="contains_xyz")
+    assert ok, out
+
+
+def test_string_lower_contains():
+    """s.lower() + 'inv' in result: ToLowerOp then StrContainsOp."""
+    ok, out = verify_exn('''
+def lower_contains(s: str):
+    ls = s.lower()
+    result = "inv" in ls
+    return result
+''', table=_builtins_table(), func_name="lower_contains")
+    assert ok, out
+
+
+def test_string_contains_not():
+    """'needle' not in haystack via StrContainsOp + EqOp false."""
+    ok, out = verify_exn('''
+def contains_not(s: str):
+    result = "xyz" not in s
+    return result
+''', table=_builtins_table(), func_name="contains_not")
+    assert ok, out
+
+
+def test_bool_param_contains_contract():
+    """bool param in contract compiles to (param <> 0) + StringContainsExpr
+    uses match LitString to extract sn_val strings.
+    Proof completion (finish_pure) is future work — String.index goals
+    need explicit lemma support."""
+    source = '''
+def check_error(goal_name: str, error: str, has_loop: bool) -> int:
+    """
+    axiomander:
+        requires:
+            len(goal_name) > 0
+        ensures:
+            implies(has_loop
+                    and ("inv" in error.lower()
+                         or "invariant" in error.lower()),
+                    result == 0)
+    """
+    error_lower = error.lower()
+    if has_loop and ("inv" in error_lower or "invariant" in error_lower):
+        result = 0
+    else:
+        result = 5
+    return result
+'''
+    from axiomander.oracle.iris_pipeline import python_to_iris_proof, IrisGenError
+    from axiomander.oracle.iris_proof_gen import FunTable
+    try:
+        proof = python_to_iris_proof(source, FunTable(), func_name="check_error")
+    except IrisGenError as e:
+        pytest.fail(f"pipeline raised: {e}")
+    coq = proof.emit_exn()
+    assert 'has_loop <> 0' in coq, "bool param must emit <> 0 in contract"
+    assert 'str_contains_val' in coq, "string contains must use str_contains_val in contract"
+    assert '"inv"%string' in coq, 'needle must be string literal'
+    assert 'asString' not in coq, "asString does not exist in Coq"
+
+
+def test_string_contains_contract():
+    """check_error with string containment + bool param contract proves."""
+    ok, out = verify_exn('''
+def check_error(goal_name: str, error: str, has_loop: bool) -> int:
+    """
+    axiomander:
+        requires:
+            len(goal_name) > 0
+        ensures:
+            implies(has_loop
+                    and ("inv" in error.lower()
+                         or "invariant" in error.lower()),
+                    result == 0)
+    """
+    error_lower = error.lower()
+    if has_loop and ("inv" in error_lower or "invariant" in error_lower):
+        result = 0
+    else:
+        result = 5
+    return result
+''', table=_builtins_table(), func_name="check_error")
+    assert ok, f"check_error should prove but got: {out[:500]}"
+
+
+def test_comprehension_count_contract():
+    """sum(1 for x in xs if x > 0) compiles to countb via RecursorExpr."""
+    from axiomander.oracle.iris_pipeline import python_to_iris_proof, IrisGenError
+    from axiomander.oracle.iris_proof_gen import FunTable
+
+    source = '''
+def identity(xs: list) -> int:
+    """
+    axiomander:
+        ensures:
+            result == sum(1 for x in xs if x > 0)
+    """
+    return 0
+'''
+    try:
+        proof = python_to_iris_proof(source, FunTable(), func_name="identity")
+    except IrisGenError as e:
+        pytest.fail(f"pipeline raised: {e}")
+    coq = proof.emit_exn()
+    assert "countb" in coq, f"must compile to countb, got: {coq[:500]}"
+    assert "Z.ltb 0 x" in coq, f"x > 0 -> Z.ltb 0 x, got: {coq[:500]}"
+    assert "M_xs" in coq, f"list model M_xs must appear, got: {coq[:500]}"
+    assert "Z.of_nat" in coq, "countb result wrapped in Z.of_nat"
+
+
 # -- Dict get with default (d.get) --------------------------------------
 
 def test_dict_get_hit():
@@ -1205,3 +1345,222 @@ def imp_bad(x: int, bogus: int):
     return result
 ''')
     assert not ok, "implication with unconstrained consequent must reject"
+
+
+# =========================================================================
+# Fluid-lowerer end-to-end tests.
+# These exercise features unique to the fluid lowerer that now verify
+# by default (no flag needed after WP-7 cutover).
+# =========================================================================
+
+def test_fluid_forallb_precondition():
+    """forallb precondition with no loop body — proves via pure forallb_true."""
+    ok, out = verify_exn('''
+def forallb_pre(xs: list[int]) -> int:
+    assert all(x > 0 for x in xs)
+    result = 0
+    assert result >= 0
+    return result
+''')
+    assert ok, f"forallb_pre must verify: {out[:400]}"
+
+
+def test_fluid_forallb_multi():
+    """Multiple forallb preconditions — all decompose via forallb_true."""
+    ok, out = verify_exn('''
+def forallb_multi(xs: list[int]) -> int:
+    assert len(xs) >= 0
+    assert all(x > 0 for x in xs)
+    assert all(x < 100 for x in xs)
+    result = len(xs)
+    assert result >= 0
+    return result
+''')
+    assert ok, f"forallb_multi must verify: {out[:400]}"
+
+
+def test_fluid_hex_string_post():
+    """Hex-string check on result string — str_all_hex + length."""
+    ok, out = verify_exn('''
+def hash_str() -> int:
+    result = 'abc123'
+    assert len(result) == 6
+    assert all(c in '0123456789abcdef' for c in result)
+    x = 1
+    assert x == 1
+    return x
+''')
+    assert ok, f"hash_str must verify: {out[:400]}"
+
+
+def test_fluid_slice_len_pre():
+    """Slice-length precondition: len(xs[0:5]) <= 5 — lowered as (5 - 0) <= 5."""
+    ok, out = verify_exn('''
+def slice_ok(xs: list[int]) -> int:
+    assert len(xs[0:5]) <= 5
+    result = len(xs)
+    assert result >= 0
+    return result
+''')
+    assert ok, f"slice_ok must verify: {out[:400]}"
+
+
+def test_fluid_any_range():
+    """any over a small range — expanded to disjunction, proved by nia."""
+    ok, out = verify_exn('''
+def any_small(n: int) -> int:
+    assert n >= 0
+    assert any(i == 2 for i in range(0, n))
+    result = n
+    assert result >= 0
+    return result
+''')
+    assert ok, f"any_small must verify: {out[:400]}"
+
+
+def test_fluid_forallb_negative():
+    """forallb with a postcondition that contradicts — must FAIL."""
+    ok, _ = verify_exn('''
+def forallb_bad(xs: list[int]) -> int:
+    assert all(x > 0 for x in xs)
+    result = 0
+    assert result < 0
+    return result
+''')
+    assert not ok, "forallb_bad must reject: result >= 0 contradicts result < 0"
+
+
+def test_fluid_forallb_simple_body():
+    """forallb precondition with simple body — no for-loop interaction needed."""
+    ok, out = verify_exn('''
+def forallb_basic(xs: list[int]) -> int:
+    assert all(x > 0 for x in xs)
+    assert len(xs) >= 0
+    result = 42
+    assert result == 42
+    return result
+''')
+    assert ok, f"forallb_basic must verify: {out[:400]}"
+
+
+def test_fluid_chain_implies():
+    """Chained implies + scalar pre/post — fluid-only composition."""
+    ok, out = verify_exn('''
+def validate_and_compute(a: int, b: int, c: int) -> int:
+    assert a >= 0
+    assert b >= 0
+    assert implies(a > 0, c >= b)
+    result = a + b
+    assert implies(a == 0, result == b)
+    assert implies(a > 0, result >= b)
+    return result
+''')
+    assert ok, f"validate_and_compute must verify: {out[:400]}"
+
+
+def test_fluid_filter_stats():
+    """forallb + len + implies in pre/post — full fluid composition."""
+    ok, out = verify_exn('''
+def filter_stats(items: list[int], limit: int) -> int:
+    assert limit >= 0
+    assert all(x >= 0 for x in items)
+    result = len(items)
+    assert result >= 0
+    assert implies(limit == 0, result >= 0)
+    assert implies(len(items) <= limit, result <= limit)
+    return result
+''')
+    assert ok, f"filter_stats must verify: {out[:400]}"
+
+
+# =========================================================================
+# F* / Nagini -style contracts.
+# =========================================================================
+
+def test_fstar_abs_nonneg():
+    """abs_nonneg — pure identity: if x>=0, result==x (Nagini-style)."""
+    ok, out = verify_exn('''
+def abs_nonneg(x: int) -> int:
+    assert x >= 0
+    result = x
+    assert result >= 0
+    assert result == x
+    return result
+''')
+    assert ok, f"abs_nonneg must verify: {out[:400]}"
+
+
+def test_fstar_triangle():
+    """Triangle inequality: a+b >= a and a+b >= b (F*-style)."""
+    ok, out = verify_exn('''
+def triangle_check(a: int, b: int) -> int:
+    assert a >= 0
+    assert b >= 0
+    result = a + b
+    assert result >= a
+    assert result >= b
+    return result
+''')
+    assert ok, f"triangle_check must verify: {out[:400]}"
+
+
+@pytest.mark.xfail(reason="integer division (//) not yet handled by the prover")
+def test_fstar_binary_midpoint():
+    """Binary search midpoint: lo <= (lo+hi)//2 <= hi (F*-style)."""
+    ok, out = verify_exn('''
+def binary_midpoint(lo: int, hi: int) -> int:
+    assert lo <= hi
+    result = (lo + hi) // 2
+    assert lo <= result
+    assert result <= hi
+    return result
+''')
+    assert ok, f"binary_midpoint must verify: {out[:400]}"
+
+
+@pytest.mark.xfail(reason="wp_for_list_forall: LitUnit continuation premise "
+                          "doesn't match accumulator-returning Let wrapper. "
+                          "Lowering is correct; prover needs a new WP lemma "
+                          "or sum-induction support in finish_pure.")
+def test_fluid_forallb_with_loop():
+    r"""all(x > 0 for x in xs) + for-loop accumulation — prover WIP."""
+    ok, out = verify_exn('''
+def all_positive(xs: list[int]) -> int:
+    assert all(x > 0 for x in xs)
+    result = 0
+    for x in xs:
+        result = result + x
+    assert result > 0
+    return result
+''')
+    assert ok, f"all_positive must verify: {out[:400]}"
+
+
+@pytest.mark.xfail(reason="pure-counter while loop: needs Loeb lemma "
+                          "for multi-iteration termination proof.  "
+                          "Contract lowering (is_sorted + ensures) is correct; "
+                          "prover cannot emit while-loop stages yet.")
+def test_bin_search_requires_sorted():
+    r"""Binary search: requires is_sorted(xs), body uses while loop."""
+    ok, out = verify_exn('''
+def is_sorted(xs):
+    if len(xs) <= 1: return True
+    return xs[0] <= xs[1] and is_sorted(xs[1:])
+
+def bin_search(xs: list[int], target: int) -> bool:
+    """axiomander:
+        requires: is_sorted(xs)
+        ensures: result == any(x == target for x in xs)
+    """
+    lo = 0
+    hi = len(xs) - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if xs[mid] == target: return True
+        if xs[mid] < target:
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return False
+''', func_name='bin_search')
+    assert ok, f"bin_search must verify: {out[:400]}"

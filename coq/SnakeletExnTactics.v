@@ -2,6 +2,7 @@ From iris.proofmode Require Import proofmode coq_tactics reduction.
 From iris.base_logic.lib Require Import gen_heap.
 From Stdlib Require Import ZArith.
 Require Import SnakeletExnLang SnakeletExnWp.
+Require Import ListPredicates.
 
 (** Stage-tactic layer for the exception-aware WP (Result postcondition).
 
@@ -131,6 +132,20 @@ Ltac loop_unfold :=
   end.
 
 (** Convert boolean path constraints into Props for [lia]. *)
+(** Tactic to close a contradiction when the postcondition is an implication
+    that's vacuously satisfied by a false branch condition from [case_bool]. *)
+Ltac close_case_contradiction :=
+  try match goal with
+  | Hcond : _ = false |- _ =>
+      apply Bool.andb_false_iff in Hcond;
+      destruct Hcond as [Hn | Hs];
+      [ apply negb_false_iff in Hn; apply Z.eqb_eq in Hn; subst;
+        repeat match goal with H: _ /\ _ |- _ => destruct H end;
+        try (exfalso; assumption; fail); try done
+      | apply Bool.orb_false_iff in Hs; destruct Hs as [Ha Hb];
+        try congruence ]
+  end.
+
 Ltac snakelet_pure_hyps :=
   repeat match goal with
   | H : Z.ltb _ _ = true |- _ => apply Z.ltb_lt in H
@@ -139,6 +154,25 @@ Ltac snakelet_pure_hyps :=
   | H : Z.leb _ _ = false |- _ => apply Z.leb_gt in H
   | H : Z.eqb _ _ = true |- _ => apply Z.eqb_eq in H; subst
   | H : Z.eqb _ _ = false |- _ => apply Z.eqb_neq in H
+  | H : negb (Z.eqb ?a ?b) = true |- _ =>
+      apply negb_true_iff in H; apply Z.eqb_eq in H; subst
+  | H : negb (Z.eqb ?a ?b) = false |- _ =>
+      apply negb_false_iff in H; apply Z.eqb_eq in H; subst
+  | H : negb _ = true |- _ => apply negb_true_iff in H
+  | H : negb _ = false |- _ => apply negb_false_iff in H
+  end.
+
+(** Tactic to destruct all bool equalities into Props suitable for [done]. *)
+Ltac snakelet_bool_hyps :=
+  repeat match goal with
+  | H : _ && _ = true |- _ => apply Bool.andb_true_iff in H
+  | H : _ || _ = false |- _ => apply Bool.orb_false_iff in H
+  | H : true = _ && _ |- _ => symmetry in H; apply Bool.andb_true_iff in H
+  | H : false = _ || _ |- _ => symmetry in H; apply Bool.orb_false_iff in H
+  | H : true = negb _ |- _ => symmetry in H; apply negb_true_iff in H
+  | H : false = negb _ |- _ => symmetry in H; apply negb_false_iff in H
+  | H : true = Z.eqb ?a ?b |- _ => symmetry in H; apply Z.eqb_eq in H; subst
+  | H : false = Z.eqb ?a ?b |- _ => symmetry in H; apply Z.eqb_neq in H
   end.
 
 (** Raise step: reduce an in-focus [Raise (Val (LitExn ...))] to its
@@ -176,11 +210,22 @@ Ltac finish_pure :=
   | _ => idtac
   end;
   simpl; iPureIntro; snakelet_pure_hyps;
+  (* Unfold forallb facts into In-based form for intros/specialize. *)
+  repeat (rewrite forallb_true in *; cbn in *);
+  repeat (rewrite existsb_true in *; cbn in *);
   (* Handle (A -> B) implications *)
   repeat match goal with
   | |- (_ -> _) /\ _ => split; [| idtac]
   end;
   try (intros);
+  (* Destruct disjunctions before conjunctions *)
+  repeat match goal with
+  | H : _ \/ _ |- _ => destruct H
+  end;
+  repeat match goal with
+  | H : _ /\ _ |- _ => destruct H
+  end;
+  snakelet_pure_hyps;
   try (first
          [ reflexivity
          | nia
@@ -200,14 +245,40 @@ Ltac finish_pure :=
               | try rewrite Z.leb_le; try rewrite Z.ltb_lt;
                 try rewrite Z.eqb_eq; try rewrite Nat2Z.inj_succ;
                 try rewrite length_app; simpl;
+                try intros;
+                try (solve [
+                     repeat match goal with
+                     | H : _ \/ _ |- _ => destruct H
+                     end;
+                     repeat match goal with
+                     | H : _ /\ _ |- _ => destruct H
+                     end;
+                     snakelet_bool_hyps;
+                     snakelet_pure_hyps;
+                     repeat match goal with
+                     | H : _ \/ _ |- _ => destruct H
+                     end;
+                     snakelet_bool_hyps;
+                     snakelet_pure_hyps;
+                     repeat match goal with
+                     | H : _ /\ _ |- _ => destruct H
+                     end;
+                     first [ reflexivity | done | congruence 
+                           | close_case_contradiction
+                           | exfalso; eauto | nia | lia ]
+                      ]);
                 first [ reflexivity | nia
                      (* string set-membership: pick a disjunct *)
                      | left; nia | right; nia | left; nia | right; nia
                      | (repeat first [ left; nia | right; nia
                                      | left; nia
                                      | right
-                                     | reflexivity ]) ] ])
-          | (repeat split; first [ reflexivity | nia ]) ]).
+                                     | reflexivity ])
+                     | done
+          | congruence
+          | close_case_contradiction
+          | exfalso; eauto | lia ] ])
+           | (repeat split; first [ reflexivity | nia ]) ]).
 
 (** Convert a syntactic list of value expressions [[Val v1; ...; Val vn]]
     to the value list [[v1; ...; vn]] so [Call f args] matches the
@@ -561,3 +632,69 @@ Section while_lemma.
       iPureIntro. exact Hcond || reflexivity.
   Qed.
 End while_lemma.
+
+(** Int-guard while loop — the integer analogue of [wp_while_str].
+
+    [wp_while_int_guard] handles [while (load c > 0) do body] where the
+    body stores a guard-falsifying value (<= 0) to the cell [c] in one
+    step, exactly like [wp_while_str] falisifies the string guard.
+    The invariant [Inv : Z -> iProp Sigma] is indexed by the cell's
+    current value.  The body's postcondition asserts the new value [v']
+    is NOT > 0, i.e. the guard is false.
+
+    This is the direct integer analogue — two finite [wp_while] unfoldings,
+    NO coinduction / Löb.  For multi-iteration loops (e.g. counting down
+    from n to 0), a more general induction lemma is future work. *)
+Lemma wp_while_int_guard (c : loc) (init : Z) (body : sn_expr)
+    (Inv : Z -> iProp Sigma) (Phi : Result -> iProp Sigma) :
+  (forall v, subst "_" v body = body) ->
+  c ↦ LitInt init -∗
+  Inv init -∗
+  (* Body obligation: when the guard is true (init > 0), the body
+       {c ↦ init ∗ Inv init} body {∃ v', c ↦ v' ∗ Inv v' ∗ ⌜(0 <? v') <> true⌝}. *)
+  (c ↦ LitInt init -∗ Inv init -∗
+      wp_exn body (fun r => match r with
+          | RVal _ => ∃ v', c ↦ LitInt v' ∗ Inv v' ∗ ⌜(0 <? v') <> true⌝
+          | RExn lbl p => Phi (RExn lbl p)
+          end)) -∗
+  (* Closing wand: any guard-false state with Inv establishes Phi. *)
+  (∀ vf, ⌜(0 <? vf) <> true⌝ -∗ c ↦ LitInt vf -∗ Inv vf -∗ Phi (RVal LitUnit)) -∗
+  WPE (While (BinOp GtOp (Load (Val (LitLoc c))) (Val (LitInt 0))) body) {{ Phi }}.
+Proof.
+  intros Hbc.
+  iIntros "Hc Hinv Hbody Hwand".
+  iApply wp_while; iNext; simpl.
+  heap_load. pure_step. case_bool.
+  - (* guard true: init > 0, run the body. *)
+    snakelet_pure_hyps.
+    pure_step.
+    iRename select (_ ↦ _)%I into "Hpt2".
+    iApply (wp_bind_item (LetCtx "_" (While (BinOp GtOp (Load (Val (LitLoc c))) (Val (LitInt 0))) body))); [reflexivity|].
+    iPoseProof ("Hbody" with "Hpt2 Hinv") as "Hwp".
+    iApply (wp_wand with "Hwp").
+    iIntros (r) "Hr". destruct r as [vv | lbl p].
+    + (* body returned: cell at v', Inv v', guard false.  Second unfolding —
+         guard now false so the loop exits. *)
+      iDestruct "Hr" as (v') "(Hpt & Hinv' & %Hgf)".
+      iApply wp_let. iNext. simpl.
+      rewrite (Hbc vv).
+      iApply wp_while; iNext; simpl.
+      heap_load. pure_step.
+      case_bool.
+      * (* guard true: contradiction — body guaranteed guard false. *)
+        snakelet_pure_hyps.
+        assert (Htrue' : (0 <? v') = true) by (apply Z.ltb_lt; lia).
+        rewrite Htrue' in Hgf. congruence.
+      * (* guard false: exit. *)
+        iRename select (_ ↦ _)%I into "Hpt3".
+        iApply wp_value. iApply ("Hwand" $! v' with "[] Hpt3 Hinv'").
+        iPureIntro. exact Hgf || reflexivity.
+    + (* body raised: exception propagates. *)
+      iExact "Hr".
+  - (* guard false: init <= 0, exit immediately. *)
+    snakelet_pure_hyps.
+    pure_step.
+    iRename select (_ ↦ _)%I into "Hpt0".
+    iApply wp_value. iApply ("Hwand" $! init with "[] Hpt0 Hinv").
+    iPureIntro. exact Hcond || reflexivity.
+Qed.

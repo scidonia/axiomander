@@ -442,7 +442,7 @@ Axiomander exposes its tools as an MCP server. Wire it into your editor for inli
   "mcpServers": {
     "axiomander": {
       "command": "uv",
-      "args": ["run", "python", "-m", "oracle.mcp_server"],
+      "args": ["run", "python", "-m", "axiomander.oracle.mcp_server"],
       "cwd": "/path/to/axiomander",
       "env": {
         "AXIOMANDER_ROOT": "/path/to/axiomander",
@@ -473,7 +473,7 @@ Axiomander exposes its tools as an MCP server. Wire it into your editor for inli
 ![Axiomander Architecture](docs/architecture.png)
 
 ```
-py/
+py/axiomander/
   oracle/
     contract_linter.py   # Python AST → IR (Coq + SMT targets)
     contract_ir.py       # Expression IR (Pydantic models)

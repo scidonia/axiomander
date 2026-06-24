@@ -148,6 +148,7 @@ def _sha256(*parts: str) -> str:
     axiomander:
         ensures:
             len(result) == 64
+            all(c in "0123456789abcdef" for c in result)
     """
     h = hashlib.sha256()
     for p in parts:
@@ -155,6 +156,19 @@ def _sha256(*parts: str) -> str:
     result = h.hexdigest()
     assert len(result) == 64
     return result
+
+
+def _spec_sha256_length(a: str, b: str) -> int:
+    """Scalar specification of _sha256's output-length invariant.
+
+    _sha256 always returns a 64-character hex string.  This scalar spec
+    captures the length guarantee independent of the hash algorithm.
+
+    axiomander:
+        ensures:
+            result == 64
+    """
+    return 64
 
 
 def normalize_body(func_node: ast.FunctionDef) -> str:

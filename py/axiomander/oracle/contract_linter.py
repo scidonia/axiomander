@@ -96,6 +96,7 @@ class ContractLinter(ast.NodeVisitor):
         self.unbound: frozenset[str] = unbound
         self.ghost_resolver: dict[str, str] = ghost_resolver or {}
         self.param_type_hint: dict[str, str] = param_type_hint or {}
+        self.predicate_defs: dict[str, object] = {}  # name -> PredicateDef
 
     def lint_expression(self, node: ast.expr) -> LintResult:
         """Convert a Python expression to IR. Returns LintResult with coq/smt."""
@@ -343,6 +344,18 @@ class ContractLinter(ast.NodeVisitor):
             return None
         if name == "store":
             return None  # store is not a pure expression
+        # String method calls: var.lower() / var.upper() / var.startswith(...) / var.endswith(...)
+        # These are pure transformations; resolve the base to a Var.
+        if method_name in ("lower", "upper") and isinstance(node.func, ast.Attribute):
+            if isinstance(node.func.value, ast.Name):
+                return Var(name=node.func.value.id)
+        if method_name in ("startswith", "endswith") and isinstance(node.func, ast.Attribute):
+            if not node.args or not isinstance(node.args[0], ast.Constant):
+                return None
+            if not isinstance(node.args[0].value, str):
+                return None
+            if isinstance(node.func.value, ast.Name):
+                return Var(name=node.func.value.id)
         if name not in PURE_BUILTINS and name not in PURE_MODULE_FUNCTIONS \
            and method_name not in PURE_BUILTINS:
             if name in self.predicates:
@@ -389,6 +402,14 @@ class ContractLinter(ast.NodeVisitor):
                           f"Predicate '{name}' expects {len(param_names)} args, got {len(node.args)}")
             return None
         if body_expr is not None:
+            # Check if the predicate body is recursive (contains self-calls).
+            # If so, emit a PredicateCallExpr instead of inlining.
+            from .predicate_def import _find_self_calls
+            if _find_self_calls(body_expr, name):
+                from .contract_ir import PredicateCallExpr
+                ir_args = [self.visit(a) for a in node.args]
+                ir_args = [a for a in ir_args if a is not None]
+                return PredicateCallExpr(name=name, args=ir_args)
             class _Subst(ast_module.NodeTransformer):
                 def __init__(self, mapping):
                     self.mapping = mapping
@@ -613,6 +634,23 @@ class ContractLinter(ast.NodeVisitor):
         if name == "sum":
             if node.args and isinstance(node.args[0], ast.Name):
                 return SumExpr(name=node.args[0].id)
+            # sum(1 for x in xs if p(x)) → countb (fun x => p_coq(x)) xs
+            if node.args and isinstance(node.args[0], ast.GeneratorExp):
+                gen = node.args[0]
+                elt = gen.elt
+                if isinstance(elt, ast.Constant) and elt.value == 1:
+                    for comp in gen.generators:
+                        if isinstance(comp.iter, ast.Name):
+                            list_name = comp.iter.id
+                            var_name = comp.target.id if isinstance(comp.target, ast.Name) else "x"
+                            pred_coq = self._compile_comprehension_filter(
+                                var_name, comp.ifs)
+                            from .contract_ir import RecursorExpr
+                            return RecursorExpr(
+                                recursor="countb",
+                                arg=list_name,
+                                predicate=f"(fun {var_name} => {pred_coq})"
+                                    if pred_coq else "(fun _ => true)")
             return IntLit(value=0)
         if name in ("all", "any"):
             return self._translate_quantifier(node, name)
@@ -653,12 +691,61 @@ class ContractLinter(ast.NodeVisitor):
             self.visit(a) for a in node.args if self.visit(a) is not None
         ])
 
+    def _compile_comprehension_filter(self, var_name: str,
+                                       ifs: list[ast.expr]) -> str | None:
+        """Compile a comprehension filter to a Coq boolean lambda expression.
+
+        Handles simple comparisons (x > 0 → Z.ltb 0 x) and known method calls
+        (x.is_proved() → Z.leb 2 x).  Returns None if no filter (count all).
+        """
+        if not ifs:
+            return None
+        cond = ifs[0]
+        # Comparison: x > N, x >= N, x < N, x <= N, x == N, x != N
+        if isinstance(cond, ast.Compare) and len(cond.ops) == 1:
+            op = type(cond.ops[0])
+            if (isinstance(cond.left, ast.Name)
+                    and cond.left.id == var_name
+                    and isinstance(cond.comparators[0], ast.Constant)):
+                val = cond.comparators[0].value
+                if isinstance(val, (int, float)):
+                    if op is ast.Gt:
+                        return f"Z.ltb {val} {var_name}"
+                    if op is ast.GtE:
+                        return f"Z.leb {val} {var_name}"
+                    if op is ast.Lt:
+                        return f"Z.ltb {var_name} {val}"
+                    if op is ast.LtE:
+                        return f"Z.leb {var_name} {val}"
+                    if op is ast.Eq:
+                        return f"Z.eqb {var_name} {val}"
+                    if op is ast.NotEq:
+                        return f"negb (Z.eqb {var_name} {val})"
+        # Known method: x.is_proved() → proved iff level >= 2
+        if (isinstance(cond, ast.Call)
+                and isinstance(cond.func, ast.Attribute)
+                and isinstance(cond.func.value, ast.Name)
+                and cond.func.value.id == var_name
+                and cond.func.attr == "is_proved"):
+            return f"Z.leb 2 {var_name}"
+        return "true"
+
     def _translate_quantifier(self, node: ast.Call, name: str) -> Optional[Expr]:
         """Translate all(p(x) for x in lst) or all(p(x) for x in range(lo, hi))."""
         if node.args and isinstance(node.args[0], ast.GeneratorExp):
             gen = node.args[0]
             if gen.generators and len(gen.generators) == 1:
                 comp = gen.generators[0]
+                # Detect all(c in "0123456789abcdef" for c in result)
+                if (name == "all"
+                        and isinstance(comp.iter, ast.Name)
+                        and isinstance(gen.elt, ast.Compare)
+                        and len(gen.elt.ops) == 1
+                        and isinstance(gen.elt.ops[0], ast.In)
+                        and isinstance(gen.elt.comparators[0], ast.Constant)
+                        and gen.elt.comparators[0].value == "0123456789abcdef"):
+                    from .contract_ir import HexStringExpr
+                    return HexStringExpr(name=comp.iter.id)
                 if isinstance(comp.target, ast.Name) and isinstance(comp.iter, ast.List):
                     var = comp.target.id
                     elts = [self.visit(e) for e in comp.iter.elts]

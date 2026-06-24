@@ -295,6 +295,7 @@ class ForList:
     continuation_stages: list["StageNode"]  # stages for code after the for-loop
     iterable_type: str = "list"  # "list" | "dict" — which wp_for_* lemma to use
     forall_predicate: str = ""  # sn_val->Prop predicate for wp_for_list_forall
+    from_precondition: bool = False  # True if predicate comes from forallb precondition
 
 
 def _make_forall_predicate(invariants: list[str], loop_var: str) -> str:
@@ -541,7 +542,8 @@ def _collect_body_stores(e: SExpr) -> list[tuple[str, str]]:
 def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
          k, func_name: str = "", _inv_counter: list[int] | None = None,
          list_params: dict[str, str] | None = None,
-         dict_params: dict[str, str] | None = None) -> list[StageNode]:
+         dict_params: dict[str, str] | None = None,
+         forall_predicates: dict[str, str] | None = None) -> list[StageNode]:
     """Generate stages reducing e to a value, then continue with k().
 
     k is a thunk producing the continuation stages; it is invoked once
@@ -549,17 +551,18 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
     """
     lp = list_params or {}
     dp = dict_params or {}
+    fp = forall_predicates or {}
     if isinstance(e, (SLit, SVar)):
         return k()
 
     if isinstance(e, SReturn):
-        return _gen(e.value, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+        return _gen(e.value, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp)
 
     if isinstance(e, SSeq):
         if not e.exprs:
             return k()
         if len(e.exprs) == 1:
-            return _gen(e.exprs[0], table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+            return _gen(e.exprs[0], table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp)
         head, rest = e.exprs[0], SSeq(e.exprs[1:])
         return _gen(SLet("_", head, rest), table, overrides, k,
                      func_name=func_name, _inv_counter=_inv_counter, list_params=lp)
@@ -569,8 +572,8 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
             def after_right():
                 return [_mk_stage("pure_step", "pure_step",
                               comment=f"binop {e.op}")] + k()
-            return _gen(e.right, table, overrides, after_right, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
-        return _gen(e.left, table, overrides, after_left, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+            return _gen(e.right, table, overrides, after_right, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp)
+        return _gen(e.left, table, overrides, after_left, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp)
 
     if isinstance(e, SApp):
         if e.func not in table:
@@ -619,7 +622,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         # continuation resumes.
         st = _mk_stage(f'call_transparent "{e.func}"', "call_transparent",
                    comment="unfolds")
-        return [st] + _gen(entry.body, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+        return [st] + _gen(entry.body, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp)
 
     if isinstance(e, SLet):
         # A raise in the bound position unwinds the Let, discarding the
@@ -630,12 +633,12 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         def after_rhs():
             return [_mk_stage("pure_step", "pure_step",
                           comment=f'bind "{e.var}"')] + \
-                   _gen(e.body, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
-        return _gen(e.value, table, overrides, after_rhs, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+                   _gen(e.body, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp)
+        return _gen(e.value, table, overrides, after_rhs, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp)
 
     if isinstance(e, SWhile):
-        cond_stages = _gen(e.cond, table, overrides, lambda: [], func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
-        body_stages = _gen(e.body, table, overrides, lambda: [], func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+        cond_stages = _gen(e.cond, table, overrides, lambda: [], func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp)
+        body_stages = _gen(e.body, table, overrides, lambda: [], func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp)
 
         # String-guard loop: while load(c) == "literal": ...; store(c, ...)
         # Terminates by falsifying the guard (wp_while_str), NOT a counter.
@@ -813,7 +816,7 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
         # the loop has no accumulator contract.
         cont = k()
         body_stages = _gen(e.body, table, overrides, lambda: [],
-                           func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+                           func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp)
         # wp_for_list takes the list MODEL (list sn_val), not the wrapped
         # value.  For a list literal, strip the LitList wrapper.  For a
         # list-typed parameter, use the model variable from list_params.
@@ -844,6 +847,9 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                 "(is_list) to expose the model. See "
                 "docs/finite-iterable-relations.md.")
         from axiomander.oracle.contract_ir_iris import iris_prop
+        # Prefer forall predicate from function precondition (forallb fact).
+        inv_pred = _make_forall_predicate(e.invariants, e.var)
+        pre_pred = fp.get(model_coq, "")
         return [ForList(
             var=e.var,
             lst_coq=model_coq,
@@ -852,7 +858,8 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
             invariants=[iris_prop(x) for x in e.invariants],
             continuation_stages=cont,
             iterable_type=iterable_type,
-            forall_predicate=_make_forall_predicate(e.invariants, e.var),
+            forall_predicate=pre_pred or inv_pred,
+            from_precondition=bool(pre_pred),
         )]  # continuation handled by inferred Phi via wp_for_list' or wp_for_list_forall
 
     if isinstance(e, SAlloc):
@@ -875,25 +882,25 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
             chosen = (e.then_branch if e.cond.value.lower() == "true"
                       else e.else_branch)
             return ([_mk_stage("pure_step", "pure_step",
-                           comment="literal conditional")] +
-                    _gen(chosen, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp))
+                            comment="literal conditional")] +
+                    _gen(chosen, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp))
 
         def after_cond():
             then_arm = ([_mk_stage("pure_step", "pure_step",
                                 comment="select then-branch")] +
-                        _gen(e.then_branch, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp))
+                        _gen(e.then_branch, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp))
             else_arm = ([_mk_stage("pure_step", "pure_step",
                                 comment="select else-branch")] +
-                        _gen(e.else_branch, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp))
+                        _gen(e.else_branch, table, overrides, k, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp))
             return [_mk_stage("case_bool", "case_bool", comment="path fork"),
                     Branch([then_arm, else_arm])]
-        return _gen(e.cond, table, overrides, after_cond, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+        return _gen(e.cond, table, overrides, after_cond, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp)
 
     if isinstance(e, SDictGet):
         def after_key():
             return [_mk_stage("pure_step", "pure_step",
                           comment=f"dict lookup {e.loc}[key]")] + k()
-        return _gen(e.key, table, overrides, after_key, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+        return _gen(e.key, table, overrides, after_key, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp)
 
     if isinstance(e, SDictSet):
         def after_dictset_key():
@@ -902,8 +909,8 @@ def _gen(e: SExpr, table: FunTable, overrides: dict[str, str],
                               comment=f"dict insert {e.loc}[key]=val"),
                         _mk_stage("pure_step", "pure_step",
                               comment="dict set: unit return")] + k()
-            return _gen(e.value, table, overrides, after_dictset_value, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
-        return _gen(e.key, table, overrides, after_dictset_key, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp)
+            return _gen(e.value, table, overrides, after_dictset_value, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp)
+        return _gen(e.key, table, overrides, after_dictset_key, func_name=func_name, _inv_counter=_inv_counter, list_params=lp, dict_params=dp, forall_predicates=fp)
 
     if isinstance(e, SRaise):
         # A raise terminates the path with an exception result; the
@@ -1374,8 +1381,14 @@ def _emit_for_list_stage_exn(fl: ForList, indent: str) -> list[str]:
                      f' "{fl.var}" ({fl.body_coq}) ({fl.lst_coq}) _).')
         lines.append(f'{indent}{{ intros w; reflexivity. }}')
         lines.append(f'{indent}{{ (* Forall premise at full list *)')
-        lines.append(f'{indent}  iPureIntro. simpl. '
-                     f'repeat (try constructor; try lia). }}')
+        if fl.from_precondition:
+            # Forall derived from forallb precondition via Hpre.
+            lines.append(f'{indent}  iPureIntro. '
+                         f'apply forallb_to_Forall. exact Hpre. }}')
+        else:
+            # Literal list: prove structurally.
+            lines.append(f'{indent}  iPureIntro. simpl. '
+                         f'repeat (try constructor; try lia). }}')
         lines.append(f'{indent}{{ (* per-element body step *)')
         lines.append(f'{indent}  iModIntro. iIntros (vfor vrest) "%Hfor".')
         lines.append(f'{indent}  inversion Hfor as [|? ? Hq Hvs]; subst.')
@@ -1422,6 +1435,7 @@ _HEADER_EXN = (
     "From iris.base_logic.lib Require Import gen_heap.\n"
     "From Hammer Require Import Hammer.\n"
     "Require Import SnakeletExnLang SnakeletExnWp SnakeletExnTactics.\n"
+    "Require Import ListPredicates.\n"
     "Open Scope Z_scope.\n"
 )
 
@@ -1443,6 +1457,8 @@ class IrisProof:
     """Exception contracts: exc_type -> Coq condition Prop (the RExn arm)."""
     param_types: dict[str, str] = field(default_factory=dict)
     """Parameter type annotations: param_name -> python type (int|str|bool|dict|list|...)."""
+    predicate_fixpoints: list[str] = field(default_factory=list)
+    """Coq Fixpoint definitions for recursive user predicates."""
 
     def stage_list(self) -> list[Stage]:
         """Flattened stages (for trace/cache consumers)."""
@@ -1477,6 +1493,11 @@ class IrisProof:
                        end
         """
         parts = [_HEADER_EXN]
+        # Recursive user predicate Fixpoints (D1/D2).
+        if self.predicate_fixpoints:
+            parts.append("")
+            parts.extend(self.predicate_fixpoints)
+            parts.append("")
         for i, ax in enumerate(self.axioms):
             parts.append(f"Axiom smt_ax_{i} : {ax}.")
         if self.axioms:
@@ -1672,7 +1693,9 @@ def generate(name: str,
                list_params: Optional[dict[str, str]] = None,
                dict_params: Optional[dict[str, str]] = None,
                raises: Optional[dict[str, str]] = None,
-               param_types: Optional[dict[str, str]] = None) -> IrisProof:
+               param_types: Optional[dict[str, str]] = None,
+               predicate_fixpoints: Optional[list[str]] = None,
+               forall_predicates: Optional[dict[str, str]] = None) -> IrisProof:
     """Generate a staged Iris proof for a SnakeletIR body.
 
     name: function name (theorem is <name>_correct).
@@ -1694,7 +1717,8 @@ def generate(name: str,
                                  comment="postcondition")],
                   func_name=name, _inv_counter=inv_counter,
                   list_params=list_params or {},
-                   dict_params=dict_params or {})
+                   dict_params=dict_params or {},
+                  forall_predicates=forall_predicates or {})
     return IrisProof(
         name=name,
         body_coq=body.to_coq(),
@@ -1708,4 +1732,5 @@ def generate(name: str,
         dict_params=dict_params or {},
         raises=raises or {},
         param_types=param_types or {},
+        predicate_fixpoints=predicate_fixpoints or [],
     )

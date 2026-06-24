@@ -327,3 +327,40 @@ class Order(BaseModel):
 
     assert isinstance(qty_val, VInt) and qty_val.v == order.qty == 42
     assert isinstance(price_val, VInt) and price_val.v == order.price == 99
+
+
+# -- String substring containment (str_contains) --------------------------
+
+def test_str_contains_found():
+    r = _binop("str_contains", VString("hello world"), VString("lo wo"))
+    assert isinstance(r, VBool) and r.v is True
+
+
+def test_str_contains_not_found():
+    r = _binop("str_contains", VString("hello world"), VString("xyz"))
+    assert isinstance(r, VBool) and r.v is False
+
+
+def test_str_contains_self():
+    r = _binop("str_contains", VString("hello"), VString("hello"))
+    assert isinstance(r, VBool) and r.v is True
+
+
+def test_str_contains_empty_needle():
+    r = _binop("str_contains", VString("hello"), VString(""))
+    assert isinstance(r, VBool) and r.v is True
+
+
+def test_str_contains_empty_haystack():
+    r = _binop("str_contains", VString(""), VString("x"))
+    assert isinstance(r, VBool) and r.v is False
+
+
+def test_str_contains_prefix():
+    r = _binop("str_contains", VString("hello world"), VString("hello"))
+    assert isinstance(r, VBool) and r.v is True
+
+
+def test_str_contains_suffix():
+    r = _binop("str_contains", VString("hello world"), VString("world"))
+    assert isinstance(r, VBool) and r.v is True
