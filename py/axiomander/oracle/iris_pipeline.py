@@ -1699,45 +1699,63 @@ def python_to_iris_proof(source: str,
 def _apply_supercompiler(proof: IrisProof, contracts: Contracts, func_name: str) -> None:
     """Apply supercompiler-based contract simplification to an IrisProof.
 
-    Attempts to supercompile the pre/post contract expressions.  If the
-    supercompiler reduces any expression to a constant boolean or a
-    strictly simpler form, the simplified Prop replaces the original.
-    Falls back silently on failure (the original contract is used).
+    Only replaces the contract when the supercompiler reduces the expression
+    to a literal boolean constant (PVal (PLitBool true/false)), which is
+    trivially sound.  For all other cases the supercompiled definition is
+    added as a helper but does NOT replace the Lemma's contract statement.
     """
     try:
         param_types = proof.param_types
         params = proof.params
-        pre_p_expr = None
-        post_p_expr = None
 
-        # Compile pre Expr nodes to p_expr and supercompile
+        def _try_supercompile_p_expr(expr: object) -> str | None:
+            """Compile expr to p_expr, supercompile, return result."""
+            p_str = expr_to_p_expr(expr)
+            if p_str is None:
+                return None
+            result = supercompile_p_expr(p_str)
+            return result
+
+        def _is_constant_bool(p_expr_str: str) -> bool:
+            """Check if the supercompiled result is a literal boolean."""
+            return p_expr_str.strip().startswith("(PVal (PLitBool ")
+
+        # Supercompile preconditions
+        pre_result = None
         if contracts.pre_exprs:
             for expr in contracts.pre_exprs:
-                p_str = expr_to_p_expr(expr)
-                if p_str:
-                    result = supercompile_p_expr(p_str)
-                    if result:
-                        pre_p_expr = result
-                        break  # Use first successfully supercompiled pre
+                r = _try_supercompile_p_expr(expr)
+                if r is not None:
+                    pre_result = r
+                    break
 
+        post_result = None
         if contracts.post_expr is not None:
-            p_str = expr_to_p_expr(contracts.post_expr)
-            if p_str:
-                result = supercompile_p_expr(p_str)
-                if result:
-                    post_p_expr = result
+            post_result = _try_supercompile_p_expr(contracts.post_expr)
 
-        if pre_p_expr or post_p_expr:
-            sp_pre, sp_post, coq_block = make_supercompiled_coq_block(
-                pre_p_expr, post_p_expr, params, param_types)
+        # Generate Coq definitions block and Props
+        pre_prop = None
+        post_prop = None
+        coq_block = ""
+
+        if pre_result or post_result:
+            pre_prop, post_prop, coq_block = make_supercompiled_coq_block(
+                pre_result, post_result, params, param_types)
+
+        # Only REPLACE the contract if the supercompiler reduced to a constant.
+        # Otherwise, add as a helper definition only (for proof body use).
+        if pre_result and _is_constant_bool(pre_result):
+            if pre_prop:
+                proof.supercompiled_pre = pre_prop
+        if post_result and _is_constant_bool(post_result):
+            if post_prop:
+                proof.supercompiled_post = post_prop
+
+        if coq_block:
             proof.supercompiled_block = coq_block
-            if sp_pre:
-                proof.supercompiled_pre = sp_pre
-            if sp_post:
-                proof.supercompiled_post = sp_post
 
     except Exception:
-        pass  # Supercompiler is optional; any failure uses original contracts
+        pass  # Optional pass — any failure falls back to original contracts
 
 
 def capture_residual(source: str,

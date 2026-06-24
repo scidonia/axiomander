@@ -218,11 +218,10 @@ def supercompile_p_expr(p_expr_str: str, fn_table: str = "nil", fuel: int = 500)
         build_dir = root / "_build"
 
     coq_source = f"""From Stdlib Require Import ZArith String.
-Require Import SCoqShared.D1Fold SCoqShared.LambdaA.
+Require Import SCoqShared.Supercompiler SCoqShared.LambdaA.
 Open Scope Z_scope.
 
-Compute (snd (supercompile_full {fn_table} {fuel} {p_expr_str})).
-"""
+Compute (supercompile {fn_table} {fuel} nil ({p_expr_str}))."""
 
     with tempfile.NamedTemporaryFile(
         mode='w', suffix='.v', delete=False, dir=root

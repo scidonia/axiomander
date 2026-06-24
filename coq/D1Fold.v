@@ -140,11 +140,7 @@ Fixpoint subst_expr (param : string) (arg : p_expr) (body : p_expr) : p_expr :=
   end.
 
 Fixpoint supercompile_d1
-    (F : fn_table)
-    (fuel : nat)
-    (history : list p_expr)
-    (t : p_expr)
-    (counter : nat)
+    (F : fn_table) (fuel : nat) (history : list p_expr) (t : p_expr) (counter : nat)
     : list fold_def * p_expr :=
   match fuel with
   | 0%nat => ([], t)
@@ -153,12 +149,10 @@ Fixpoint supercompile_d1
     | Some t' =>
         supercompile_d1 F fuel' (t :: history) t' counter
     | None =>
-      if whistle_dec history t then
-        (* Whistle fired on t *)
-        match t with
-        | PCall fn args =>
-            (* D1: this call is the repeating configuration — fold it *)
-            let fname := fresh_name counter in
+      match t with
+      | PCall fn args =>
+          if whistle_dec history t then
+            (* D1: whistle fired on a PCall — try to fold *)
             match find_ancestor_call fn history with
             | Some param_name =>
                 let body_candidate :=
@@ -169,79 +163,63 @@ Fixpoint supercompile_d1
                   | None => t
                   end in
                 let driven_body := supercompile F fuel' [t] body_candidate in
+                let fname := fresh_name counter in
                 let fold_body := replace_call fn fname driven_body in
                 let def := MkFoldDef fname param_name fold_body in
                 ([def], PCall fname args)
             | None =>
-                (* Ancestor not a single-arg PCall: recurse structurally *)
-                let sc := supercompile_d1 F fuel' history in
-                let step := fun '(acc_d, acc_a, c) arg =>
-                  let '(d, a) := sc arg c in
-                  (acc_d ++ d, acc_a ++ [a], Nat.add c (List.length d)) in
-                let '(all_d, args', _) := fold_left step args ([], [], counter) in
-                (all_d, PCall fn args')
+                (* Whistle but no ancestor pattern: recurse on args, then re-drive *)
+                let '(ds, args', _) :=
+                  fold_left (fun '(acc_d, acc_a, c) arg =>
+                    let '(d, a) := supercompile_d1 F fuel' history arg c in
+                    (acc_d ++ d, acc_a ++ [a], Nat.add c (List.length d)))
+                  args ([],[],counter) in
+                let result := supercompile F fuel' history (PCall fn args') in
+                (ds, result)
             end
-        | _ =>
-            (* Whistle on compound term: DON'T just stop.
-               Recurse structurally so inner PCall nodes can still be folded.
-               The whistle on the compound node means "don't drive TOP-LEVEL"
-               but subterms can still trigger D1. *)
-            let sc := supercompile_d1 F fuel' (t :: history) in
-            match t with
-            | PBinOp op e1 e2 =>
-                let '(d1, e1') := sc e1 counter in
-                let '(d2, e2') := sc e2 (Nat.add counter (List.length d1)) in
-                (d1 ++ d2, PBinOp op e1' e2')
-            | PIf e0 e1 e2 =>
-                let '(d0, e0') := sc e0 counter in
-                let '(d1, e1') := sc e1 (Nat.add counter (List.length d0)) in
-                let '(d2, e2') := sc e2 (Nat.add counter (Nat.add (List.length d0) (List.length d1))) in
-                (d0 ++ d1 ++ d2, PIf e0' e1' e2')
-            | PLet x e1 e2 =>
-                let '(d1, e1') := sc e1 counter in
-                let '(d2, e2') := sc e2 (Nat.add counter (List.length d1)) in
-                (d1 ++ d2, PLet x e1' e2')
-            | _ => ([], t)
-            end
-        end
-      else
-        (* No whistle: inline if possible, otherwise recurse structurally *)
-        match t with
-        | PCall fn args =>
-            (* Try symbolic inlining: look up the function body and
-               substitute args symbolically (even if args are variables) *)
+          else
+            (* No whistle: try symbolic inlining, otherwise recurse + re-drive *)
             match assoc String.eqb F fn with
             | Some (params, body) =>
                 let inlined := fold_left (fun b '(p, a) => subst_expr p a b)
                                          (combine params args) body in
                 supercompile_d1 F fuel' (t :: history) inlined counter
             | None =>
-                (* Not in table: recurse on args *)
-                let sc := supercompile_d1 F fuel' history in
-                let step := fun '(acc_d, acc_a, c) arg =>
-                  let '(d, a) := sc arg c in
-                  (acc_d ++ d, acc_a ++ [a], Nat.add c (List.length d)) in
-                let '(all_d, args', _) := fold_left step args ([], [], counter) in
-                (all_d, PCall fn args')
+                let '(ds, args', _) :=
+                  fold_left (fun '(acc_d, acc_a, c) arg =>
+                    let '(d, a) := supercompile_d1 F fuel' history arg c in
+                    (acc_d ++ d, acc_a ++ [a], Nat.add c (List.length d)))
+                  args ([],[],counter) in
+                let result := supercompile F fuel' history (PCall fn args') in
+                (ds, result)
             end
-        | PVal _ | PVar _ => ([], t)
-        | PBinOp op e1 e2 =>
-            let sc := supercompile_d1 F fuel' history in
-            let '(d1, e1') := sc e1 counter in
-            let '(d2, e2') := sc e2 (Nat.add counter (List.length d1)) in
-            (d1 ++ d2, PBinOp op e1' e2')
-        | PIf e0 e1 e2 =>
-            let sc := supercompile_d1 F fuel' history in
-            let '(d0, e0') := sc e0 counter in
-            let '(d1, e1') := sc e1 (Nat.add counter (List.length d0)) in
-            let '(d2, e2') := sc e2 (Nat.add counter (Nat.add (List.length d0) (List.length d1))) in
-            (d0 ++ d1 ++ d2, PIf e0' e1' e2')
-        | PLet x e1 e2 =>
-            let sc := supercompile_d1 F fuel' history in
-            let '(d1, e1') := sc e1 counter in
-            let '(d2, e2') := sc e2 (Nat.add counter (List.length d1)) in
-            (d1 ++ d2, PLet x e1' e2')
-        end
+      | PVal _ | PVar _ => ([], t)
+      | _ =>
+          (* Compound node: recurse structurally to find folds in subterms,
+             then re-drive via supercompile.  (Same logic for both whistle and
+             non-whistle; only difference is whether t is pushed onto history.) *)
+          let h := if whistle_dec history t then t :: history else history in
+          let sc := supercompile_d1 F fuel' h in
+          match t with
+          | PBinOp op e1 e2 =>
+              let '(d1, e1') := sc e1 counter in
+              let '(d2, e2') := sc e2 (Nat.add counter (List.length d1)) in
+              let result := supercompile F fuel' history (PBinOp op e1' e2') in
+              (d1 ++ d2, result)
+          | PIf e0 e1 e2 =>
+              let '(d0, e0') := sc e0 counter in
+              let '(d1, e1') := sc e1 (Nat.add counter (List.length d0)) in
+              let '(d2, e2') := sc e2 (Nat.add counter (Nat.add (List.length d0) (List.length d1))) in
+              let result := supercompile F fuel' history (PIf e0' e1' e2') in
+              (d0 ++ d1 ++ d2, result)
+          | PLet x e1 e2 =>
+              let '(d1, e1') := sc e1 counter in
+              let '(d2, e2') := sc e2 (Nat.add counter (List.length d1)) in
+              let result := supercompile F fuel' history (PLet x e1' e2') in
+              (d1 ++ d2, result)
+          | _ => ([], t)
+          end
+      end
     end
   end.
 
