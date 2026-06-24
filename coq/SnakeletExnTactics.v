@@ -698,3 +698,41 @@ Proof.
     iApply wp_value. iApply ("Hwand" $! init with "[] Hpt0 Hinv").
     iPureIntro. exact Hcond || reflexivity.
 Qed.
+
+(** Löb-based while with a decreasing [nat] measure.
+
+    [wp_while_decreasing] is the general multi-iteration lemma.  Instead of
+    encoding the guard into the lemma (like [wp_while_str] hardcodes
+    [String.eqb] and [wp_while_int_guard] hardcodes [GtOp 0]), this lemma
+    takes the guard expression [c] as a parameter and requires the body
+    obligation to prove the measure [n] strictly decreases.
+
+    The invariant [I : nat -> iProp Sigma] carries the loop state indexed
+    by the remaining iteration count.  The body takes [I n] and must prove
+    [∃ n', n' < n ∗ I n'] on normal return.  When [n = 0], the guard is
+    assumed to be false and the loop exits via [I 0 -∗ Φ (RVal LitUnit)].
+
+    Termination follows from [Nat.lt_wf] via the step-indexed Löb induction. *)
+Lemma wp_while_decreasing (c e_body : sn_expr) (k : nat)
+    (I : nat -> iProp Sigma) (Phi : Result -> iProp Sigma) :
+  (∀ n, I n -∗
+      WPE (If c e_body (Val LitUnit))
+        {{ (fun r => match r with
+             | RVal _ => ∃ n', ⌜(n' < n)%nat⌝ ∗ I n'
+             | RExn lbl p => Phi (RExn lbl p)
+             end) }}) -∗
+  (I 0 -∗ Phi (RVal LitUnit)) -∗
+  I k -∗
+  WPE (While c e_body) {{ Phi }}.
+Proof.
+  iLöb as "IH" forall (k).
+  iIntros "Hstep Hdone HI".
+  iApply wp_while. iNext. simpl.
+  iSpecialize ("Hstep" $! k with "HI").
+  iApply (wp_wand with "Hstep").
+  iIntros (r) "Hr". destruct r as [v | l p].
+  - iDestruct "Hr" as (n') "(%Hlt & HI')".
+    iApply ("IH" $! n' with "Hstep Hdone HI'").
+  - iExact "Hr".
+  - iApply ("Hdone" with "HI").
+Qed.
