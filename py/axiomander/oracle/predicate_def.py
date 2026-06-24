@@ -142,6 +142,42 @@ def _extract_return_expr(func_node: ast.FunctionDef) -> ast.expr | None:
     return None
 
 
+def _extract_base_value(func_node: ast.FunctionDef, predicate_name: str) -> str:
+    """Extract the base-case return value from the function body.
+
+    Looks for `if <guard>: return <value>` where the return value is
+    non-recursive (no self-call).  Returns the Coq literal for the value.
+    """
+    for stmt in func_node.body:
+        if isinstance(stmt, ast.If):
+            for s in stmt.body:
+                if isinstance(s, ast.Return) and s.value is not None:
+                    if not _is_recursive_expr(s.value, predicate_name):
+                        val = s.value
+                        if isinstance(val, ast.Constant):
+                            if val.value is True:
+                                return "true"
+                            if val.value is False:
+                                return "false"
+                            if isinstance(val.value, int):
+                                return str(val.value)
+                        return "true"  # default for non-recursive branch
+    return "false"
+
+
+def _is_recursive_expr(node: ast.AST, name: str) -> bool:
+    """Check if an AST subtree contains a self-call to *name*."""
+    class Checker(ast.NodeVisitor):
+        found = False
+        def visit_Call(self, n):
+            if isinstance(n.func, ast.Name) and n.func.id == name:
+                self.found = True
+            self.generic_visit(n)
+    c = Checker()
+    c.visit(node)
+    return c.found
+
+
 def _find_decreases_annotation(func_node: ast.FunctionDef) -> str | None:
     """Look for `# decreases: <expr>` on the first line of the body."""
     for stmt in func_node.body:
@@ -180,11 +216,13 @@ def _classify_structural(
         for i, arg_node in enumerate(call.args):
             arg_name, structural = _is_structural_arg(arg_node, params)
             if structural:
+                if rec_arg is not None and rec_arg != arg_name:
+                    return None  # different param from previous call
                 if not found:
                     rec_arg = arg_name
                     found = True
                 elif rec_arg != arg_name:
-                    return None  # structural on different params
+                    return None  # structural on different params in SAME call
         if not found:
             return None
 

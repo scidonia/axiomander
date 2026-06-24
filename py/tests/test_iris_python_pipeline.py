@@ -1534,3 +1534,33 @@ def all_positive(xs: list[int]) -> int:
     return result
 ''')
     assert ok, f"all_positive must verify: {out[:400]}"
+
+
+@pytest.mark.xfail(reason="pure-counter while loop: needs Loeb lemma "
+                          "for multi-iteration termination proof.  "
+                          "Contract lowering (is_sorted + ensures) is correct; "
+                          "prover cannot emit while-loop stages yet.")
+def test_bin_search_requires_sorted():
+    r"""Binary search: requires is_sorted(xs), body uses while loop."""
+    ok, out = verify_exn('''
+def is_sorted(xs):
+    if len(xs) <= 1: return True
+    return xs[0] <= xs[1] and is_sorted(xs[1:])
+
+def bin_search(xs: list[int], target: int) -> bool:
+    """axiomander:
+        requires: is_sorted(xs)
+        ensures: result == any(x == target for x in xs)
+    """
+    lo = 0
+    hi = len(xs) - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if xs[mid] == target: return True
+        if xs[mid] < target:
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return False
+''', func_name='bin_search')
+    assert ok, f"bin_search must verify: {out[:400]}"

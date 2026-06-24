@@ -21,7 +21,15 @@ and extensible verification stack that holds up under real-world use.
 **Ground rules:**
 - Python's runtime type system must be reflected in the `value` type.
   Coercion rules must follow Python's semantics (float+int→float, etc.).
-- Contracts are plain `assert` statements — zero imports, zero decorators.
+- Contracts are plain Python — `assert` statements in the function body (zero imports,
+  zero decorators) or an `axiomander:` docstring block with `requires:`/`ensures:`.
+  The assertion_finder classifies `assert` by position; the docstring parser
+  converts Nagini-style contracts into the same IR.
+- **Contracts are never weakened to pass a test.** If a prover can't handle a
+  contract, the fix is in the prover — not in the contract. A failing test with
+  an honest `xfail` documents the gap; a "passing" test with a watered-down
+  contract hides it. The contract is the specification; the prover serves it,
+  not the other way around.
 - The WP calculus is the single source of truth, proven sound in Coq.
 - Frame conditions are explicit, enforced, and derive from the callee's
   declared `reads`/`writes`, not from implementation details.
@@ -195,7 +203,9 @@ export ORACLE_MODEL="deepseek-chat"
 2. **WP over VC**: We use weakest-precondition calculus (Dijkstra-style), not forward VCG. Simpler, more compositional.
 3. **SMT then LLM**: SMT handles what it can handle (linear arithmetic, bitvectors). LLM is the fallback, not the first choice.
 4. **Coq is the trust base**: The WP calculus is proven sound in Coq. The Python→IMP translator is trusted (or extractable from Coq later).
-5. **Vanilla Python contracts**: Contracts use Python `assert` statements (no decorators, no imports). Axiomander's assertion_finder classifies them by position. The user's code stays dependency-free; the MCP server does the heavy lifting.
+5. **Vanilla Python contracts**: Contracts use Python `assert` statements or
+   `axiomander:` docstring blocks. The user's code stays dependency-free;
+   the MCP server does the heavy lifting.
 
 ## Proof Pipeline (3 Tiers)
 

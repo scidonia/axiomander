@@ -163,44 +163,24 @@ def _emit_structural_from_body(pd: PredicateDef, param: str) -> str:
 
 
 def _extract_base_case(pd: PredicateDef) -> str:
-    """Extract the base case value from the predicate body.
+    """Extract the base case value from the predicate definition.
 
-    Walks body_expr looking for non-recursive return values.
-    Default: 'false' (empty list → false is the safe default for search predicates).
+    Uses pd.base_value if populated by classify_recursion.
+    Otherwise falls back to AST analysis of pd.body_expr.
     """
+    if pd.base_value:
+        return pd.base_value
     expr = pd.body_expr
     if expr is None:
         return "false"
     if isinstance(expr, ast.IfExp):
         if _is_nonrecursive(expr.body, pd.name):
             val = ast.unparse(expr.body)
-            if "True" in val:
-                return "true"
-            if "False" in val:
-                return "false"
-            if val == "0":
-                return "0"
+            if "True" in val: return "true"
+            if "False" in val: return "false"
+            if val == "0": return "0"
             return val
-        if _is_nonrecursive(expr.orelse, pd.name):
-            val = ast.unparse(expr.orelse)
-            if "True" in val:
-                return "true"
-            if "False" in val:
-                return "false"
-            if val == "0":
-                return "0"
-            return val
-    # Check if the body itself is a BoolOp with a non-recursive branch
-    if isinstance(expr, ast.BoolOp):
-        for v in expr.values:
-            if _is_nonrecursive(v, pd.name):
-                val = ast.unparse(v)
-                if "False" in val:
-                    return "false"
-                if "0" in val:
-                    return "0"
-                break
-    return "false"  # safe default
+    return "false"
 
 
 def _is_nonrecursive(node: ast.AST, name: str) -> bool:
