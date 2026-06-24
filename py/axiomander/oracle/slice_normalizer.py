@@ -141,7 +141,20 @@ def _emit_structural_from_body(pd: PredicateDef, param: str) -> str:
 
     # Rewrite: xs[0] -> hd, xs[1:] -> rest, xs[1] -> rest[0] etc.
     rewritten = _rewrite_slices(body_expr, param, "hd", "rest")
-    cons_body_coq = _py_expr_to_coq_bool(ast.unparse(rewritten))
+    cons_body_raw = ast.unparse(rewritten)
+    cons_body_coq = _py_expr_to_coq_bool(cons_body_raw)
+
+    # If the body references rest[0] (from xs[1] → rest[0]), emit a
+    # nested match to make the access structural.
+    if "rest[0]" in cons_body_raw or "rest[0]" in cons_body_coq:
+        interior = cons_body_coq.replace("rest[0]", "hd2")
+        # Wrap comparison in parens for precedence with &&
+        interior = interior.replace("hd <=? hd2 &&", "(hd <=? hd2) &&")
+        cons_body_coq = (
+            f"match rest with "
+            f"| [] => true "
+            f"| hd2 :: _ => {interior} "
+            f"end")
 
     # Base case: from the if-guard (e.g. `not xs` → [] => false,
     # `len(xs) <= 1` → [] and [_] => true).

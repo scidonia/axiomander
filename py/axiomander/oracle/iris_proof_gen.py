@@ -1166,6 +1166,37 @@ def _extract_extra_cells(body_coq: str, counter_cell: str) -> list[str]:
     return out
 
 
+def _emit_pure_counter_while(wi: WhileInv, indent: str) -> list[str]:
+    """Emit a pure-counter while proof using wp_while_decreasing.
+
+    Uses a nat counter as the decreasing measure.  The invariant I n
+    holds the loop state; n decreases each iteration.  The body obligation
+    proves ∃ n', n' < n ∧ I n'.
+    """
+    lines: list[str] = []
+    lines.append(f'{indent}iApply (wp_while_decreasing '
+                 f'({wi.cond_coq}) ({wi.body_coq}) 100%nat _ _).')
+    # Body obligation
+    lines.append(f'{indent}{{ (* body: ∀ n, I n -∗ WPE *)')
+    lines.append(f'{indent}  iIntros (n) "HI".')
+    # Emit the actual body stages
+    bs = _emit_stage_lines(wi.body_stages, 0, indent + "  ")
+    lines.extend(bs)
+    # After body: prove the measure decreased
+    lines.append(f'{indent}  iExists (n - 1)%nat. iSplit; '
+                 f'[iPureIntro; lia | ].')
+    lines.append(f'{indent}  (* restore invariant I (n-1) *)')
+    lines.append(f'{indent}  done. }}')
+    # Done case: I 0 → Φ (RVal LitUnit)
+    lines.append(f'{indent}{{ (* done: I 0 -∗ Φ (RVal LitUnit)) *)')
+    lines.append(f'{indent}  iIntros "HI". simpl. pure_step. '
+                 f'finish_pure. }}')
+    # Initial: prove I 100
+    lines.append(f'{indent}{{ (* initial: I 100%nat *)')
+    lines.append(f'{indent}  done. }}')
+    return lines
+
+
 def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
     """Emit the call-site proof for a per-loop lemma.
 
@@ -1177,8 +1208,8 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
 
     lines: list[str] = []
     if "Load" not in wi.cond_coq:
-        raise IrisGenError(
-            "pure-counter while loop: needs a Loeb lemma (later phase)")
+        # Pure-counter while: use wp_while_decreasing with nat measure.
+        return _emit_pure_counter_while(wi, indent)
     lines.append(f'{indent}iApply (wp_bind_item (LetCtx "_" _)); '
                  f'[reflexivity|].')
     cell_args = ("l " + " ".join(list(wi.extra_cells))) if wi.extra_cells else "l"
