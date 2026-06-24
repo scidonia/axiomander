@@ -211,6 +211,7 @@ def extract_contracts(
     # Asserts immediately before final return = postcondition.
     # Multiple asserts are conjoined with `and`.
     post = "True"
+    _post_expr = None  # raw contract_ir.Expr for supercompiler
     if body and isinstance(body[-1], ast.Return):
         ret_node = body[-1]
         ret_var = None
@@ -235,6 +236,8 @@ def extract_contracts(
             if len(posts) == 1:
                 # Single assert: use the standard wrapper.
                 linted = post_linter.lint_expression(post_asserts[0].test)
+                if linted.ir is not None:
+                    _post_expr = linted.ir
                 post = _post(linted.ir, ret_var, result_kind, ghost_resolver)
             elif posts:
                 # Shared existential: exists z, v = LitInt z /\ P1 /\ P2.
@@ -257,15 +260,6 @@ def extract_contracts(
     # Extract loop invariants from while loops in the body
     loop_invs: list[list[str]] = []
     _extract_while_invariants(body, loop_invs, pre_linter, lm)
-
-    # Capture raw Expr nodes for optional supercompiler simplification
-    _post_expr = None
-    if body and isinstance(body[-1], ast.Return):
-        post_asserts = [s for s in body if isinstance(s, ast.Assert)]
-        if post_asserts:
-            linted = post_linter.lint_expression(post_asserts[0].test)
-            if linted.ir is not None:
-                _post_expr = linted.ir
 
     return Contracts(pre=pre, post=post, loop_invariants=loop_invs,
                      raises=raises, forall_predicates=_collect_forall_predicates(pre_irs, lm),
@@ -1718,7 +1712,8 @@ def _apply_supercompiler(proof: IrisProof, contracts: Contracts, func_name: str)
 
         def _is_constant_bool(p_expr_str: str) -> bool:
             """Check if the supercompiled result is a literal boolean."""
-            return p_expr_str.strip().startswith("(PVal (PLitBool ")
+            s = p_expr_str.strip()
+            return s.startswith("PVal (PLitBool true)") or s.startswith("PVal (PLitBool false)")
 
         # Supercompile preconditions
         pre_result = None
