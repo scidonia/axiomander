@@ -312,13 +312,13 @@ def _detect_predicates(source: str) -> tuple[dict, list[str]]:
     return predicates, fixpoints
 
 
-def _build_resource_premises(dc) -> tuple[list[str], list[str]]:
-    """Build spatial Iris premises from docstring owns declarations.
+def _build_resource_premises(dc) -> tuple[list[str], list[str], list[str]]:
+    """Build spatial Iris premises and invariants from docstring.
 
-    Returns (premises, post_owns) where:
-      premises: spatial -∗ premises for the Lemma (l_<name> ↦ LitUnit)
-      post_owns: location names that appear in postcondition existentials
-                 (may_modify → ∃ v', l ↦ v')
+    Returns (premises, post_owns, preserve_invs) where:
+      premises: spatial -∗ premises for the Lemma (l_<name> ↦ LitInt 0)
+      post_owns: location names for postcondition existentials (may_modify)
+      preserve_invs: invariant namespace names (preserves GlobalInvariant.X)
     """
     premises: list[str] = []
     post_owns: list[str] = []
@@ -344,7 +344,13 @@ def _build_resource_premises(dc) -> tuple[list[str], list[str]]:
                     break
         if matched and matched not in post_owns:
             post_owns.append(matched)
-    return premises, post_owns
+    # preserves clauses -> invariant namespace names
+    preserve_invs: list[str] = []
+    for p in dc.preserves:
+        # GlobalInvariant.accounting_consistency -> accounting_inv
+        name = p.split(".")[-1].replace("_", "_")
+        preserve_invs.append(f"N_{name}")
+    return premises, post_owns, preserve_invs
 
 
 # -- Statement folding (PyIR statements -> SnakeletIR) ---------------------
@@ -1696,7 +1702,7 @@ def python_to_iris_proof(source: str,
     _validate_ops(body)
 
     # Build the proof with resource premises and supercompiler support.
-    resource_premises, resource_post_owns = _build_resource_premises(dc)
+    resource_premises, resource_post_owns, preserve_invs = _build_resource_premises(dc)
     proof = generate(
         name=fn.name,
         body=body,
@@ -1714,6 +1720,7 @@ def python_to_iris_proof(source: str,
         forall_predicates=contracts.forall_predicates,
         resource_premises=resource_premises,
         resource_post_owns=resource_post_owns,
+        preserve_invs=preserve_invs,
     )
 
     # Optional supercompiler simplification of contract expressions

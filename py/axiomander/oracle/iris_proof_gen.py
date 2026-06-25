@@ -1512,6 +1512,9 @@ class IrisProof:
     resource_post_owns: list[str] = field(default_factory=list)
     """Location names from owns declarations that appear in the postcondition
     as existentials (may_modify → ∃ v', l ↦ v')."""
+    preserve_invs: list[str] = field(default_factory=list)
+    """Global invariant namespaces from preserves clauses, e.g. ['accounting_inv'].
+    Each is declared as Context (N : namespace) and opened/closed around the proof."""
 
     def stage_list(self) -> list[Stage]:
         """Flattened stages (for trace/cache consumers)."""
@@ -1573,6 +1576,11 @@ class IrisProof:
                 if loc not in locs:
                     locs.add(loc)
                     parts.append(f"  Context ({loc} : loc).")
+            parts.append("")
+        # Declare invariant namespaces from preserves declarations.
+        for inv_ns in self.preserve_invs:
+            parts.append(f"  Context ({inv_ns} : namespace).")
+        if self.preserve_invs:
             parts.append("")
         if self.supercompiled_block:
             parts.append(self.supercompiled_block)
@@ -1795,7 +1803,8 @@ def generate(name: str,
                predicate_fixpoints: Optional[list[str]] = None,
                forall_predicates: Optional[dict[str, str]] = None,
                resource_premises: Optional[list[str]] = None,
-               resource_post_owns: Optional[list[str]] = None) -> IrisProof:
+               resource_post_owns: Optional[list[str]] = None,
+               preserve_invs: Optional[list[str]] = None) -> IrisProof:
     """Generate a staged Iris proof for a SnakeletIR body.
 
     name: function name (theorem is <name>_correct).
@@ -1835,4 +1844,5 @@ def generate(name: str,
         predicate_fixpoints=predicate_fixpoints or [],
         resource_premises=resource_premises or [],
         resource_post_owns=resource_post_owns or [],
+        preserve_invs=preserve_invs or [],
     )
