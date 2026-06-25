@@ -1608,7 +1608,7 @@ def python_to_iris_proof(source: str,
               f"global invariants not yet enforced")
     if dc.owns:
         print(f"  NOTE: owns {', '.join(dc.owns)} — "
-              f"resource ownership not yet enforced")
+              f"spatial Iris premises (l↦v) + may_modify existentials")
 
     # Detect list/dict params from type annotations (needed before
     # contract extraction for len() compilation and before lowering).
