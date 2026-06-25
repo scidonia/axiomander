@@ -1606,7 +1606,8 @@ class IrisProof:
             parts.append(f"    ({' -> '.join(model_premises)}) ->")
         # Spatial resource premises from owns declarations (l ↦ v).
         if self.resource_premises:
-            parts.append(f"    ({' -∗ '.join(self.resource_premises)}) -∗")
+            for rp in self.resource_premises:
+                parts.append(f"    {rp} -∗")
         if self.pre:
             p = self.supercompiled_pre if self.supercompiled_pre else self.pre
             if self.resource_premises:
