@@ -1509,12 +1509,19 @@ class IrisProof:
     resource_premises: list[str] = field(default_factory=list)
     """Spatial Iris premises from owns declarations, e.g. ['l ↦ LitString "ready"'].
     Emitted as -∗ premises before the pure contract in the Lemma statement."""
+    ghost_premises: list[str] = field(default_factory=list)
+    """Ghost premises from may_emit tokens and domain predicates.
+    Combined with resource_premises for the Lemma -∗ chain."""
     resource_post_owns: list[str] = field(default_factory=list)
     """Location names from owns declarations that appear in the postcondition
     as existentials (may_modify → ∃ v', l ↦ v')."""
     preserve_invs: list[str] = field(default_factory=list)
     """Global invariant namespaces from preserves clauses, e.g. ['accounting_inv'].
     Each is declared as Context (N : namespace) and opened/closed around the proof."""
+    emission_tokens: list[str] = field(default_factory=list)
+    """Ghost emission tokens from may_emit clauses.
+    e.g. ['own γ_evtbus (◯ {[ \"orders.fulfilled\" ]})']
+    Emitted as -∗ ghost premises and as ghost existentials in postcondition."""
 
     def stage_list(self) -> list[Stage]:
         """Flattened stages (for trace/cache consumers)."""
@@ -1616,6 +1623,9 @@ class IrisProof:
         if self.resource_premises:
             for rp in self.resource_premises:
                 parts.append(f"    {rp} -∗")
+        if self.ghost_premises:
+            for gp in self.ghost_premises:
+                parts.append(f"    {gp} -∗")
         if self.pre:
             p = self.supercompiled_pre if self.supercompiled_pre else self.pre
             if self.resource_premises:
@@ -1804,7 +1814,8 @@ def generate(name: str,
                forall_predicates: Optional[dict[str, str]] = None,
                resource_premises: Optional[list[str]] = None,
                resource_post_owns: Optional[list[str]] = None,
-               preserve_invs: Optional[list[str]] = None) -> IrisProof:
+               preserve_invs: Optional[list[str]] = None,
+               emission_tokens: Optional[list[str]] = None) -> IrisProof:
     """Generate a staged Iris proof for a SnakeletIR body.
 
     name: function name (theorem is <name>_correct).
@@ -1845,4 +1856,5 @@ def generate(name: str,
         resource_premises=resource_premises or [],
         resource_post_owns=resource_post_owns or [],
         preserve_invs=preserve_invs or [],
+        emission_tokens=emission_tokens or [],
     )

@@ -347,10 +347,18 @@ def _build_resource_premises(dc) -> tuple[list[str], list[str], list[str]]:
     # preserves clauses -> invariant namespace names
     preserve_invs: list[str] = []
     for p in dc.preserves:
-        # GlobalInvariant.accounting_consistency -> accounting_inv
-        name = p.split(".")[-1].replace("_", "_")
+        # GlobalInvariant.accounting_consistency -> N_accounting_consistency
+        name = p.split(".")[-1]
         preserve_invs.append(f"N_{name}")
-    return premises, post_owns, preserve_invs
+    # may_emit clauses -> ghost token premises
+    ghost_prems: list[str] = []
+    emission_tokens: list[str] = []
+    for emit in dc.frame.get("may_emit", []):
+        topic = emit.split('"')[1] if '"' in emit else emit
+        tok = f'own γ_evtbus (◯ {{[ "{topic}"%string ]}})'
+        ghost_prems.append(tok)
+        emission_tokens.append(tok)
+    return premises, post_owns, preserve_invs, ghost_prems, emission_tokens
 
 
 # -- Statement folding (PyIR statements -> SnakeletIR) ---------------------
@@ -1702,7 +1710,7 @@ def python_to_iris_proof(source: str,
     _validate_ops(body)
 
     # Build the proof with resource premises and supercompiler support.
-    resource_premises, resource_post_owns, preserve_invs = _build_resource_premises(dc)
+    resource_premises, resource_post_owns, preserve_invs, ghost_premises, emission_tokens = _build_resource_premises(dc)
     proof = generate(
         name=fn.name,
         body=body,
@@ -1718,9 +1726,10 @@ def python_to_iris_proof(source: str,
         param_types=param_types,
         predicate_fixpoints=contracts.predicate_fixpoints,
         forall_predicates=contracts.forall_predicates,
-        resource_premises=resource_premises,
+        resource_premises=resource_premises + ghost_premises,
         resource_post_owns=resource_post_owns,
         preserve_invs=preserve_invs,
+        emission_tokens=emission_tokens,
     )
 
     # Optional supercompiler simplification of contract expressions
