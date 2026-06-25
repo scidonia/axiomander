@@ -350,12 +350,13 @@ def _build_resource_premises(dc) -> tuple[list[str], list[str], list[str]]:
         # GlobalInvariant.accounting_consistency -> N_accounting_consistency
         name = p.split(".")[-1]
         preserve_invs.append(f"N_{name}")
-    # may_emit clauses -> ghost token premises
+    # may_emit clauses -> ghost token premises (pure placeholders)
     ghost_prems: list[str] = []
     emission_tokens: list[str] = []
     for emit in dc.frame.get("may_emit", []):
         topic = emit.split('"')[1] if '"' in emit else emit
-        tok = f'own γ_evtbus (◯ {{[ "{topic}"%string ]}})'
+        # Placeholder: pure premise until ghost RA is built
+        tok = f'⌜may_emit = "{topic}"%string⌝'
         ghost_prems.append(tok)
         emission_tokens.append(tok)
     return premises, post_owns, preserve_invs, ghost_prems, emission_tokens

@@ -1587,7 +1587,10 @@ class IrisProof:
         # Declare invariant namespaces from preserves declarations.
         for inv_ns in self.preserve_invs:
             parts.append(f"  Context ({inv_ns} : namespace).")
-        if self.preserve_invs:
+        # Declare ghost name for event bus tokens.
+        if self.emission_tokens:
+            parts.append("  Context (γ_evtbus : gname).")
+        if self.preserve_invs or self.emission_tokens:
             parts.append("")
         if self.supercompiled_block:
             parts.append(self.supercompiled_block)
