@@ -4,4 +4,4 @@
 	branch = rocq-9.1
 [submodule "vendor/rocq-piler"]
 	path = vendor/rocq-piler
-	url = git@github.com:scidonia/rocq-piler.git
+	url = https://github.com/scidonia/rocq-piler.git

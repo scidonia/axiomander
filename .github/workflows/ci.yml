@@ -7,6 +7,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup OCaml
         uses: ocaml/setup-ocaml@v3
@@ -21,10 +23,16 @@ jobs:
       - name: Install system deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y coq libcoq-hammer-dev cvc4 eprover libssl-dev libev-dev
+          sudo apt-get install -y coq cvc4 eprover libssl-dev libev-dev
+
+      - name: Add Rocq/Iris opam repo + install Coq deps
+        run: |
+          opam repo add coq-released https://coq.inria.fr/opam/released || true
+          opam update
+          opam install -y rocq-iris rocq-stdpp coq-hammer
 
       - name: Install Python deps
-        run: pip install pytest
+        run: pip install pytest pydantic hypothesis
 
       - name: Build Coq
         run: |
@@ -34,4 +42,4 @@ jobs:
       - name: Run tests
         run: |
           eval $(opam env)
-          PYTHONPATH=py python -m pytest py/tests/ -v
+          PYTHONPATH=. python -m pytest py/tests/ -v
