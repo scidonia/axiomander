@@ -1304,7 +1304,8 @@ def _emit_while_inv_stage_exn(wi: WhileInv, indent: str) -> list[str]:
 
 def _emit_stage_lines(nodes: list[StageNode], depth: int,
                        indent: str, post: str = "",
-                       active_ghost_vars: set[tuple[str, str]] | None = None) -> list[str]:
+                       active_ghost_vars: set[tuple[str, str]] | None = None,
+                       resource_owns: list[str] | None = None) -> list[str]:
     """Render a stage tree into proof-script lines for the exception
     backend (the sole Iris backend).
 
@@ -1322,13 +1323,22 @@ def _emit_stage_lines(nodes: list[StageNode], depth: int,
                 text += f"  (* {cid} {n.comment} *)"
             elif cid:
                 text += f"  (* {cid} *)"
+            if n.category == "finish_pure" and resource_owns:
+                # Split finish_pure: first do wp_value reduction, then
+                # spatial closure (iExists/iFrame), then pure closure.
+                lines.append(f"{indent}popvals.")
+                lines.append(f"{indent}lazymatch goal with "
+                             f"| |- envs_entails _ (wp_exn (Val _) _) "
+                             f"=> iApply wp_value | _ => idtac end.")
+                lines.append(f"{indent}simpl.")
+                for idx, loc in enumerate(resource_owns):
+                    lines.append(f"{indent}iExists (0%Z). iFrame \"Hrp{idx}\".")
             lines.append(text)
             # Track ghost vars from destruct_ghost stages
             if n.category == "destruct_ghost":
                 for gv in _parse_ghost_names(n.comment):
                     active_ghost_vars.add(gv)
-            # Emit ghost_close after finish_pure -- only for ghost vars
-            # that actually appear in the WP postcondition.
+            # Emit ghost_close after finish_pure.
             if n.category == "finish_pure" and active_ghost_vars:
                 for gv, suf in sorted(active_ghost_vars):
                     if gv in post:
@@ -1659,7 +1669,8 @@ class IrisProof:
             if self.pre:
                 parts.append("    intros Hpre.")
             parts.append("    iStartProof.")
-        parts.extend(_emit_stage_lines(self.stages, 0, "    ", self.post))
+        parts.extend(_emit_stage_lines(self.stages, 0, "    ", self.post,
+                                       resource_owns=self.resource_post_owns))
         parts.append("  Qed.")
         parts.append("End generated_proofs.")
         return "\n".join(parts) + "\n"

@@ -328,7 +328,7 @@ def _build_resource_premises(dc) -> tuple[list[str], list[str]]:
         name = own.split(":")[0].strip()
         loc = f"l_{name}"
         owned_locs[name] = loc
-        premises.append(f"{loc} ↦ LitUnit")
+        premises.append(f"{loc} ↦ LitInt 0")  # placeholder: numeric value
     # may_modify entries use the same owned-location mapping
     for mod in dc.frame.get("may_modify", []):
         # mod is like "Orders.row(order_id)" — extract the owned variable
