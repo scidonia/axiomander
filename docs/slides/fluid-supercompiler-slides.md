@@ -1,6 +1,6 @@
 ---
 theme: seriph
-title: Fluid Contracts & the Supercompiler
+title: Supercompiling Fluid Contracts
 info: |
   Axiomander's fluid contract language and the Lambda-A supercompiler.
 class: text-center
@@ -10,129 +10,165 @@ transition: slide-left
 mdc: true
 ---
 
+# Supercompiling
 # Fluid Contracts
-## and the Supercompiler
 
-How Axiomander builds a total, type-directed contract language
-and supercompiles it for free
+How Axiomander lets you write contracts in the
+same language the program is written in — and then
+supercompiles them for free
 
 <div class="pt-12">
-  <span class="px-2 py-1 rounded cursor-pointer">
+  <span class="opacity-50">
     Axiomander &bullet; June 2026
   </span>
 </div>
 
 ---
 
-# What "Fluid" Means
+# What Is a Fluid Contract?
 
 <v-clicks>
 
-The specification language **is** the program language.
+A **fluid** contract language is one where the specification logic and the
+executable core share **one term calculus** and **one denotation**.
 
 <br>
 
-**Fluid**: any pure term of the program language is also a term of the specification logic.
+**Concretely**: any pure Python expression you can write in your function body,
+you can also write in your contract.  No separate annotation DSL.  No
+impedance mismatch between "the language of programs" and "the language of
+specifications."
 
 <br>
 
-No separate annotation DSL.  No impedance mismatch.  No subset that "can be reasoned about" — the **same** expressions appear in contracts and code.
-
-</v-clicks>
-
----
-
-# Fluid in Practice
-
-<div class="grid grid-cols-2 gap-4">
-
-<div>
-
-#### Contract (Python)
 ```python
-def binary_search(xs, key):
+def process(items: list[int], limit: int) -> int:
     """axiomander:
-      requires: is_sorted(xs)
-      ensures:
-        result == any(x == key
-                      for x in xs)
+        requires: limit >= 0
+        requires: all(x > 0 for x in items)
+        ensures: result >= 0
+        ensures: implies(limit == 0, result >= 0)
     """
-    while lo <= hi:
-        mid = (lo + hi) // 2
-        if xs[mid] == key:
-            return True
-        if xs[mid] < key:
-            lo = mid + 1
-        else:
-            hi = mid - 1
-    return False
+    result = len(items)
+    return result
 ```
 
-</div>
-
-<div>
-
-#### Lowered (Coq)
-```coq
-Lemma binary_search_correct
-  (xs : sn_val) (key : Z) ... :
-  (is_sorted M_xs) = true ->
-  ⊢ WPE ... {{
-    ∃ z, v = LitBool z ∧
-    (z =? 1) = true <->
-    existsb (fun x => x =? key)
-            M_xs = true
-  }}
-```
-
-</div>
-
-</div>
-
-The Python expression `any(x == key for x in xs)` **becomes** the Coq specification — one lowering, no translation layers.
-
----
-
-# Why Not Just a Subset Language?
-
-<v-clicks>
-
-**The traditional approach**: define a restricted specification language (JML, ACSL, Dafny's subset).
-
-**Problem**: every feature you add creates a **translation gap**.  Every gap is a source of bugs.
-
-**The fluid approach**: the shared term calculus λ<sub>A</sub> is the **single source of truth**.  Both execution and verification semantics are defined over it.
-
-**Result**: the reflection map `R : λ_A → CoqTerm` is **total** and **type-preserving**.  No "this expression can't be used in a contract" rejections.
+The expressions in the contract — `limit >= 0`, `all(x > 0 for x in items)`,
+`implies(...)` — are **ordinary Python expressions**.  The same ones you'd write
+in the body.
 
 </v-clicks>
 
 ---
 
-# The Reflection Map R
+# Why Fluidity Matters
+
+<v-clicks>
+
+**The traditional way**: define a restricted specification language (JML for
+Java, ACSL for C, Dafny's annotation subset).  Every feature you add creates a
+**translation gap** between what you can express in code and what you can
+express in the spec.  Every gap is a source of bugs and surprises.
+
+**The fluid way**: the shared pure fragment λ<sub>A</sub> is the **single
+source of truth**.  Both the executable semantics and the verification
+semantics are defined over the same terms.
+
+**Result**: there is one lowering function `lower(node, ctx) → CoqTerm`.  It
+is **total** on the pure fragment.  If a Python expression is pure, it can be
+used in a contract.  Period.
+
+<br>
+
+```python
+  λ_A^tot  ──R──►  CoqTerm
+  (pure Python)    (kernel-checked)
+```
+
+The reflection map `R` is type-directed — coercions, float wrapping, string
+equality are all inferred from the type, never guessed from context.
+
+</v-clicks>
+
+---
+
+# The Reflection Map
 
 <div class="text-sm">
 
 ```
-Python expression            fluid_lowering.py              Coq Prop
-─────────────────          ──────────────────           ────────────
-  x > 0          ──R──►    (0 <? x) = true
-  len(xs) > 0    ──R──►    Z.of_nat (List.length M_xs) > 0
-  all(x > 0      ──R──►    forallb (fun v => ...) M_xs = true
+Python                     fluid_lowering                Coq
+─────────────────       ──────────────────        ────────────────
+  x > 0           ─R─►   (0 <? x) = true
+  len(xs) > 0     ─R─►   Z.of_nat (List.length M_xs) > 0
+  all(x > 0       ─R─►   forallb (fun v => ...) M_xs = true
    for x in xs)
-  "err" in msg   ──R──►    str_contains_val (LitString "err")
-                            (str_to_lower_val msg) = true
-  implies(a,b)   ──R──►    (a -> b)
+  "err" in msg    ─R─►   str_contains_val (LitString "err")
+                          (str_to_lower_val msg) = true
+  implies(a, b)   ─R─►   (a -> b)
+  is_sorted(xs)   ─R─►   is_sorted M_xs = true
 ```
 
 </div>
 
 <v-clicks>
 
-- **32 dispatch entries** — one `lower(node, ctx)` function
-- **Type-directed**: coercions (`= true`, `z2float`, `String.eqb`) driven by inferred type, not positional context
-- **Explicit environment**: `LowerCtx` carries `gamma` (typing), post-var renaming, list model mapping — no module globals
-- **Totality**: defined exactly on the judgment `Γ ⊢ t : τ ↓` — nodes outside λ<sub>A</sub> are **rejected** with a diagnostic
+- **32 dispatch entries** — one recursive `lower(node, ctx)` function, no per-node `to_coq` emitters
+- **Type-directed**: comparisons produce `= true` form, floats get `z2float`, strings use `String.eqb` — all from inferred type, not positional context
+- **Explicit context**: `LowerCtx` carries `gamma` (typing environment), post-var renaming, list model mapping — no mutable module globals
+- **Totality gate**: nodes outside λ<sub>A</sub> are **rejected with a diagnostic**, never silently mistranslated
+
+</v-clicks>
+
+---
+
+# Contracts Under the Hood
+
+<div class="grid grid-cols-2 gap-4 text-xs">
+
+<div>
+
+#### Docstring (Python)
+```python
+def transfer(balance, amount):
+    """axiomander:
+      requires: balance >= amount
+      requires: amount >= 0
+      owns account: Account.balance
+      frame:
+        may_modify Account.balance
+      ensures: result == balance - amount
+    """
+    return balance - amount
+```
+
+</div>
+
+<div>
+
+#### Generated Coq Lemma
+```coq
+Lemma transfer_correct (balance amount : Z) :
+  l_account ↦ LitInt 0 -∗          (* owns *)
+  ⌜(amount <=? balance) ∧
+   (0 <=? amount)⌝ -∗              (* requires *)
+  WPE (BinOp SubOp ...)
+    {{ (fun r => ∃ v,
+       l_account ↦ LitInt v ∗      (* may_modify *)
+       ⌜result = balance - amount⌝  (* ensures *)
+    ) }}
+```
+
+</div>
+
+</div>
+
+<v-clicks>
+
+The `owns` clause becomes an Iris heap points-to.  `may_modify` becomes an
+existential in the postcondition.  `must_not_modify` is enforced by the
+frame rule — implicitly and for free.  All clauses go through the same
+`lower()` call.
 
 </v-clicks>
 
@@ -142,22 +178,24 @@ Python expression            fluid_lowering.py              Coq Prop
 
 <v-clicks>
 
-A contract like:
+Contracts contain expressions that **don't depend on runtime values**:
 
 ```python
 ensures: len(xs[0:min(n, len(xs))]) <= n
 ```
 
-contains expressions that **don't depend on runtime values**.
+The verifier shouldn't need to prove that `min(5, len([1,2,3]))` equals `3` at
+proof time — that's just arithmetic.
 
-The verifier doesn't need to reason about `min(5, len([1,2,3]))` at proof time — that's **3**.  The slice `xs[0:3]` has **constant length**.
+**Partial evaluation** reduces contract expressions BEFORE they reach the
+prover:
 
-**Partial evaluation** reduces contract expressions BEFORE they reach the prover:
 - `1 + 2` → `3`
 - `len([1, 2, 3])` → `3`
 - `"a" in "abc"` → `true`
 
-This eliminates proof obligations the SMT solver would otherwise need to discharge.
+This eliminates proof obligations that the SMT solver or finish_pure would
+otherwise need to discharge — sometimes hundreds of them per contract.
 
 </v-clicks>
 
@@ -171,10 +209,10 @@ This eliminates proof obligations the SMT solver would otherwise need to dischar
 
 #### Partial Evaluation
 
-- **One pass**: reduces known terms
+- **One pass** over the expression tree
+- Reduces only fully-known sub-terms
 - Stops at variable boundaries
 - `(1 + 2) * x` → `3 * x`
-- Local, simple, terminates
 
 </div>
 
@@ -183,9 +221,9 @@ This eliminates proof obligations the SMT solver would otherwise need to dischar
 #### Supercompilation
 
 - **Multi-pass**: drives reduction, splits cases, generalises
-- Can unfold recursive calls on concrete data
-- `isSorted([1, 2, 3])` → `true`
-- Global, compositional, terminates via homeomorphic embedding
+- Can **unfold recursive calls** on concrete inputs
+- `is_sorted([1, 2, 3])` → `true`
+- Terminates via **homeomorphic embedding**
 
 </div>
 
@@ -193,7 +231,10 @@ This eliminates proof obligations the SMT solver would otherwise need to dischar
 
 <v-clicks>
 
-**The supercompiler gives us more.**  It doesn't just simplify constants — it can **evaluate recursive predicates on literal inputs**, unfold function calls, and split on data constructors.  The homeomorphic embedding (the "whistle") guarantees termination even when the expression grows.
+The supercompiler gives you strictly more.  It doesn't just constant-fold — it
+can evaluate recursive predicates on literal arguments, inline function calls,
+and split on data constructors.  The homeomorphic embedding (the "whistle")
+guarantees termination even when the expression grows.
 
 </v-clicks>
 
@@ -202,7 +243,6 @@ This eliminates proof obligations the SMT solver would otherwise need to dischar
 # The Supercompiler in Coq
 
 ```coq
-(* The supercompiler: drive + whistle + generalize *)
 Definition supercompile (F : fn_table) (fuel : nat)
     (history : list p_expr) (t : p_expr) : p_expr := ...
 ```
@@ -211,110 +251,100 @@ Definition supercompile (F : fn_table) (fuel : nat)
 
 **Three components**:
 
-1. **Drive** (`drive_step`): one-step symbolic reduction — evaluates `1+2`, unfolds calls, substitutes bindings
-2. **Whistle** (`he`): homeomorphic embedding — detects when a term is "similar to" a previously seen term, triggers generalisation
-3. **Generalise**: when the whistle blows, abstract the common sub-expression into a let-binding (a recursive function)
+1. **Drive** (`drive_step`): one-step symbolic reduction — evaluates
+   `1 + 2`, unfolds function calls, substitutes bindings
+2. **Whistle** (`he`): homeomorphic embedding — detects when a term is
+   embedded in a previously-seen term, triggering generalisation
+3. **Generalise**: when the whistle blows, abstract the common sub-expression
+   into a let-binding (a recursive function) and continue
 
-**Fuel parameter**: bounds the number of driving steps before the whistle fires.
-
-</v-clicks>
-
----
-
-# Supercompilation Example
-
-<div class="grid grid-cols-2 gap-4 text-xs">
-
-<div>
-
-**Input** (λ<sub>A</sub> p_expr):
-```
-PCall "is_sorted"
-  [PLitList [PLitInt 1; PLitInt 2; PLitInt 3]]
-```
-
-**With is_sorted defined as**:
-```
-Fixpoint is_sorted (xs : list Z) : bool :=
-  match xs with
-  | [] => true
-  | [x] => true
-  | x :: y :: rest =>
-      (x <=? y) && is_sorted (y :: rest)
-  end.
-```
-
-</div>
-
-<div>
-
-**Drive step 1**: unfold `is_sorted([1,2,3])`
-→ `(1 <=? 2) && is_sorted([2,3])`
-
-**Drive step 2**: evaluate `1 <=? 2`
-→ `true && is_sorted([2,3])`
-
-**Drive step 3**: simplify `true && ...`
-→ `is_sorted([2,3])`
-
-**Continue driving**...
-→ `(2 <=? 3) && is_sorted([3])`
-→ `true && true`
-→ `true`
-
-**Result**: `true` — constant!
-
-</div>
-
-</div>
-
----
-
-# Supercompilation: Homeomorphic Embedding
-
-<v-clicks>
-
-The **whistle** detects when the current term is "embedded in" a previously seen term:
-
-```
-he (PVar "x") (PBinOp AddOp (PVar "x") (PVal (PLitInt 1)))
-                           ↑
-                    "x" appears inside the larger term
-```
-
-When the whistle blows, the supercompiler **generalises**: it replaces the common sub-expression with a let-binding (a new recursive function) and continues.
-
-This prevents infinite unfolding of recursive functions — the same mechanism that Turchin's original supercompiler used.
+A **fuel** parameter bounds the number of driving steps.
 
 </v-clicks>
 
 ---
 
-# Correctness: The Logical Relation
+# Supercompilation Walkthrough
+
+<div class="text-xs">
+
+Input: `is_sorted([1, 2, 3])` with `is_sorted` defined as a recursive Fixpoint.
+
+| Step | Expression | Action |
+|------|-----------|--------|
+| 1 | `is_sorted([1, 2, 3])` | Unfold call |
+| 2 | `(1 <=? 2) && is_sorted([2, 3])` | Evaluate `1 <=? 2` |
+| 3 | `true && is_sorted([2, 3])` | Simplify `&&` |
+| 4 | `is_sorted([2, 3])` | Unfold call |
+| 5 | `(2 <=? 3) && is_sorted([3])` | Evaluate `2 <=? 3` |
+| 6 | `true && is_sorted([3])` | Simplify `&&` |
+| 7 | `is_sorted([3])` | Unfold — singleton |
+| 8 | `true` | **Constant result** |
+
+</div>
 
 <v-clicks>
 
-The supercompiler was proved correct in Coq (`SupercompilerLogRel.v`) using a **step-indexed logical relation**:
+When the result is a constant boolean, the contract is **replaced** — the
+proof obligation becomes `⌜True⌝`, discharged trivially.
+
+When only sub-expressions simplify (e.g. `1 + 2` → `3` but `x` remains),
+the simplified form is emitted as a Coq definition alongside the original.
+
+</v-clicks>
+
+---
+
+# Homeomorphic Embedding
+
+<v-clicks>
+
+The **whistle** detects when the current expression is "embedded in" a
+previously seen expression in the history:
 
 ```
-Lemma supercompile_correct F fuel hist t t' :
-  supercompile F fuel hist t = Some t' ->
-  ∀ (ρ : env), ℰ〚t'〛 ρ → ℰ〚t〛 ρ
+he x (x + 1)          = true    ("x" appears inside "x + 1")
+he (x + y) (x * y + z) = false  (different structure)
 ```
 
-The logical relation `ℰ〚t〛` is defined by induction on the type of `t`:
+When the whistle blows, the supercompiler **generalises**: it replaces the
+common sub-structure with a let-binding (a new recursive function) and
+continues.  This prevents infinite unfolding.
 
-- **Base types** (Z, bool, string): equality of values
+The same mechanism that Turchin's original supercompiler used — applied here
+to λ<sub>A</sub>, the pure fragment of Python.
+
+</v-clicks>
+
+---
+
+# Correctness: Step-Indexed Logical Relation
+
+<v-clicks>
+
+The supercompiler was proved correct in Coq (`SupercompilerLogRel.v`) using a
+**step-indexed logical relation**:
+
+```
+ℰ〚t₁〛ρ ≈ ℰ〚t₂〛ρ   iff   ∀j ≤ k.  ℰⱼ〚t₁〛ρ ⊆ ℰⱼ〚t₂〛ρ
+```
+
+The relation is defined by recursion on the type of `t`:
+
+- **Base types** (Z, bool, string): equality of computed values
 - **Function types**: related inputs produce related outputs
-- **Step-index**: the `▷` modality bounds the depth of recursive unfolding
+- **Step-index**: the `▷` modality bounds recursive unfolding depth
 
-The proof is **mechanised in Coq** — the kernel checks every case.
+**The theorem**: `supercompile` preserves the logical relation — the
+supercompiled program is equivalent to the original.
+
+The proof is **mechanised in Coq** — every case is checked by the kernel.
 
 </v-clicks>
 
 ---
 
-# Integration: The Pipeline
+# Pipeline Integration
 
 ```mermaid
 graph LR
@@ -332,9 +362,9 @@ graph LR
 <v-clicks>
 
 - **Flag-gated**: `supercompile_contracts=True` in `python_to_iris_proof`
-- **Constant detection**: if the result is a literal boolean, **replaces** the contract
-- **Partial simplification**: otherwise emits supercompiled definitions alongside originals
-- **37 tests pass**, integrated with the fluid lowerer
+- **Constant replacement**: if the result is a literal boolean, **replaces** the contract with `True`/`False`
+- **Partial simplification**: otherwise emits supercompiled definitions alongside the originals
+- **37 tests pass**, integrated with the fluid lowerer and resource layer
 
 </v-clicks>
 
@@ -342,23 +372,20 @@ graph LR
 
 # What the Supercompiler Simplifies
 
-<div class="text-sm">
-
 | Expression | Before | After |
 |---|---|---|
 | `1 + 2 <= x` | `(1 + 2 <=? x) = true` | `(3 <=? x) = true` |
 | `len([1,2,3]) > 0` | `Z.of_nat (List.length ...) > 0` | `true` |
 | `"a" in "abc"` | `str_contains_val ... = true` | `true` |
-| `(2 * 3) + (4 * 5)` | `(2*3 +? 4*5) = true` | `26` |
 | `true and (x > 0)` | `true /\ (0 <? x) = true` | `(0 <? x) = true` |
-
-</div>
+| `is_sorted([1,2,3])` | `is_sorted [PLitInt 1; ...] = true` | `true` |
 
 <v-clicks>
 
-When the **entire contract expression** reduces to a literal boolean (`true`/`false`), the supercompiler **replaces the contract** — the proof is trivial (`⌜True⌝` or `⌜False⌝`).
+When the **entire** expression reduces to a constant, the contract is replaced.
 
-When only **sub-expressions** simplify, the simplified form is emitted as a Coq definition alongside the original.
+When only **sub-expressions** simplify, the simplified form is emitted as a
+Coq definition alongside the original — the prover can use either.
 
 </v-clicks>
 
@@ -367,71 +394,80 @@ When only **sub-expressions** simplify, the simplified form is emitted as a Coq 
 # The Complete Stack
 
 ```coq
-(* 1. Supercompiled contract definitions *)
+(* 1. Supercompiled definition *)
 Definition _super_pre_body : p_expr :=
   PBinOp PLeOp (PVal (PLitInt 3)) (PVar "x").
 
 Definition _super_pre_prop (x : Z) : Prop :=
   (3 <=? x) = true.
 
-(* 2. Lemma with spatial resource premises *)
+(* 2. Full Lemma with spatial resources *)
 Lemma process_correct (order_id : Z) :
-  l_queue_item ↦ LitInt 0 -∗
-  l_order_row ↦ LitInt 0 -∗
-  ⌜(3 <=? order_id) = true⌝ -∗          (* supercompiled *)
-  WPE ... {{ ∃ v, l_queue_item ↦ LitInt v ∗ ⌜result ≥ 0⌝ }}.
+  l_queue_item ↦ LitInt 0 -∗         (* owns *)
+  l_order_row ↦ LitInt 0 -∗          (* owns *)
+  ⌜(3 <=? order_id) = true⌝ -∗       (* supercompiled requires *)
+  WPE (Call ... [Val (LitInt order_id)])
+    {{ ∃ v1 v2,
+       l_queue_item ↦ LitInt v1 ∗    (* may_modify *)
+       l_order_row ↦ LitInt v2 ∗     (* may_modify *)
+       ⌜result ≥ 0⌝ }}.              (* ensures *)
 ```
 
 <v-clicks>
 
-<div class="text-sm mt-4">
+The supercompiler transformed `1 + 2 ≤ order_id` → `3 ≤ order_id`.  The fluid
+lowerer produced `(3 <=? order_id) = true`.  The resource layer added spatial
+premises and postcondition existentials.  One pipeline, one Lemma, no gaps.
 
-1. **Supercompiler** simplifies `1+2 ≤ order_id` → `3 ≤ order_id`
-2. **Fluid lowerer** compiles to `(3 <=? order_id) = true`
-3. **Resource layer** adds spatial premises (`l ↦ v`)
-4. **Iris prover** generates the WP proof
+</v-clicks>
+
+---
+
+# All Proofs Generated by AI
+
+<div class="pt-8">
+
+<v-clicks>
+
+**Every single Coq proof in this system was generated by an LLM-based oracle.**
+
+- The fluid lowerer's adequacy proofs (11 translation-validation tests)
+- The supercompiler correctness (step-indexed logical relation)
+- The `fold_to_forallb`, `fold_to_existsb`, `fold_to_countb` lemmas
+- The `tail_length`, `dropn`, `forallb_to_Forall` structural lemmas
+- The 400 Iris WP proofs in the test suite
+- The resource-layer proofs (`owns`, `may_modify`, postcondition existentials)
+
+**Zero hand-written Coq proofs.**  The oracle proposes, `coqc` disposes.
+
+The oracle is not trusted — every proof is **kernel-checked**.  If the AI
+hallucinates an invalid proof, Coq rejects it and the oracle retries.
+
+</v-clicks>
 
 </div>
 
-</v-clicks>
-
 ---
 
-# All Proofs Were Done by an AI
+# Summary
 
 <v-clicks>
 
-**Every single Coq proof in this system was generated by AI.**
+1. **Fluid contracts** — the contract language is the program language.  One
+   term calculus λ<sub>A</sub>, one lowering `R`, one denotation.  No translation gap.
 
-- The fluid lowerer's adequacy proofs: AI-generated
-- The supercompiler correctness (logical relation): AI-generated
-- The fold-to-forallb/existsb/countb lemmas: AI-generated
-- The `tail_length`, `dropn` structural lemmas: AI-generated
-- The 400 Iris WP proofs in the test suite: AI-generated
+2. **Supercompilation** — drives, splits, generalises.  Evaluates recursive
+   predicates on literal inputs.  Terminates via homeomorphic embedding.
 
-**Zero hand-written Coq proofs.**  The entire Coq formalisation — from the λ<sub>A</sub> calculus to the Iris WP soundness — was synthesised by an LLM-based oracle and kernel-checked by `coqc`.
+3. **Proved correct** in Coq via a step-indexed logical relation.
 
-This is Axiomander's level-3 oracle: **the AI writes the proof, Coq checks it.**
+4. **Integrated** into the Axiomander pipeline behind a flag.  37 tests, no
+   regressions.
 
-</v-clicks>
+5. **AI-built** — all proofs were generated by an LLM oracle and
+   kernel-checked by `coqc`.  Zero hand-written Coq.
 
----
-
-# Key Takeaways
-
-<v-clicks>
-
-1. **Fluid** = the contract language IS the program language.  No translation gap.
-
-2. **Reflection** `R : λ_A → CoqTerm` is total, type-directed, and carries the totality judgment `Γ ⊢ t : τ ↓`.
-
-3. **Supercompilation > partial evaluation**: recursive predicates, function unfolding, case splitting — all terminate via homeomorphic embedding.
-
-4. **Proved correct** in Coq: the supercompiler preserves semantics via a step-indexed logical relation.
-
-5. **AI-built**: all proofs — the WP soundness, the logical relation, the fold lemmas — were generated by AI and kernel-checked.
-
-6. **Production**: 400 tests pass, fluid is default, supercompiler is wired and tested.
+6. **Production** — 400 tests pass, fluid is default, supercompiler is wired.
 
 </v-clicks>
 
@@ -442,11 +478,5 @@ This is Axiomander's level-3 oracle: **the AI writes the proof, Coq checks it.**
 <div class="pt-12">
 
 [github.com/scidonia/axiomander](https://github.com/scidonia/axiomander)
-
-</div>
-
-<div class="text-sm opacity-50 mt-8">
-
-Generated with [Slidev](https://sli.dev/) • All proofs by AI
 
 </div>
