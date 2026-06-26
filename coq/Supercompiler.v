@@ -88,7 +88,7 @@ Definition drive_step (F : fn_table) (c : ctx) (t : p_expr) : option p_expr :=
       Some (PVal (PLitList (v1 :: vs)))
   | PListCons _ _ => None
   | PCall f args =>
-      if existsb (fun a => match a with PCall _ _ | PIf _ _ _ | PLet _ _ _ => true | _ => false end) args then
+      if existsb (fun a => negb (is_value_or_var a)) args then
         None
       else
       match assoc String.eqb F f with
