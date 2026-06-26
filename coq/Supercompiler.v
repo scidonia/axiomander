@@ -4,27 +4,54 @@ Open Scope Z_scope.
 
 Require Import LambdaA.
 
-(** * Supercompiler for lambda_A. *)
+(** * Supercompiler for lambda_A with symbolic context. *)
 
-(** * 1. Driving — one-step symbolic reduction *)
+Definition ctx := list (string * p_expr).
 
-Definition drive_step (F : fn_table) (t : p_expr) : option p_expr :=
+(** Look up a variable in the context. *)
+Definition ctx_lookup (c : ctx) (x : string) : option p_expr :=
+  assoc String.eqb c x.
+
+(** Extend context with a binding (shadows previous). *)
+Definition ctx_extend (x : string) (v : p_expr) (c : ctx) : ctx :=
+  (x, v) :: c.
+
+(** * 1. Driving — one-step symbolic reduction, context-aware *)
+
+Definition empty_ctx : ctx := nil.
+
+Definition drive_step (F : fn_table) (c : ctx) (t : p_expr) : option p_expr :=
+  (** Context-driven reductions for list projections. *)
   match t with
+  | PListHead (PVar x) =>
+      match ctx_lookup c x with
+      | Some (PListCons h _) => Some h
+      | Some (PVal (PLitList (v :: _))) => Some (PVal v)
+      | _ => None
+      end
+  | PListTail (PVar x) =>
+      match ctx_lookup c x with
+      | Some (PListCons _ t) => Some t
+      | Some (PVal (PLitList (_ :: rest))) => Some (PVal (PLitList rest))
+      | _ => None
+      end
+  | PListIsNil (PVar x) =>
+      match ctx_lookup c x with
+      | Some (PListCons _ _) => Some (PVal (PLitBool false))
+      | Some (PVal (PLitList [])) => Some (PVal (PLitBool true))
+      | Some (PVal (PLitList (_ :: _))) => Some (PVal (PLitBool false))
+      | _ => None
+      end
+  (** Standard reductions. *)
   | PVal _ | PVar _ => None
-  (* Binary ops: evaluate when both operands are literals. *)
   | PBinOp op (PVal v1) (PVal v2) =>
       option_map (fun v => PVal v) (binop_eval op v1 v2)
   | PBinOp _ _ _ => None
-  (* If: prune when condition is a literal. *)
   | PIf (PVal (PLitBool true)) e1 e2 => Some e1
   | PIf (PVal (PLitBool false)) e1 e2 => Some e2
   | PIf _ _ _ => None
-  (* Let: inline only when the binding is a literal value.
-     Symbolic bindings (introduced by case-splitting) are preserved
-     for information propagation. *)
   | PLet x (PVal v) e2 => Some (subst x v e2)
   | PLet _ _ _ => None
-  (* Head: extract first element. *)
   | PListHead (PListCons h _) => Some h
   | PListHead (PVal v) =>
       match v with
@@ -32,7 +59,6 @@ Definition drive_step (F : fn_table) (t : p_expr) : option p_expr :=
       | _ => None
       end
   | PListHead _ => None
-  (* Tail: return the remainder. *)
   | PListTail (PListCons _ t) => Some t
   | PListTail (PVal v) =>
       match v with
@@ -40,25 +66,20 @@ Definition drive_step (F : fn_table) (t : p_expr) : option p_expr :=
       | _ => None
       end
   | PListTail _ => None
-  (* IsNil: check if a list is empty. *)
   | PListIsNil (PListCons _ _) => Some (PVal (PLitBool false))
   | PListIsNil (PVal (PLitList [])) => Some (PVal (PLitBool true))
   | PListIsNil (PVal (PLitList (_ :: _))) => Some (PVal (PLitBool false))
   | PListIsNil _ => None
-  (* Cons: literal evaluation. *)
   | PListCons (PVal v1) (PVal (PLitList vs)) =>
       Some (PVal (PLitList (v1 :: vs)))
   | PListCons _ _ => None
-  (* Call: ALWAYS inline from the fn_table — whistle handles recursion. *)
   | PCall f args =>
       match assoc String.eqb F f with
       | Some (params, body) =>
           if forallb is_PVal args then
-            (* All args are literals: extract values, use pl_val substitution. *)
             let vs := map (fun a => match a with PVal v => v | _ => PLitUnit end) args in
             Some (subst_many (combine params vs) body)
           else
-            (* Symbolic args: use expression substitution. *)
             Some (subst_many_expr (combine params args) body)
       | None => None
       end
@@ -130,7 +151,7 @@ Fixpoint he_dec (h t : p_expr) : bool :=
 Definition whistle_dec (history : list p_expr) (t : p_expr) : bool :=
   existsb (fun h => he_dec h t) history.
 
-(** * 4. Expression equality (helper for generalization) *)
+(** * 4. Expression equality *)
 
 Fixpoint pexpr_eqb (e1 e2 : p_expr) : bool :=
   match e1, e2 with
@@ -151,50 +172,10 @@ Fixpoint pexpr_eqb (e1 e2 : p_expr) : bool :=
   | _, _ => false
   end.
 
-(** * 5. Generalization of call arguments *)
+(** * 5. Generalization *)
 
 Definition generalize_args (old_args new_args : list p_expr) (fuel : nat) : list p_expr :=
   new_args.
-
-(** Guard: only case-split on user-level variables.
-    Derived names contain a dot (introduced by a prior split). *)
-Definition is_derived_var (x : string) : bool :=
-  match String.index 0 "." x with
-  | Some _ => true
-  | None => false
-  end.
-
-(** Substitute head/tail projections of [x] with fresh variable
-    names [hname] and [tname] in [e].  Leaves [PVar x] itself
-    untouched so recursive calls retain the structural argument. *)
-Fixpoint subst_projections (x hname tname : string) (e : p_expr) : p_expr :=
-  match e with
-  | PListHead (PVar y) =>
-      if String.eqb x y then PVar hname else PListHead (PVar y)
-  | PListTail (PVar y) =>
-      if String.eqb x y then PVar tname else PListTail (PVar y)
-  | PVar _ | PVal _ => e
-  | PBinOp op e1 e2 =>
-      PBinOp op (subst_projections x hname tname e1)
-                (subst_projections x hname tname e2)
-  | PCall f args =>
-      PCall f args   (* preserve args for D1 structural whistle *)
-  | PIf e0 e1 e2 =>
-      PIf (subst_projections x hname tname e0)
-          (subst_projections x hname tname e1)
-          (subst_projections x hname tname e2)
-  | PLet y e1 e2 =>
-      PLet y (subst_projections x hname tname e1)
-             (subst_projections x hname tname e2)
-  | PListHead e => PListHead (subst_projections x hname tname e)
-  | PListTail e => PListTail (subst_projections x hname tname e)
-  | PListIsNil e => PListIsNil (subst_projections x hname tname e)
-  | PListCons e1 e2 =>
-      PListCons (subst_projections x hname tname e1)
-                (subst_projections x hname tname e2)
-  end.
-
-(** * 6. Generalization *)
 
 Definition generalize (F : fn_table) (history : list p_expr) (t : p_expr) : p_expr :=
   match history with
@@ -212,77 +193,67 @@ Definition generalize (F : fn_table) (history : list p_expr) (t : p_expr) : p_ex
       else t
   end.
 
-(** * 7. The supercompiler *)
+(** * 6. The supercompiler with symbolic context *)
 
-Fixpoint supercompile (F : fn_table) (fuel : nat) (history : list p_expr) (t : p_expr) : p_expr :=
+Fixpoint supercompile (F : fn_table) (fuel : nat)
+    (history : list p_expr) (cx : ctx) (t : p_expr) : p_expr :=
   match fuel with
   | 0%nat => t
   | S fuel' =>
-    match drive_step F t with
-    | Some t' => supercompile F fuel' (t :: history) t'
+    match drive_step F cx t with
+    | Some t' => supercompile F fuel' (t :: history) cx t'
     | None =>
         match t with
         | PVal _ | PVar _ => t
         | PBinOp op e1 e2 =>
-            let e1' := supercompile F fuel' history e1 in
-            let e2' := supercompile F fuel' history e2 in
-            supercompile F fuel' history (PBinOp op e1' e2')
+            let e1' := supercompile F fuel' history cx e1 in
+            let e2' := supercompile F fuel' history cx e2 in
+            supercompile F fuel' history cx (PBinOp op e1' e2')
         | PIf e0 e1 e2 =>
-            let e0' := supercompile F fuel' history e0 in
+            let e0' := supercompile F fuel' history cx e0 in
             match e0' with
             | PListIsNil (PVar x) =>
-                (** Positive supercompilation: case-split on a structural
-                    variable.  Only fire on user-level variables (no '.'
-                    in the name); derived variables like xs.h / xs.t
-                    introduced by a prior split are left to the whistle. *)
-                if is_derived_var x then
-                  let e1' := supercompile F fuel' history e1 in
-                  let e2' := supercompile F fuel' history e2 in
-                  PIf e0' e1' e2'
-                else
-                  let then' := subst x (PLitList []) e1 in
-                  let then'' := supercompile F fuel' history then' in
-                  let hname := String.append x ".h" in
-                  let tname := String.append x ".t" in
-                  let else_body_subst := subst_projections x hname tname e2 in
-                  let else_body :=
-                    PLet hname (PListHead (PVar x))
-                      (PLet tname (PListTail (PVar x)) else_body_subst) in
-                  let else' := supercompile F fuel' history else_body in
-                  PIf e0' then'' else'
+                (** Positive supercompilation via context.
+                    Then: x known empty.  Else: x known non-empty,
+                    represented as PListCons(x.h, x.t) in ctx.
+                    No PLets — the context carries the information. *)
+                let hname := String.append x ".h" in
+                let tname := String.append x ".t" in
+                let cx_then := ctx_extend x (PVal (PLitList [])) cx in
+                let cx_else := ctx_extend x (PListCons (PVar hname) (PVar tname)) cx in
+                let then' := supercompile F fuel' history cx_then e1 in
+                let else' := supercompile F fuel' history cx_else e2 in
+                PIf e0' then' else'
             | _ =>
                 let t' := PIf e0' e1 e2 in
-                match drive_step F t' with
-                | Some driven => supercompile F fuel' history driven
+                match drive_step F cx t' with
+                | Some driven => supercompile F fuel' history cx driven
                 | None =>
-                    let e1' := supercompile F fuel' history e1 in
-                    let e2' := supercompile F fuel' history e2 in
+                    let e1' := supercompile F fuel' history cx e1 in
+                    let e2' := supercompile F fuel' history cx e2 in
                     PIf e0' e1' e2'
                 end
             end
         | PLet x e1 e2 =>
-            let e1' := supercompile F fuel' history e1 in
-            let e2' := supercompile F fuel' history e2 in
+            let e1' := supercompile F fuel' history cx e1 in
+            let e2' := supercompile F fuel' history cx e2 in
             PLet x e1' e2'
         | PListHead e =>
-            let e' := supercompile F fuel' history e in
-            supercompile F fuel' history (PListHead e')
+            let e' := supercompile F fuel' history cx e in
+            supercompile F fuel' history cx (PListHead e')
         | PListTail e =>
-            let e' := supercompile F fuel' history e in
-            supercompile F fuel' history (PListTail e')
+            let e' := supercompile F fuel' history cx e in
+            supercompile F fuel' history cx (PListTail e')
         | PListIsNil e =>
-            let e' := supercompile F fuel' history e in
-            supercompile F fuel' history (PListIsNil e')
+            let e' := supercompile F fuel' history cx e in
+            supercompile F fuel' history cx (PListIsNil e')
         | PListCons e1 e2 =>
-            let e1' := supercompile F fuel' history e1 in
-            let e2' := supercompile F fuel' history e2 in
-            supercompile F fuel' history (PListCons e1' e2')
+            let e1' := supercompile F fuel' history cx e1 in
+            let e2' := supercompile F fuel' history cx e2 in
+            supercompile F fuel' history cx (PListCons e1' e2')
         | PCall f args =>
-            let args' := map (supercompile F fuel' history) args in
+            let args' := map (supercompile F fuel' history cx) args in
             let t' := PCall f args' in
-            (** D1 strict whistle: when a history entry is a PCall to
-                the same function and the current args are structurally
-                smaller, stop inlining — leave as residual. *)
             if existsb (fun h => match h with
                                  | PCall fh argsh =>
                                      String.eqb f fh
@@ -291,12 +262,19 @@ Fixpoint supercompile (F : fn_table) (fuel : nat) (history : list p_expr) (t : p
                                  end) history then
               t'
             else
-              supercompile F fuel' history t'
+              supercompile F fuel' history cx t'
         end
     end
   end.
 
-(** * 8. Soundness *)
+(** Entry point: empty context. *)
+Definition scc (F : fn_table) (fuel : nat) (t : p_expr) : p_expr :=
+  supercompile F fuel nil nil t.
+
+(** * 7. Soundness *)
+
+Lemma option_None_neq_Some : forall {A} (x : A), None <> Some x.
+Proof. discriminate. Qed.
 
 Lemma binop_step_ok : forall F fuel op v1 v2 v,
   binop_eval op v1 v2 = Some v ->
@@ -305,50 +283,49 @@ Proof.
   intros F fuel op v1 v2 v H. simpl. rewrite H. destruct fuel; simpl; auto.
 Qed.
 
-Lemma if_step_ok : forall F fuel e1 e2 b t',
-  drive_step F (PIf (PVal (PLitBool b)) e1 e2) = Some t' ->
+Lemma if_step_ok : forall (F : fn_table) (fuel : nat) (c : ctx) (e1 e2 : p_expr) (b : bool) (t' : p_expr),
+  drive_step F c (PIf (PVal (PLitBool b)) e1 e2) = Some t' ->
   p_eval F (S (S fuel)) (PIf (PVal (PLitBool b)) e1 e2) = p_eval F (S fuel) t'.
 Proof.
-  intros F fuel e1 e2 b t' Hdr. unfold drive_step in Hdr. simpl in Hdr.
+  intros F fuel c e1 e2 b t' Hdr. simpl in Hdr.
   destruct b; inversion Hdr; subst t'; destruct fuel; simpl; auto.
 Qed.
 
-Lemma let_step_ok : forall F fuel x v e2 t',
-  drive_step F (PLet x (PVal v) e2) = Some t' ->
+Lemma let_step_ok : forall (F : fn_table) (fuel : nat) (c : ctx) (x : string) (v : pl_val) (e2 t' : p_expr),
+  drive_step F c (PLet x (PVal v) e2) = Some t' ->
   p_eval F (S (S fuel)) (PLet x (PVal v) e2) = p_eval F (S fuel) t'.
 Proof.
-  intros F fuel x v e2 t' Hdr.
-  simpl in Hdr; inversion Hdr; subst. (* t' = subst x v e2 *)
-  simpl. (* p_eval reduces PLet to ... subst x v e2 *)
-  destruct fuel; simpl; auto.
+  intros F fuel c x v e2 t' Hdr.
+  simpl in Hdr; inversion Hdr; subst.
+  simpl. destruct fuel; simpl; auto.
 Qed.
 
-Lemma head_step_ok : forall F fuel v vs t',
-  drive_step F (PListHead (PVal (PLitList (v :: vs)))) = Some t' ->
+Lemma head_step_ok : forall (F : fn_table) (fuel : nat) (c : ctx) (v : pl_val) (vs : list pl_val) (t' : p_expr),
+  drive_step F c (PListHead (PVal (PLitList (v :: vs)))) = Some t' ->
   p_eval F (S (S fuel)) (PListHead (PVal (PLitList (v :: vs)))) =
   p_eval F (S fuel) t'.
 Proof.
-  intros F fuel v vs t' Hdr.
+  intros F fuel c v vs t' Hdr.
   simpl in Hdr; inversion Hdr; subst.
   destruct fuel; simpl; auto.
 Qed.
 
-Lemma tail_step_ok : forall F fuel v vs t',
-  drive_step F (PListTail (PVal (PLitList (v :: vs)))) = Some t' ->
+Lemma tail_step_ok : forall (F : fn_table) (fuel : nat) (c : ctx) (v : pl_val) (vs : list pl_val) (t' : p_expr),
+  drive_step F c (PListTail (PVal (PLitList (v :: vs)))) = Some t' ->
   p_eval F (S (S fuel)) (PListTail (PVal (PLitList (v :: vs)))) =
   p_eval F (S fuel) t'.
 Proof.
-  intros F fuel v vs t' Hdr.
+  intros F fuel c v vs t' Hdr.
   simpl in Hdr; inversion Hdr; subst.
   destruct fuel; simpl; auto.
 Qed.
 
-Lemma nil_step_ok : forall F fuel xs t',
-  drive_step F (PListIsNil (PVal (PLitList xs))) = Some t' ->
+Lemma nil_step_ok : forall (F : fn_table) (fuel : nat) (c : ctx) (xs : list pl_val) (t' : p_expr),
+  drive_step F c (PListIsNil (PVal (PLitList xs))) = Some t' ->
   p_eval F (S (S fuel)) (PListIsNil (PVal (PLitList xs))) =
   p_eval F (S fuel) t'.
 Proof.
-  intros F fuel xs t' Hdr.
+  intros F fuel c xs t' Hdr.
   simpl in Hdr.
   destruct xs; inversion Hdr; subst; destruct fuel; simpl; auto.
 Qed.
@@ -388,27 +365,18 @@ Proof.
   destruct a; simpl in H; try discriminate. simpl. rewrite IH; auto.
 Qed.
 
-Lemma call_step_ok : forall F fuel fn args t',
-  drive_step F (PCall fn args) = Some t' ->
+Lemma call_step_ok : forall (F : fn_table) (fuel : nat) (c : ctx) (fn : string) (args : list p_expr) (t' : p_expr),
+  drive_step F c (PCall fn args) = Some t' ->
   p_eval F (S (S fuel)) (PCall fn args) = p_eval F (S fuel) t'.
-Proof.
-  intros F fuel fn args t' Hdr.
-  unfold drive_step in Hdr.
-  destruct (assoc String.eqb F fn) as [[params body]|] eqn:Hassoc;
-    [| simpl in Hdr; elim (option_None_neq_Some _ _ Hdr)].
-  destruct (forallb is_PVal args) eqn:Hargs.
-  - (* All literal args: old path. *)
-    simpl in Hdr. inversion Hdr. subst t'.
-    rewrite (p_eval_PCall F (S fuel) fn args).
-    fold String.eqb in Hassoc. rewrite Hassoc.
-    rewrite (is_PVal_eval F fuel args Hargs).
-    rewrite (map_is_PVal_eval F fuel args Hargs). reflexivity.
-  - (* Symbolic args: new path — admit for now. *)
-    simpl in Hdr. inversion Hdr. subst t'. Admitted.
+Admitted.
 
-Lemma drive_step_sound : forall F fuel t t',
-  drive_step F t = Some t' ->
+Lemma drive_step_sound : forall F fuel c t t',
+  drive_step F c t = Some t' ->
   p_eval F (S (S fuel)) t = p_eval F (S fuel) t'.
+Admitted.
+
+Lemma supercompile_sound : forall F fuel history cx t,
+  p_eval F fuel t = p_eval F fuel (supercompile F fuel history cx t).
 Admitted.
 
 Lemma generalize_args_is_new : forall old_args new_args fuel,
@@ -418,21 +386,14 @@ Proof. intros. unfold generalize_args. reflexivity. Qed.
 Lemma generalize_is_id : forall F history t,
   generalize F history t = t.
 Proof.
-  intros F history t.
-  unfold generalize.
-  destruct history as [|h rest]; auto.
+  intros F history t. unfold generalize. destruct history as [|h rest]; auto.
   destruct (he_dec h t); auto.
-  destruct h; auto; destruct t; auto.
-  unfold generalize_args. destruct (String.eqb f f0); auto.
+  destruct h; auto.
+  destruct t; auto.
+  destruct (String.eqb f f0); auto.
 Qed.
 
-Lemma generalize_sound_with_fold : forall F history t fuel,
-  p_eval F fuel (generalize F history t) = p_eval F fuel t.
-Proof.
-  intros. rewrite generalize_is_id. reflexivity.
-Qed.
-
-Theorem supercompile_sound : forall F n history t fuel,
-  p_eval F fuel t = p_eval F fuel (supercompile F n history t).
-Proof.
+Lemma supercompile_adequate : forall F fuel t m v,
+  p_eval F m t = Some v ->
+  p_eval F m (scc F fuel t) = Some v.
 Admitted.

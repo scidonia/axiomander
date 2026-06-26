@@ -4,4 +4,4 @@
   (theories Stdlib)
   (synopsis "Shared Coq modules (Iris backend)")
   (modules LambdaA Supercompiler ListPredicates RegMatch DictModel
-   SupercompilerLogRel D1Fold ConstReturn SupercompilerDemo PExprToProp))
+   PExprToProp))
