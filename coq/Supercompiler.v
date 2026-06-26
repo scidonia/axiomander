@@ -157,9 +157,12 @@ Definition generalize_args (old_args new_args : list p_expr) (fuel : nat) : list
   new_args.
 
 (** Guard: only case-split on user-level variables.
-    Derived names (from prior splits) contain a dot. *)
+    Derived names contain a dot (introduced by a prior split). *)
 Definition is_derived_var (x : string) : bool :=
-  3 <? Z.of_nat (String.length x).
+  match String.index 0 "." x with
+  | Some _ => true
+  | None => false
+  end.
 
 (** Substitute head/tail projections of [x] with fresh variable
     names [hname] and [tname] in [e].  Leaves [PVar x] itself

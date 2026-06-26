@@ -309,7 +309,7 @@ Fixpoint p_eval (F : fn_table) (fuel : nat) (e : p_expr) : option pl_val :=
         end
     | PListCons e1 e2 =>
         match p_eval F fuel' e1, p_eval F fuel' e2 with
-        | Some v1, Some v2 => Some (PLitList (v1 :: [v2]))
+        | Some v1, Some (PLitList vs) => Some (PLitList (v1 :: vs))
         | _, _ => None
         end
      | PCall f args =>

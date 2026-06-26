@@ -93,7 +93,7 @@ Fixpoint eval_const (env : const_env) (t : p_expr) : option pl_val :=
       end
   | PListCons e1 e2 =>
       match eval_const env e1, eval_const env e2 with
-      | Some v1, Some v2 => Some (PLitList (v1 :: [v2]))
+      | Some v1, Some (PLitList vs) => Some (PLitList (v1 :: vs))
       | _, _ => None
       end
   end.
