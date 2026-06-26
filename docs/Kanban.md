@@ -152,14 +152,19 @@ Each needs new infrastructure — none existed in IMP or any prior backend.
 ### Deferred
 - [x] **Termination measures** — D2 measured recursion (WP-11) + `while` user
       variant (WP-13) in the fluid-lowerer phase 2.
-- [ ] **Super compiler** — partial evaluation over λ_A contract expressions.
+- [x] **Super compiler** — partial evaluation over λ_A contract expressions.
       Evaluate literal lists, small-range forall/exists, and constant-fold
       arithmetic before lowering.  Reuses `snakelet_eval.py` as the oracle.
+      37 tests pass; integrated behind `supercompile_contracts=True` flag.
+      Replaces contracts only when result is a literal boolean; otherwise
+      emits supercompiled definitions alongside original.
 - [ ] **Reflection-adequacy theorem** — prove `R(t) ⇝* lit(⟦t⟧_E)` in Coq.
       The theorem that the fluid-lowerer's Coq term always reduces to the
       same value as the executable semantics (theory §2.3).  Closes the
       TCB gap between trusted Python→IR lowering and kernel-checked Coq.
-- [ ] **CI** — GitHub Action
+- [x] **CI** — GitHub Action. Fixed in 9b98d03: HTTPS submodule, coq-released
+      opam repo, rocq-iris/rocq-stdpp/coq-hammer deps, pydantic+hypothesis,
+      PYTHONPATH fix.
 
 ### Fluid lowerer — `R : lambda_A^tot -> CoqTerm` (reflection-first)
 
