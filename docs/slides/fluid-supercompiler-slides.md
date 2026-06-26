@@ -370,22 +370,40 @@ graph LR
 
 ---
 
-# What the Supercompiler Simplifies
+# What the Supercompiler Can Do
 
-| Expression | Before | After |
-|---|---|---|
-| `1 + 2 <= x` | `(1 + 2 <=? x) = true` | `(3 <=? x) = true` |
-| `len([1,2,3]) > 0` | `Z.of_nat (List.length ...) > 0` | `true` |
-| `"a" in "abc"` | `str_contains_val ... = true` | `true` |
-| `true and (x > 0)` | `true /\ (0 <? x) = true` | `(0 <? x) = true` |
-| `is_sorted([1,2,3])` | `is_sorted [PLitInt 1; ...] = true` | `true` |
+<br>
+
+The supercompiler evaluates **recursive predicates on computed values** —
+something partial evaluation cannot do:
+
+```
+is_sorted(sort([3, 1, 2]))
+```
 
 <v-clicks>
 
-When the **entire** expression reduces to a constant, the contract is replaced.
+1. **Drive unfolds `sort([3, 1, 2])`** — cases, swaps, recurses
+2. **Produces `[1, 2, 3]`** — a concrete literal, not a variable
+3. **Then unfolds `is_sorted([1, 2, 3])`** — head comparisons, recursion
+4. **Terminates at `true`** — a constant
 
-When only **sub-expressions** simplify, the simplified form is emitted as a
-Coq definition alongside the original — the prover can use either.
+</v-clicks>
+
+<div class="pt-4">
+
+A partial evaluator stops at `sort([3, 1, 2])` because it's a function call,
+not a primitive.  The supercompiler **drives through it**, inlines the
+definition, case-splits, and reduces to a constant.
+
+</div>
+
+<v-clicks>
+
+This is **supercompilation's killer feature**: it composes reduction across
+function boundaries.  You write `ensures: is_sorted(result)` — the verifier
+doesn't need to prove that `sort` produces sorted output if the supercompiler
+can show it for concrete test inputs at lowering time.
 
 </v-clicks>
 
