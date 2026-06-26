@@ -156,11 +156,40 @@ Fixpoint pexpr_eqb (e1 e2 : p_expr) : bool :=
 Definition generalize_args (old_args new_args : list p_expr) (fuel : nat) : list p_expr :=
   new_args.
 
-(** Guard: only case-split on user-level variables (short names
-    like "xs"); derived names from prior splits contain '.' and
-    are longer.  Use string length as rough proxy. *)
+(** Guard: only case-split on user-level variables.
+    Derived names (from prior splits) contain a dot. *)
 Definition is_derived_var (x : string) : bool :=
   3 <? Z.of_nat (String.length x).
+
+(** Substitute head/tail projections of [x] with fresh variable
+    names [hname] and [tname] in [e].  Leaves [PVar x] itself
+    untouched so recursive calls retain the structural argument. *)
+Fixpoint subst_projections (x hname tname : string) (e : p_expr) : p_expr :=
+  match e with
+  | PListHead (PVar y) =>
+      if String.eqb x y then PVar hname else PListHead (PVar y)
+  | PListTail (PVar y) =>
+      if String.eqb x y then PVar tname else PListTail (PVar y)
+  | PVar _ | PVal _ => e
+  | PBinOp op e1 e2 =>
+      PBinOp op (subst_projections x hname tname e1)
+                (subst_projections x hname tname e2)
+  | PCall f args =>
+      PCall f args   (* preserve args for D1 structural whistle *)
+  | PIf e0 e1 e2 =>
+      PIf (subst_projections x hname tname e0)
+          (subst_projections x hname tname e1)
+          (subst_projections x hname tname e2)
+  | PLet y e1 e2 =>
+      PLet y (subst_projections x hname tname e1)
+             (subst_projections x hname tname e2)
+  | PListHead e => PListHead (subst_projections x hname tname e)
+  | PListTail e => PListTail (subst_projections x hname tname e)
+  | PListIsNil e => PListIsNil (subst_projections x hname tname e)
+  | PListCons e1 e2 =>
+      PListCons (subst_projections x hname tname e1)
+                (subst_projections x hname tname e2)
+  end.
 
 (** * 6. Generalization *)
 
@@ -212,8 +241,7 @@ Fixpoint supercompile (F : fn_table) (fuel : nat) (history : list p_expr) (t : p
                   let then'' := supercompile F fuel' history then' in
                   let hname := String.append x ".h" in
                   let tname := String.append x ".t" in
-                  let cons_rep := PListCons (PVar hname) (PVar tname) in
-                  let else_body_subst := subst_expr x cons_rep e2 in
+                  let else_body_subst := subst_projections x hname tname e2 in
                   let else_body :=
                     PLet hname (PListHead (PVar x))
                       (PLet tname (PListTail (PVar x)) else_body_subst) in
@@ -249,8 +277,16 @@ Fixpoint supercompile (F : fn_table) (fuel : nat) (history : list p_expr) (t : p
         | PCall f args =>
             let args' := map (supercompile F fuel' history) args in
             let t' := PCall f args' in
-            if whistle_dec history t' then
-              supercompile F fuel' history (generalize F history t')
+            (** D1 strict whistle: when a history entry is a PCall to
+                the same function and the current args are structurally
+                smaller, stop inlining — leave as residual. *)
+            if existsb (fun h => match h with
+                                 | PCall fh argsh =>
+                                     String.eqb f fh
+                                     && forallb2 he_dec argsh args'
+                                 | _ => false
+                                 end) history then
+              t'
             else
               supercompile F fuel' history t'
         end
