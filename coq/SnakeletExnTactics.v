@@ -644,57 +644,6 @@ Section while_lemma.
     This is the direct integer analogue — two finite [wp_while] unfoldings,
     NO coinduction / Löb.  For multi-iteration loops (e.g. counting down
     from n to 0), a more general induction lemma is future work. *)
-Lemma wp_while_int_guard (c : loc) (init : Z) (body : sn_expr)
-    (Inv : Z -> iProp Sigma) (Phi : Result -> iProp Sigma) :
-  (forall v, subst "_" v body = body) ->
-  c ↦ LitInt init -∗
-  Inv init -∗
-  (* Body obligation: when the guard is true (init > 0), the body
-       {c ↦ init ∗ Inv init} body {∃ v', c ↦ v' ∗ Inv v' ∗ ⌜(Z.ltb 0 v') <> true⌝}. *)
-  (c ↦ LitInt init -∗ Inv init -∗
-      wp_exn body (fun r => match r with
-          | RVal _ => ∃ v', c ↦ LitInt v' ∗ Inv v' ∗ ⌜(Z.ltb 0 v') <> true⌝
-          | RExn lbl p => Phi (RExn lbl p)
-          end)) -∗
-  (* Closing wand: any guard-false state with Inv establishes Phi. *)
-  (∀ vf, ⌜(Z.ltb 0 vf) <> true⌝ -∗ c ↦ LitInt vf -∗ Inv vf -∗ Phi (RVal LitUnit)) -∗
-  WPE (While (BinOp GtOp (Load (Val (LitLoc c))) (Val (LitInt 0))) body) {{ Phi }}.
-Proof.
-  intros Hbc.
-  iIntros "Hc Hinv Hbody Hwand".
-  iApply wp_while; iNext; simpl.
-  heap_load. pure_step. case_bool.
-  - (* guard true: init > 0, run the body. *)
-    snakelet_pure_hyps.
-    pure_step.
-    iRename select (_ ↦ _)%I into "Hpt2".
-    iApply (wp_bind_item (LetCtx "_" (While (BinOp GtOp (Load (Val (LitLoc c))) (Val (LitInt 0))) body))); [reflexivity|].
-    iPoseProof ("Hbody" with "Hpt2 Hinv") as "Hwp".
-    iApply (wp_wand with "Hwp").
-    iIntros (r) "Hr". destruct r as [vv | lbl p].
-    + (* body returned: cell at v', Inv v', guard false.  Second unfolding —
-         guard now false so the loop exits. *)
-      iDestruct "Hr" as (v') "(Hpt & Hinv' & %Hgf)".
-      iApply wp_let. iNext. simpl.
-      rewrite (Hbc vv).
-      iApply wp_while; iNext; simpl.
-      heap_load. pure_step.
-      case_bool.
-      * (* guard true: contradiction — body guaranteed guard false. *)
-        snakelet_pure_hyps. congruence.
-      * (* guard false: exit. *)
-        iRename select (_ ↦ _)%I into "Hpt3".
-        iApply wp_value. iApply ("Hwand" $! v' with "[] Hpt3 Hinv'").
-        iPureIntro. exact Hgf || reflexivity.
-    + (* body raised: exception propagates. *)
-      iExact "Hr".
-  - (* guard false: init <= 0, exit immediately. *)
-    snakelet_pure_hyps.
-    pure_step.
-    iRename select (_ ↦ _)%I into "Hpt0".
-    iApply wp_value. iApply ("Hwand" $! init with "[] Hpt0 Hinv").
-    iPureIntro. exact Hcond || reflexivity.
-Qed.
 
 (** Löb-based while with a decreasing [nat] measure.
 
@@ -710,28 +659,5 @@ Qed.
     assumed to be false and the loop exits via [I 0 -∗ Φ (RVal LitUnit)].
 
     Termination follows from [Nat.lt_wf] via the step-indexed Löb induction. *)
-Lemma wp_while_decreasing (c e_body : sn_expr) (k : nat)
-    (I : nat -> iProp Sigma) (Phi : Result -> iProp Sigma) :
-  (∀ n, I n -∗
-      WPE (If c e_body (Val LitUnit))
-        {{ (fun r => match r with
-             | RVal _ => ∃ n', ⌜(n' < n)%nat⌝ ∗ I n'
-             | RExn lbl p => Phi (RExn lbl p)
-             end) }}) -∗
-  (I 0 -∗ Phi (RVal LitUnit)) -∗
-  I k -∗
-  WPE (While c e_body) {{ Phi }}.
-Proof.
-  iLöb as "IH" forall (k).
-  iIntros "Hstep Hdone HI".
-  iApply wp_while. iNext. simpl.
-  iSpecialize ("Hstep" $! k with "HI").
-  iApply (wp_wand with "Hstep").
-  iIntros (r) "Hr". destruct r as [v | l p].
-  - iDestruct "Hr" as (n') "(%Hlt & HI')".
-    iApply ("IH" $! n' with "Hstep Hdone HI'").
-  - iExact "Hr".
-  - iApply ("Hdone" with "HI").
-Qed.
 
 End while_lemma.
