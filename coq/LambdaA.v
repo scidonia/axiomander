@@ -73,7 +73,9 @@ Inductive p_expr :=
   | PBinOp (op : pl_binop) (e1 e2 : p_expr)
   | PCall (f : string) (args : list p_expr)
   | PIf (e0 e1 e2 : p_expr)
-  | PLet (x : string) (e1 e2 : p_expr).
+  | PLet (x : string) (e1 e2 : p_expr)
+  | PListHead (e : p_expr)   (* head of a list — reduces on PVal (PLitList (v::_)) *)
+  | PListTail (e : p_expr).  (* tail of a list — reduces on PVal (PLitList (_::rest)) *)
 
 (** * Value equality test (conservative: compound constructors match
     by constructor only, not element-wise — safe for whistle detection). *)
@@ -129,6 +131,8 @@ Fixpoint subst (x : string) (v : pl_val) (e : p_expr) : p_expr :=
   | PIf e0 e1 e2 => PIf (subst x v e0) (subst x v e1) (subst x v e2)
   | PLet y e1 e2 =>
       PLet y (subst x v e1) (if String.eqb x y then e2 else subst x v e2)
+  | PListHead e => PListHead (subst x v e)
+  | PListTail e => PListTail (subst x v e)
   end.
 
 (** * Helper list functions *)
@@ -164,6 +168,8 @@ Fixpoint fv (e : p_expr) : list string :=
   | PCall _ args => flat_map fv args
   | PIf e0 e1 e2 => fv e0 ++ fv e1 ++ fv e2
   | PLet x e1 e2 => fv e1 ++ (filter (fun y => negb (String.eqb x y)) (fv e2))
+  | PListHead e => fv e
+  | PListTail e => fv e
   end.
 
 Definition is_closed (e : p_expr) : bool :=
@@ -233,6 +239,8 @@ Fixpoint subst_expr (x : string) (v : p_expr) (e : p_expr) : p_expr :=
   | PIf e0 e1 e2 => PIf (subst_expr x v e0) (subst_expr x v e1) (subst_expr x v e2)
   | PLet y e1 e2 =>
       PLet y (subst_expr x v e1) (if String.eqb x y then e2 else subst_expr x v e2)
+  | PListHead e => PListHead (subst_expr x v e)
+  | PListTail e => PListTail (subst_expr x v e)
   end.
 
 Fixpoint subst_many_expr (subs : list (string * p_expr)) (e : p_expr) : p_expr :=
@@ -275,6 +283,16 @@ Fixpoint p_eval (F : fn_table) (fuel : nat) (e : p_expr) : option pl_val :=
         | Some v => p_eval F fuel' (subst x v e2)
         | None => None
         end
+    | PListHead e =>
+        match p_eval F fuel' e with
+        | Some (PLitList (v :: _)) => Some v
+        | _ => None
+        end
+    | PListTail e =>
+        match p_eval F fuel' e with
+        | Some (PLitList (_ :: rest)) => Some (PLitList rest)
+        | _ => None
+        end
      | PCall f args =>
         match assoc String.eqb F f with
         | Some (params, body) =>
@@ -309,6 +327,8 @@ Definition subexprs (e : p_expr) : list p_expr :=
   | PCall _ args => args
   | PIf e0 e1 e2 => [e0; e1; e2]
   | PLet _ e1 e2 => [e1; e2]
+  | PListHead e => [e]
+  | PListTail e => [e]
   end.
 
 (** Rebuild a compound expression from its sub-expressions. *)

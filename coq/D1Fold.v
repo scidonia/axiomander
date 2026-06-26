@@ -80,6 +80,8 @@ Fixpoint replace_call (fn new_name : string) (body : p_expr) : p_expr :=
                          (replace_call fn new_name e2)
   | PLet x e1 e2 => PLet x (replace_call fn new_name e1)
                              (replace_call fn new_name e2)
+  | PListHead e => PListHead (replace_call fn new_name e)
+  | PListTail e => PListTail (replace_call fn new_name e)
   | PCall f args =>
       let args' := map (replace_call fn new_name) args in
       if String.eqb f fn then PCall new_name args'
@@ -137,6 +139,8 @@ Fixpoint subst_expr (param : string) (arg : p_expr) (body : p_expr) : p_expr :=
   | PIf e0 e1 e2 => PIf (subst_expr param arg e0) (subst_expr param arg e1) (subst_expr param arg e2)
   | PLet x e1 e2 => PLet x (subst_expr param arg e1)
       (if String.eqb x param then e2 else subst_expr param arg e2)
+  | PListHead e => PListHead (subst_expr param arg e)
+  | PListTail e => PListTail (subst_expr param arg e)
   end.
 
 Fixpoint supercompile_d1

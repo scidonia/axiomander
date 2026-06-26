@@ -21,6 +21,20 @@ Definition drive_step (F : fn_table) (t : p_expr) : option p_expr :=
   | PIf _ _ _ => None
   (* Let: ALWAYS inline — the whistle prevents infinite unrolling. *)
   | PLet x v e2 => Some (subst_expr x v e2)
+  (* Head: extract first element of a literal list. *)
+  | PListHead (PVal v) =>
+      match v with
+      | PLitList (v' :: _) => Some (PVal v')
+      | _ => None
+      end
+  | PListHead _ => None
+  (* Tail: return the remainder of a literal list. *)
+  | PListTail (PVal v) =>
+      match v with
+      | PLitList (_ :: rest) => Some (PVal (PLitList rest))
+      | _ => None
+      end
+  | PListTail _ => None
   (* Call: ALWAYS inline from the fn_table — whistle handles recursion. *)
   | PCall f args =>
       match assoc String.eqb F f with
@@ -49,6 +63,8 @@ Inductive he : p_expr -> p_expr -> Prop :=
   | he_dive_let_bind : forall h x e1 e2, he h e1 -> he h (PLet x e1 e2)
   | he_dive_let_body : forall h x e1 e2, he h e2 -> he h (PLet x e1 e2)
   | he_dive_call : forall h f args a, In a args -> he h a -> he h (PCall f args)
+  | he_dive_head : forall h e, he h e -> he h (PListHead e)
+  | he_dive_tail : forall h e, he h e -> he h (PListTail e)
   | he_couple_binop : forall op a1 b1 a2 b2, he a1 a2 -> he b1 b2 -> he (PBinOp op a1 b1) (PBinOp op a2 b2)
   | he_couple_if : forall c1 t1 e1 c2 t2 e2, he c1 c2 -> he t1 t2 -> he e1 e2 -> he (PIf c1 t1 e1) (PIf c2 t2 e2)
   | he_couple_let : forall x b1 e1 b2 e2, he b1 b2 -> he e1 e2 -> he (PLet x b1 e1) (PLet x b2 e2)
@@ -75,12 +91,16 @@ Fixpoint he_dec (h t : p_expr) : bool :=
       he_dec b1 b2 && he_dec e1 e2
   | PCall f1 args1, PCall f2 args2 =>
       String.eqb f1 f2 && forallb2 he_dec args1 args2
+  | PListHead e1, PListHead e2 => he_dec e1 e2
+  | PListTail e1, PListTail e2 => he_dec e1 e2
   | _, _ =>
       match t with
       | PBinOp _ e1 e2 => he_dec h e1 || he_dec h e2
       | PIf e0 e1 e2 => he_dec h e0 || he_dec h e1 || he_dec h e2
       | PLet _ e1 e2 => he_dec h e1 || he_dec h e2
       | PCall _ args => existsb (he_dec h) args
+      | PListHead e => he_dec h e
+      | PListTail e => he_dec h e
       | _ => false
       end
   end.
@@ -102,6 +122,8 @@ Fixpoint pexpr_eqb (e1 e2 : p_expr) : bool :=
       pexpr_eqb c1 c2 && pexpr_eqb t1 t2 && pexpr_eqb e1 e2
   | PLet x1 b1 e1, PLet x2 b2 e2 =>
       String.eqb x1 x2 && pexpr_eqb b1 b2 && pexpr_eqb e1 e2
+  | PListHead e1, PListHead e2 => pexpr_eqb e1 e2
+  | PListTail e1, PListTail e2 => pexpr_eqb e1 e2
   | _, _ => false
   end.
 
@@ -153,6 +175,12 @@ Fixpoint supercompile (F : fn_table) (fuel : nat) (history : list p_expr) (t : p
             let e1' := supercompile F fuel' history e1 in
             let e2' := supercompile F fuel' history e2 in
             PLet x e1' e2'
+        | PListHead e =>
+            let e' := supercompile F fuel' history e in
+            supercompile F fuel' history (PListHead e')
+        | PListTail e =>
+            let e' := supercompile F fuel' history e in
+            supercompile F fuel' history (PListTail e')
         | PCall f args =>
             let args' := map (supercompile F fuel' history) args in
             supercompile F fuel' history (PCall f args')
@@ -184,6 +212,26 @@ Proof.
   intros F fuel x v e2 t' Hdr. unfold drive_step in Hdr.
   inversion Hdr; subst t'. destruct fuel; simpl; auto.
 Admitted.
+
+Lemma head_step_ok : forall F fuel v vs t',
+  drive_step F (PListHead (PVal (PLitList (v :: vs)))) = Some t' ->
+  p_eval F (S (S fuel)) (PListHead (PVal (PLitList (v :: vs)))) =
+  p_eval F (S fuel) t'.
+Proof.
+  intros F fuel v vs t' Hdr.
+  simpl in Hdr; inversion Hdr; subst.
+  destruct fuel; simpl; auto.
+Qed.
+
+Lemma tail_step_ok : forall F fuel v vs t',
+  drive_step F (PListTail (PVal (PLitList (v :: vs)))) = Some t' ->
+  p_eval F (S (S fuel)) (PListTail (PVal (PLitList (v :: vs)))) =
+  p_eval F (S fuel) t'.
+Proof.
+  intros F fuel v vs t' Hdr.
+  simpl in Hdr; inversion Hdr; subst.
+  destruct fuel; simpl; auto.
+Qed.
 
 Lemma is_PVal_eval : forall F fuel args,
   forallb is_PVal args = true ->
@@ -260,6 +308,22 @@ Proof.
     eapply if_step_ok; eauto.
   - (* PLet *)
     eapply let_step_ok; eauto.
+  - (* PListHead *)
+    unfold drive_step in Hdr.
+    destruct t as [| v0 | | | | | | ]; simpl in Hdr;
+      try (elim (option_None_neq_Some _ _ Hdr)).
+    destruct v0 as [| | | | vs | | | | ]; simpl in Hdr;
+      try (elim (option_None_neq_Some _ _ Hdr)).
+    destruct vs; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
+    inversion Hdr; subst. destruct fuel; simpl; auto.
+  - (* PListTail *)
+    unfold drive_step in Hdr.
+    destruct t as [| v0 | | | | | | ]; simpl in Hdr;
+      try (elim (option_None_neq_Some _ _ Hdr)).
+    destruct v0 as [| | | | vs | | | | ]; simpl in Hdr;
+      try (elim (option_None_neq_Some _ _ Hdr)).
+    destruct vs; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
+    inversion Hdr; subst. destruct fuel; simpl; auto.
 Qed.
 
 Lemma generalize_args_is_new : forall old_args new_args fuel,

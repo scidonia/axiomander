@@ -75,6 +75,16 @@ Fixpoint eval_const (env : const_env) (t : p_expr) : option pl_val :=
       | Some v => Some v
       | None => None
       end
+  | PListHead e =>
+      match eval_const env e with
+      | Some (PLitList (v :: _)) => Some v
+      | _ => None
+      end
+  | PListTail e =>
+      match eval_const env e with
+      | Some (PLitList (_ :: rest)) => Some (PLitList rest)
+      | _ => None
+      end
   end.
 
 (** * 3. Infer constant return values via fixpoint iteration
@@ -158,6 +168,8 @@ Fixpoint replace_const_calls (env : const_env) (t : p_expr) : p_expr :=
       | Some v => PVal v   (* replace entire call with constant *)
       | None   => PCall fn (map (replace_const_calls env) args)
       end
+  | PListHead e => PListHead (replace_const_calls env e)
+  | PListTail e => PListTail (replace_const_calls env e)
   end.
 
 (** * 5. The full constant-return pass
@@ -243,6 +255,8 @@ Fixpoint infer_const_return (fn : string) (assumed_v : pl_val) (t : p_expr) : op
       infer_const_return fn assumed_v e2
   | PCall f _ =>
       if String.eqb f fn then Some assumed_v else None
+  | PListHead e => None
+  | PListTail e => None
   end.
 
 (** [body_always_returns v fn body]: does [body] always return [v],
