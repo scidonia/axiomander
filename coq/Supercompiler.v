@@ -19,8 +19,11 @@ Definition drive_step (F : fn_table) (t : p_expr) : option p_expr :=
   | PIf (PVal (PLitBool true)) e1 e2 => Some e1
   | PIf (PVal (PLitBool false)) e1 e2 => Some e2
   | PIf _ _ _ => None
-  (* Let: ALWAYS inline — the whistle prevents infinite unrolling. *)
-  | PLet x v e2 => Some (subst_expr x v e2)
+  (* Let: inline only when the binding is a literal value.
+     Symbolic bindings (introduced by case-splitting) are preserved
+     for information propagation. *)
+  | PLet x (PVal v) e2 => Some (subst x v e2)
+  | PLet _ _ _ => None
   (* Head: extract first element of a literal list. *)
   | PListHead (PVal v) =>
       match v with
@@ -175,7 +178,29 @@ Fixpoint supercompile (F : fn_table) (fuel : nat) (history : list p_expr) (t : p
             supercompile F fuel' history (PBinOp op e1' e2')
         | PIf e0 e1 e2 =>
             let e0' := supercompile F fuel' history e0 in
-            supercompile F fuel' history (PIf e0' e1 e2)
+            match e0' with
+            | PListIsNil (PVar x) =>
+                (** Positive supercompilation with information propagation.
+                    Then-branch: know xs = [], substitute.  Else-branch:
+                    know xs is non-empty, introduce fresh bindings for
+                    head and tail so downstream operations can reference
+                    them directly instead of recomputing projections. *)
+                let then' := subst x (PLitList []) e1 in
+                let then'' := supercompile F fuel' history then' in
+                let hname := String.append x "_h" in
+                let tname := String.append x "_t" in
+                let else_body :=
+                  PLet hname (PListHead (PVar x))
+                    (PLet tname (PListTail (PVar x)) e2) in
+                let else' := supercompile F fuel' history else_body in
+                PIf e0' then'' else'
+            | _ =>
+                let t' := PIf e0' e1 e2 in
+                match drive_step F t' with
+                | Some driven => supercompile F fuel' history driven
+                | None => t'
+                end
+            end
         | PLet x e1 e2 =>
             let e1' := supercompile F fuel' history e1 in
             let e2' := supercompile F fuel' history e2 in
@@ -218,12 +243,14 @@ Proof.
 Qed.
 
 Lemma let_step_ok : forall F fuel x v e2 t',
-  drive_step F (PLet x v e2) = Some t' ->
-  p_eval F (S (S fuel)) (PLet x v e2) = p_eval F (S fuel) t'.
+  drive_step F (PLet x (PVal v) e2) = Some t' ->
+  p_eval F (S (S fuel)) (PLet x (PVal v) e2) = p_eval F (S fuel) t'.
 Proof.
-  intros F fuel x v e2 t' Hdr. unfold drive_step in Hdr.
-  inversion Hdr; subst t'. destruct fuel; simpl; auto.
-Admitted.
+  intros F fuel x v e2 t' Hdr.
+  simpl in Hdr; inversion Hdr; subst. (* t' = subst x v e2 *)
+  simpl. (* p_eval reduces PLet to ... subst x v e2 *)
+  destruct fuel; simpl; auto.
+Qed.
 
 Lemma head_step_ok : forall F fuel v vs t',
   drive_step F (PListHead (PVal (PLitList (v :: vs)))) = Some t' ->
@@ -313,26 +340,28 @@ Lemma drive_step_sound : forall F fuel t t',
   p_eval F (S (S fuel)) t = p_eval F (S fuel) t'.
 Proof.
   intros F fuel t t' Hdr.
-  destruct t; simpl in Hdr.
+  destruct t
+    as [ | | op e1 e2 | f args | cond ethen eelse | x letbind letbody | heade | taile | nile]; simpl in Hdr.
   - elim (option_None_neq_Some _ _ Hdr).
   - elim (option_None_neq_Some _ _ Hdr).
   - (* PBinOp *)
-    destruct t1; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
-    destruct t2; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
+    destruct e1; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
+    destruct e2; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
     destruct (binop_eval op v v0) eqn:Heval; simpl in Hdr;
       [ | elim (option_None_neq_Some _ _ Hdr) ].
     inversion Hdr; subst. apply (binop_step_ok F fuel op v v0 p); auto.
   - (* PCall *)
     apply (call_step_ok F fuel f args t'). exact Hdr.
   - (* PIf *)
-    destruct t1; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
-    destruct v; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
+    destruct cond as [| condv | | | | | | |]; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
+    destruct condv as [| | | | | | | |]; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
     eapply if_step_ok; eauto.
   - (* PLet *)
+    destruct letbind as [| v0 | | | | | | |]; try (elim (option_None_neq_Some _ _ Hdr)).
     eapply let_step_ok; eauto.
   - (* PListHead *)
     unfold drive_step in Hdr.
-    destruct t as [| v0 | | | | | | |]; simpl in Hdr;
+    destruct heade as [| v0 | | | | | | |]; simpl in Hdr;
       try (elim (option_None_neq_Some _ _ Hdr)).
     destruct v0 as [| | | | vs | | | | ]; simpl in Hdr;
       try (elim (option_None_neq_Some _ _ Hdr)).
@@ -340,7 +369,7 @@ Proof.
     inversion Hdr; subst. destruct fuel; simpl; auto.
   - (* PListTail *)
     unfold drive_step in Hdr.
-    destruct t as [| v0 | | | | | | |]; simpl in Hdr;
+    destruct taile as [| v0 | | | | | | |]; simpl in Hdr;
       try (elim (option_None_neq_Some _ _ Hdr)).
     destruct v0 as [| | | | vs | | | | ]; simpl in Hdr;
       try (elim (option_None_neq_Some _ _ Hdr)).
@@ -348,7 +377,7 @@ Proof.
     inversion Hdr; subst. destruct fuel; simpl; auto.
   - (* PListIsNil *)
     unfold drive_step in Hdr.
-    destruct t as [| v0 | | | | | | |]; simpl in Hdr;
+    destruct nile as [| v0 | | | | | | |]; simpl in Hdr;
       try (elim (option_None_neq_Some _ _ Hdr)).
     destruct v0 as [| | | | vs | | | | ]; simpl in Hdr;
       try (elim (option_None_neq_Some _ _ Hdr)).
