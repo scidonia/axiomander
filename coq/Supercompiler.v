@@ -1,6 +1,7 @@
 From Stdlib Require Import List ZArith Bool String.
 Import ListNotations.
 Open Scope Z_scope.
+Open Scope string_scope.
 
 Require Import LambdaA.
 
@@ -187,6 +188,32 @@ Fixpoint pexpr_eqb (e1 e2 : p_expr) : bool :=
   | PListIsNil e1, PListIsNil e2 => pexpr_eqb e1 e2
   | PListCons a1 b1, PListCons a2 b2 => pexpr_eqb a1 a2 && pexpr_eqb b1 b2
   | _, _ => false
+  end.
+
+(** * 4. Least General Generalization (anti-unification) *)
+
+Fixpoint lgg_args (args1 args2 : list p_expr) (n : nat)
+    : list p_expr * list (string * p_expr) * list (string * p_expr) :=
+  match args1, args2 with
+  | a1 :: rest1, a2 :: rest2 =>
+      if pexpr_eqb a1 a2 then
+        let '(gens, s1, s2) := lgg_args rest1 rest2 n in
+        (a1 :: gens, s1, s2)
+      else
+        (** Fresh name: zgN where N = n mod 10 *)
+        let digit :=
+          match Nat.modulo n 10 with
+          | 0%nat => "0" | 1%nat => "1" | 2%nat => "2" | 3%nat => "3" | 4%nat => "4"
+          | 5%nat => "5" | 6%nat => "6" | 7%nat => "7" | 8%nat => "8" | 9%nat => "9"
+          | _ => "0"
+          end in
+        let fresh := "zg" ++ digit in
+        let '(gens, s1, s2) := lgg_args rest1 rest2 (S n) in
+        (PVar fresh :: gens,
+         (fresh, a1) :: s1,
+         (fresh, a2) :: s2)
+  | [], [] => ([], [], [])
+  | _, _ => (args1, [], [])
   end.
 
 (** * 5. Generalization *)
