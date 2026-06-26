@@ -16,6 +16,20 @@ Definition ctx_lookup (c : ctx) (x : string) : option p_expr :=
 Definition ctx_extend (x : string) (v : p_expr) (c : ctx) : ctx :=
   (x, v) :: c.
 
+(** Context expansion: replace PVar y with its context image
+    if it maps to a projection (PListHead/PListTail), one level.
+    Used to restore structural relationships for the D1 whistle. *)
+Definition ctx_expand_one (c : ctx) (e : p_expr) : p_expr :=
+  match e with
+  | PVar y =>
+      match ctx_lookup c y with
+      | Some (PListHead (PVar z)) => PListHead (PVar z)
+      | Some (PListTail (PVar z)) => PListTail (PVar z)
+      | _ => e
+      end
+  | _ => e
+  end.
+
 (** * 1. Driving — one-step symbolic reduction, context-aware *)
 
 Definition empty_ctx : ctx := nil.
@@ -208,22 +222,33 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
         | PBinOp op e1 e2 =>
             let e1' := supercompile F fuel' history cx e1 in
             let e2' := supercompile F fuel' history cx e2 in
-            supercompile F fuel' history cx (PBinOp op e1' e2')
+            let t' := PBinOp op e1' e2' in
+            match drive_step F cx t' with
+            | Some driven => supercompile F fuel' history cx driven
+            | None => t'
+            end
         | PIf e0 e1 e2 =>
             let e0' := supercompile F fuel' history cx e0 in
             match e0' with
-            | PListIsNil (PVar x) =>
+             | PListIsNil (PVar x) =>
                 (** Positive supercompilation via context.
-                    Then: x known empty.  Else: x known non-empty,
-                    represented as PListCons(x.h, x.t) in ctx.
-                    No PLets — the context carries the information. *)
-                let hname := String.append x ".h" in
-                let tname := String.append x ".t" in
-                let cx_then := ctx_extend x (PVal (PLitList [])) cx in
-                let cx_else := ctx_extend x (PListCons (PVar hname) (PVar tname)) cx in
-                let then' := supercompile F fuel' history cx_then e1 in
-                let else' := supercompile F fuel' history cx_else e2 in
-                PIf e0' then' else'
+                    Only fire on user-level variables; derived names
+                    (containing '.') are left to the D1 whistle. *)
+                if match String.index 0 "." x with Some _ => false | None => true end then
+                  let hname := String.append x ".h" in
+                  let tname := String.append x ".t" in
+                  let cx_then := ctx_extend x (PVal (PLitList [])) cx in
+                  let cx_else :=
+                    ctx_extend tname (PListTail (PVar x))
+                      (ctx_extend hname (PListHead (PVar x))
+                        (ctx_extend x (PListCons (PVar hname) (PVar tname)) cx)) in
+                  let then' := supercompile F fuel' history cx_then e1 in
+                  let else' := supercompile F fuel' history cx_else e2 in
+                  PIf e0' then' else'
+                else
+                  let e1' := supercompile F fuel' history cx e1 in
+                  let e2' := supercompile F fuel' history cx e2 in
+                  PIf e0' e1' e2'
             | _ =>
                 let t' := PIf e0' e1 e2 in
                 match drive_step F cx t' with
@@ -240,24 +265,44 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
             PLet x e1' e2'
         | PListHead e =>
             let e' := supercompile F fuel' history cx e in
-            supercompile F fuel' history cx (PListHead e')
+            let t' := PListHead e' in
+            match drive_step F cx t' with
+            | Some driven => supercompile F fuel' history cx driven
+            | None => t'
+            end
         | PListTail e =>
             let e' := supercompile F fuel' history cx e in
-            supercompile F fuel' history cx (PListTail e')
+            let t' := PListTail e' in
+            match drive_step F cx t' with
+            | Some driven => supercompile F fuel' history cx driven
+            | None => t'
+            end
         | PListIsNil e =>
             let e' := supercompile F fuel' history cx e in
-            supercompile F fuel' history cx (PListIsNil e')
+            let t' := PListIsNil e' in
+            match drive_step F cx t' with
+            | Some driven => supercompile F fuel' history cx driven
+            | None => t'
+            end
         | PListCons e1 e2 =>
             let e1' := supercompile F fuel' history cx e1 in
             let e2' := supercompile F fuel' history cx e2 in
-            supercompile F fuel' history cx (PListCons e1' e2')
+            let t' := PListCons e1' e2' in
+            match drive_step F cx t' with
+            | Some driven => supercompile F fuel' history cx driven
+            | None => t'
+            end
         | PCall f args =>
             let args' := map (supercompile F fuel' history cx) args in
             let t' := PCall f args' in
+            (** D1 strict whistle with context expansion: reconstruct
+                structural relationships (e.g. xs.t → PListTail(xs))
+                before checking homeomorphic embedding. *)
+            let args_expanded := map (ctx_expand_one cx) args' in
             if existsb (fun h => match h with
                                  | PCall fh argsh =>
                                      String.eqb f fh
-                                     && forallb2 he_dec argsh args'
+                                     && forallb2 he_dec argsh args_expanded
                                  | _ => false
                                  end) history then
               t'
