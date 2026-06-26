@@ -8,7 +8,6 @@ drawings:
   persist: false
 transition: slide-left
 mdc: true
-colorSchema: dark
 ---
 
 # Fluid Contracts
