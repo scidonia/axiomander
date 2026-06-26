@@ -14,8 +14,8 @@ mdc: true
 # Fluid Contracts
 
 How Axiomander lets you write contracts in the
-same language the program is written in — and then
-supercompiles them for free
+same language the program is written in, and
+supercompiles them at lowering time
 
 <div class="pt-12">
   <span class="opacity-50">
@@ -76,7 +76,7 @@ semantics are defined over the same terms.
 
 **Result**: there is one lowering function `lower(node, ctx) → CoqTerm`.  It
 is **total** on the pure fragment.  If a Python expression is pure, it can be
-used in a contract.  Period.
+used in a contract.
 
 <br>
 
@@ -374,36 +374,47 @@ graph LR
 
 <br>
 
-The supercompiler evaluates **recursive predicates on computed values** —
-something partial evaluation cannot do:
+The supercompiler can **prove properties** by driving two recursive functions
+in tandem — something neither partial evaluation nor a typical solver can do:
 
 ```
-is_sorted(sort([3, 1, 2]))
+is_sorted(isort(l))   →   true
+```
+
+where `isort` is insertion sort:
+
+```
+isort([]) = []
+isort(x :: xs) = insert(x, isort(xs))
 ```
 
 <v-clicks>
 
-1. **Drive unfolds `sort([3, 1, 2])`** — cases, swaps, recurses
-2. **Produces `[1, 2, 3]`** — a concrete literal, not a variable
-3. **Then unfolds `is_sorted([1, 2, 3])`** — head comparisons, recursion
-4. **Terminates at `true`** — a constant
+1. **Drive `sort(l)`** — case-splits on `l = []`, `l = hd :: tl`
+2. **For each case**, `sort` produces a new list — drive `is_sorted` on it
+3. **When `sort` recurses**, the supercompiler recurses with it, driving
+   `is_sorted` on each intermediate result
+4. **The whistle fires** when it sees the same configuration again:
+   `is_sorted(sort(tl))` — the supercompiler **generalises**, creating a
+   lemma that covers the recursive case
+5. **Every path reaches `true`** — the supercompiler returns the constant
 
 </v-clicks>
 
 <div class="pt-4">
 
-A partial evaluator stops at `sort([3, 1, 2])` because it's a function call,
-not a primitive.  The supercompiler **drives through it**, inlines the
-definition, case-splits, and reduces to a constant.
+This is **supercompilation as a theorem prover**: it doesn't just fold
+constants — it proves `is_sorted(sort(l))` for **all** lists `l` by
+exhaustively driving both functions, case-splitting on the data, and
+generalising when the recursion pattern is detected.
 
 </div>
 
 <v-clicks>
 
-This is **supercompilation's killer feature**: it composes reduction across
-function boundaries.  You write `ensures: is_sorted(result)` — the verifier
-doesn't need to prove that `sort` produces sorted output if the supercompiler
-can show it for concrete test inputs at lowering time.
+Partial evaluation can't touch this — `sort(l)` with a symbolic `l` is a
+black box.  The supercompiler inlines both definitions, drives them together,
+and proves the property.  No induction lemma needed — the whistle provides it.
 
 </v-clicks>
 

@@ -222,6 +222,25 @@ Fixpoint subst_many (subs : list (string * pl_val)) (e : p_expr) : p_expr :=
   | (x, v) :: rest => subst x v (subst_many rest e)
   end.
 
+(** Substitution of expressions for variables (needed by the supercompiler
+    to inline calls with symbolic arguments). *)
+Fixpoint subst_expr (x : string) (v : p_expr) (e : p_expr) : p_expr :=
+  match e with
+  | PVar y => if String.eqb x y then v else PVar y
+  | PVal _ => e
+  | PBinOp op e1 e2 => PBinOp op (subst_expr x v e1) (subst_expr x v e2)
+  | PCall f args => PCall f (List.map (subst_expr x v) args)
+  | PIf e0 e1 e2 => PIf (subst_expr x v e0) (subst_expr x v e1) (subst_expr x v e2)
+  | PLet y e1 e2 =>
+      PLet y (subst_expr x v e1) (if String.eqb x y then e2 else subst_expr x v e2)
+  end.
+
+Fixpoint subst_many_expr (subs : list (string * p_expr)) (e : p_expr) : p_expr :=
+  match subs with
+  | [] => e
+  | (x, v) :: rest => subst_expr x v (subst_many_expr rest e)
+  end.
+
 (** * Function table type *)
 
 Definition fn_table := list (string * (list string * p_expr)).
