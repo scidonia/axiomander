@@ -35,6 +35,10 @@ Definition drive_step (F : fn_table) (t : p_expr) : option p_expr :=
       | _ => None
       end
   | PListTail _ => None
+  (* IsNil: check if a list is empty. *)
+  | PListIsNil (PVal (PLitList [])) => Some (PVal (PLitBool true))
+  | PListIsNil (PVal (PLitList (_ :: _))) => Some (PVal (PLitBool false))
+  | PListIsNil _ => None
   (* Call: ALWAYS inline from the fn_table — whistle handles recursion. *)
   | PCall f args =>
       match assoc String.eqb F f with
@@ -65,6 +69,7 @@ Inductive he : p_expr -> p_expr -> Prop :=
   | he_dive_call : forall h f args a, In a args -> he h a -> he h (PCall f args)
   | he_dive_head : forall h e, he h e -> he h (PListHead e)
   | he_dive_tail : forall h e, he h e -> he h (PListTail e)
+  | he_dive_isnil : forall h e, he h e -> he h (PListIsNil e)
   | he_couple_binop : forall op a1 b1 a2 b2, he a1 a2 -> he b1 b2 -> he (PBinOp op a1 b1) (PBinOp op a2 b2)
   | he_couple_if : forall c1 t1 e1 c2 t2 e2, he c1 c2 -> he t1 t2 -> he e1 e2 -> he (PIf c1 t1 e1) (PIf c2 t2 e2)
   | he_couple_let : forall x b1 e1 b2 e2, he b1 b2 -> he e1 e2 -> he (PLet x b1 e1) (PLet x b2 e2)
@@ -93,6 +98,7 @@ Fixpoint he_dec (h t : p_expr) : bool :=
       String.eqb f1 f2 && forallb2 he_dec args1 args2
   | PListHead e1, PListHead e2 => he_dec e1 e2
   | PListTail e1, PListTail e2 => he_dec e1 e2
+  | PListIsNil e1, PListIsNil e2 => he_dec e1 e2
   | _, _ =>
       match t with
       | PBinOp _ e1 e2 => he_dec h e1 || he_dec h e2
@@ -101,6 +107,7 @@ Fixpoint he_dec (h t : p_expr) : bool :=
       | PCall _ args => existsb (he_dec h) args
       | PListHead e => he_dec h e
       | PListTail e => he_dec h e
+      | PListIsNil e => he_dec h e
       | _ => false
       end
   end.
@@ -124,6 +131,7 @@ Fixpoint pexpr_eqb (e1 e2 : p_expr) : bool :=
       String.eqb x1 x2 && pexpr_eqb b1 b2 && pexpr_eqb e1 e2
   | PListHead e1, PListHead e2 => pexpr_eqb e1 e2
   | PListTail e1, PListTail e2 => pexpr_eqb e1 e2
+  | PListIsNil e1, PListIsNil e2 => pexpr_eqb e1 e2
   | _, _ => false
   end.
 
@@ -178,6 +186,9 @@ Fixpoint supercompile (F : fn_table) (fuel : nat) (history : list p_expr) (t : p
         | PListTail e =>
             let e' := supercompile F fuel' history e in
             supercompile F fuel' history (PListTail e')
+        | PListIsNil e =>
+            let e' := supercompile F fuel' history e in
+            supercompile F fuel' history (PListIsNil e')
         | PCall f args =>
             let args' := map (supercompile F fuel' history) args in
             let t' := PCall f args' in
@@ -232,6 +243,16 @@ Proof.
   intros F fuel v vs t' Hdr.
   simpl in Hdr; inversion Hdr; subst.
   destruct fuel; simpl; auto.
+Qed.
+
+Lemma nil_step_ok : forall F fuel xs t',
+  drive_step F (PListIsNil (PVal (PLitList xs))) = Some t' ->
+  p_eval F (S (S fuel)) (PListIsNil (PVal (PLitList xs))) =
+  p_eval F (S fuel) t'.
+Proof.
+  intros F fuel xs t' Hdr.
+  simpl in Hdr.
+  destruct xs; inversion Hdr; subst; destruct fuel; simpl; auto.
 Qed.
 
 Lemma is_PVal_eval : forall F fuel args,
@@ -311,7 +332,7 @@ Proof.
     eapply let_step_ok; eauto.
   - (* PListHead *)
     unfold drive_step in Hdr.
-    destruct t as [| v0 | | | | | | ]; simpl in Hdr;
+    destruct t as [| v0 | | | | | | |]; simpl in Hdr;
       try (elim (option_None_neq_Some _ _ Hdr)).
     destruct v0 as [| | | | vs | | | | ]; simpl in Hdr;
       try (elim (option_None_neq_Some _ _ Hdr)).
@@ -319,12 +340,20 @@ Proof.
     inversion Hdr; subst. destruct fuel; simpl; auto.
   - (* PListTail *)
     unfold drive_step in Hdr.
-    destruct t as [| v0 | | | | | | ]; simpl in Hdr;
+    destruct t as [| v0 | | | | | | |]; simpl in Hdr;
       try (elim (option_None_neq_Some _ _ Hdr)).
     destruct v0 as [| | | | vs | | | | ]; simpl in Hdr;
       try (elim (option_None_neq_Some _ _ Hdr)).
     destruct vs; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
     inversion Hdr; subst. destruct fuel; simpl; auto.
+  - (* PListIsNil *)
+    unfold drive_step in Hdr.
+    destruct t as [| v0 | | | | | | |]; simpl in Hdr;
+      try (elim (option_None_neq_Some _ _ Hdr)).
+    destruct v0 as [| | | | vs | | | | ]; simpl in Hdr;
+      try (elim (option_None_neq_Some _ _ Hdr)).
+    destruct vs; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr));
+      inversion Hdr; subst; destruct fuel; simpl; auto.
 Qed.
 
 Lemma generalize_args_is_new : forall old_args new_args fuel,
