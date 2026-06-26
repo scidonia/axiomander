@@ -211,8 +211,8 @@ Ltac finish_pure :=
   end;
   simpl; iPureIntro; snakelet_pure_hyps;
   (* Unfold forallb facts into In-based form for intros/specialize. *)
-  repeat (rewrite forallb_true in *; cbn in *);
-  repeat (rewrite existsb_true in *; cbn in *);
+  repeat rewrite forallb_true in *;
+  cbn in *; repeat rewrite existsb_true in *;
   (* Handle (A -> B) implications *)
   repeat match goal with
   | |- (_ -> _) /\ _ => split; [| idtac]
@@ -631,7 +631,6 @@ Section while_lemma.
       iApply wp_value. iApply ("Hwand" $! s0 with "[] Hpt0 Hinv").
       iPureIntro. exact Hcond || reflexivity.
   Qed.
-End while_lemma.
 
 (** Int-guard while loop — the integer analogue of [wp_while_str].
 
@@ -651,14 +650,14 @@ Lemma wp_while_int_guard (c : loc) (init : Z) (body : sn_expr)
   c ↦ LitInt init -∗
   Inv init -∗
   (* Body obligation: when the guard is true (init > 0), the body
-       {c ↦ init ∗ Inv init} body {∃ v', c ↦ v' ∗ Inv v' ∗ ⌜(0 <? v') <> true⌝}. *)
+       {c ↦ init ∗ Inv init} body {∃ v', c ↦ v' ∗ Inv v' ∗ ⌜(Z.ltb 0 v') <> true⌝}. *)
   (c ↦ LitInt init -∗ Inv init -∗
       wp_exn body (fun r => match r with
-          | RVal _ => ∃ v', c ↦ LitInt v' ∗ Inv v' ∗ ⌜(0 <? v') <> true⌝
+          | RVal _ => ∃ v', c ↦ LitInt v' ∗ Inv v' ∗ ⌜(Z.ltb 0 v') <> true⌝
           | RExn lbl p => Phi (RExn lbl p)
           end)) -∗
   (* Closing wand: any guard-false state with Inv establishes Phi. *)
-  (∀ vf, ⌜(0 <? vf) <> true⌝ -∗ c ↦ LitInt vf -∗ Inv vf -∗ Phi (RVal LitUnit)) -∗
+  (∀ vf, ⌜(Z.ltb 0 vf) <> true⌝ -∗ c ↦ LitInt vf -∗ Inv vf -∗ Phi (RVal LitUnit)) -∗
   WPE (While (BinOp GtOp (Load (Val (LitLoc c))) (Val (LitInt 0))) body) {{ Phi }}.
 Proof.
   intros Hbc.
@@ -682,9 +681,7 @@ Proof.
       heap_load. pure_step.
       case_bool.
       * (* guard true: contradiction — body guaranteed guard false. *)
-        snakelet_pure_hyps.
-        assert (Htrue' : (0 <? v') = true) by (apply Z.ltb_lt; lia).
-        rewrite Htrue' in Hgf. congruence.
+        snakelet_pure_hyps. congruence.
       * (* guard false: exit. *)
         iRename select (_ ↦ _)%I into "Hpt3".
         iApply wp_value. iApply ("Hwand" $! v' with "[] Hpt3 Hinv'").
@@ -736,3 +733,5 @@ Proof.
   - iExact "Hr".
   - iApply ("Hdone" with "HI").
 Qed.
+
+End while_lemma.

@@ -39,6 +39,16 @@ jobs:
           eval $(opam env)
           dune build
 
+      - name: Build Coq test deps
+        run: |
+          eval $(opam env)
+          coqc -R coq "" coq/ListPredicates.v
+          coqc -R coq "" coq/SnakeletLang.v
+          coqc -R coq "" coq/SnakeletEval.v
+          coqc -R coq "" coq/SnakeletExnLang.v
+          coqc -R coq "" coq/SnakeletExnWp.v
+          coqc -R coq "" coq/SnakeletExnTactics.v
+
       - name: Run tests
         run: |
           eval $(opam env)
