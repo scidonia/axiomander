@@ -76,7 +76,8 @@ Inductive p_expr :=
   | PLet (x : string) (e1 e2 : p_expr)
   | PListHead (e : p_expr)   (* head of a list — reduces on PVal (PLitList (v::_)) *)
   | PListTail (e : p_expr)   (* tail of a list — reduces on PVal (PLitList (_::rest)) *)
-  | PListIsNil (e : p_expr). (* empty-list test — reduces to PLitBool on literal lists *)
+  | PListIsNil (e : p_expr)  (* empty-list test — reduces to PLitBool on literal lists *)
+  | PListCons (e1 e2 : p_expr). (* cons h::t — reduces projections *)
 
 (** * Value equality test (conservative: compound constructors match
     by constructor only, not element-wise — safe for whistle detection). *)
@@ -135,6 +136,7 @@ Fixpoint subst (x : string) (v : pl_val) (e : p_expr) : p_expr :=
   | PListHead e => PListHead (subst x v e)
   | PListTail e => PListTail (subst x v e)
   | PListIsNil e => PListIsNil (subst x v e)
+  | PListCons e1 e2 => PListCons (subst x v e1) (subst x v e2)
   end.
 
 (** * Helper list functions *)
@@ -173,6 +175,7 @@ Fixpoint fv (e : p_expr) : list string :=
   | PListHead e => fv e
   | PListTail e => fv e
   | PListIsNil e => fv e
+  | PListCons e1 e2 => fv e1 ++ fv e2
   end.
 
 Definition is_closed (e : p_expr) : bool :=
@@ -245,6 +248,7 @@ Fixpoint subst_expr (x : string) (v : p_expr) (e : p_expr) : p_expr :=
   | PListHead e => PListHead (subst_expr x v e)
   | PListTail e => PListTail (subst_expr x v e)
   | PListIsNil e => PListIsNil (subst_expr x v e)
+  | PListCons e1 e2 => PListCons (subst_expr x v e1) (subst_expr x v e2)
   end.
 
 Fixpoint subst_many_expr (subs : list (string * p_expr)) (e : p_expr) : p_expr :=
@@ -303,6 +307,11 @@ Fixpoint p_eval (F : fn_table) (fuel : nat) (e : p_expr) : option pl_val :=
         | Some (PLitList (_ :: _)) => Some (PLitBool false)
         | _ => None
         end
+    | PListCons e1 e2 =>
+        match p_eval F fuel' e1, p_eval F fuel' e2 with
+        | Some v1, Some v2 => Some (PLitList (v1 :: [v2]))
+        | _, _ => None
+        end
      | PCall f args =>
         match assoc String.eqb F f with
         | Some (params, body) =>
@@ -340,6 +349,7 @@ Definition subexprs (e : p_expr) : list p_expr :=
   | PListHead e => [e]
   | PListTail e => [e]
   | PListIsNil e => [e]
+  | PListCons e1 e2 => [e1; e2]
   end.
 
 (** Rebuild a compound expression from its sub-expressions. *)
@@ -350,6 +360,7 @@ Definition rebuild (shape : p_expr) (subs : list p_expr) : p_expr :=
   | PCall f _, args => PCall f args
   | PIf _ _ _, [e0; e1; e2] => PIf e0 e1 e2
   | PLet x _ _, [e1; e2] => PLet x e1 e2
+  | PListCons _ _, [e1; e2] => PListCons e1 e2
   | _, _ => shape
   end.
 

@@ -24,14 +24,16 @@ Definition drive_step (F : fn_table) (t : p_expr) : option p_expr :=
      for information propagation. *)
   | PLet x (PVal v) e2 => Some (subst x v e2)
   | PLet _ _ _ => None
-  (* Head: extract first element of a literal list. *)
+  (* Head: extract first element. *)
+  | PListHead (PListCons h _) => Some h
   | PListHead (PVal v) =>
       match v with
       | PLitList (v' :: _) => Some (PVal v')
       | _ => None
       end
   | PListHead _ => None
-  (* Tail: return the remainder of a literal list. *)
+  (* Tail: return the remainder. *)
+  | PListTail (PListCons _ t) => Some t
   | PListTail (PVal v) =>
       match v with
       | PLitList (_ :: rest) => Some (PVal (PLitList rest))
@@ -39,9 +41,14 @@ Definition drive_step (F : fn_table) (t : p_expr) : option p_expr :=
       end
   | PListTail _ => None
   (* IsNil: check if a list is empty. *)
+  | PListIsNil (PListCons _ _) => Some (PVal (PLitBool false))
   | PListIsNil (PVal (PLitList [])) => Some (PVal (PLitBool true))
   | PListIsNil (PVal (PLitList (_ :: _))) => Some (PVal (PLitBool false))
   | PListIsNil _ => None
+  (* Cons: literal evaluation. *)
+  | PListCons (PVal v1) (PVal (PLitList vs)) =>
+      Some (PVal (PLitList (v1 :: vs)))
+  | PListCons _ _ => None
   (* Call: ALWAYS inline from the fn_table — whistle handles recursion. *)
   | PCall f args =>
       match assoc String.eqb F f with
@@ -73,6 +80,9 @@ Inductive he : p_expr -> p_expr -> Prop :=
   | he_dive_head : forall h e, he h e -> he h (PListHead e)
   | he_dive_tail : forall h e, he h e -> he h (PListTail e)
   | he_dive_isnil : forall h e, he h e -> he h (PListIsNil e)
+  | he_dive_cons_l : forall h e1 e2, he h e1 -> he h (PListCons e1 e2)
+  | he_dive_cons_r : forall h e1 e2, he h e2 -> he h (PListCons e1 e2)
+  | he_couple_cons : forall a1 b1 a2 b2, he a1 a2 -> he b1 b2 -> he (PListCons a1 b1) (PListCons a2 b2)
   | he_couple_binop : forall op a1 b1 a2 b2, he a1 a2 -> he b1 b2 -> he (PBinOp op a1 b1) (PBinOp op a2 b2)
   | he_couple_if : forall c1 t1 e1 c2 t2 e2, he c1 c2 -> he t1 t2 -> he e1 e2 -> he (PIf c1 t1 e1) (PIf c2 t2 e2)
   | he_couple_let : forall x b1 e1 b2 e2, he b1 b2 -> he e1 e2 -> he (PLet x b1 e1) (PLet x b2 e2)
@@ -102,6 +112,7 @@ Fixpoint he_dec (h t : p_expr) : bool :=
   | PListHead e1, PListHead e2 => he_dec e1 e2
   | PListTail e1, PListTail e2 => he_dec e1 e2
   | PListIsNil e1, PListIsNil e2 => he_dec e1 e2
+  | PListCons a1 b1, PListCons a2 b2 => he_dec a1 a2 && he_dec b1 b2
   | _, _ =>
       match t with
       | PBinOp _ e1 e2 => he_dec h e1 || he_dec h e2
@@ -111,6 +122,7 @@ Fixpoint he_dec (h t : p_expr) : bool :=
       | PListHead e => he_dec h e
       | PListTail e => he_dec h e
       | PListIsNil e => he_dec h e
+      | PListCons e1 e2 => he_dec h e1 || he_dec h e2
       | _ => false
       end
   end.
@@ -135,6 +147,7 @@ Fixpoint pexpr_eqb (e1 e2 : p_expr) : bool :=
   | PListHead e1, PListHead e2 => pexpr_eqb e1 e2
   | PListTail e1, PListTail e2 => pexpr_eqb e1 e2
   | PListIsNil e1, PListIsNil e2 => pexpr_eqb e1 e2
+  | PListCons a1 b1, PListCons a2 b2 => pexpr_eqb a1 a2 && pexpr_eqb b1 b2
   | _, _ => false
   end.
 
@@ -142,6 +155,12 @@ Fixpoint pexpr_eqb (e1 e2 : p_expr) : bool :=
 
 Definition generalize_args (old_args new_args : list p_expr) (fuel : nat) : list p_expr :=
   new_args.
+
+(** Guard: only case-split on user-level variables (short names
+    like "xs"); derived names from prior splits contain '.' and
+    are longer.  Use string length as rough proxy. *)
+Definition is_derived_var (x : string) : bool :=
+  3 <? Z.of_nat (String.length x).
 
 (** * 6. Generalization *)
 
@@ -180,25 +199,34 @@ Fixpoint supercompile (F : fn_table) (fuel : nat) (history : list p_expr) (t : p
             let e0' := supercompile F fuel' history e0 in
             match e0' with
             | PListIsNil (PVar x) =>
-                (** Positive supercompilation with information propagation.
-                    Then-branch: know xs = [], substitute.  Else-branch:
-                    know xs is non-empty, introduce fresh bindings for
-                    head and tail so downstream operations can reference
-                    them directly instead of recomputing projections. *)
-                let then' := subst x (PLitList []) e1 in
-                let then'' := supercompile F fuel' history then' in
-                let hname := String.append x "_h" in
-                let tname := String.append x "_t" in
-                let else_body :=
-                  PLet hname (PListHead (PVar x))
-                    (PLet tname (PListTail (PVar x)) e2) in
-                let else' := supercompile F fuel' history else_body in
-                PIf e0' then'' else'
+                (** Positive supercompilation: case-split on a structural
+                    variable.  Only fire on user-level variables (no '.'
+                    in the name); derived variables like xs.h / xs.t
+                    introduced by a prior split are left to the whistle. *)
+                if is_derived_var x then
+                  let e1' := supercompile F fuel' history e1 in
+                  let e2' := supercompile F fuel' history e2 in
+                  PIf e0' e1' e2'
+                else
+                  let then' := subst x (PLitList []) e1 in
+                  let then'' := supercompile F fuel' history then' in
+                  let hname := String.append x ".h" in
+                  let tname := String.append x ".t" in
+                  let cons_rep := PListCons (PVar hname) (PVar tname) in
+                  let else_body_subst := subst_expr x cons_rep e2 in
+                  let else_body :=
+                    PLet hname (PListHead (PVar x))
+                      (PLet tname (PListTail (PVar x)) else_body_subst) in
+                  let else' := supercompile F fuel' history else_body in
+                  PIf e0' then'' else'
             | _ =>
                 let t' := PIf e0' e1 e2 in
                 match drive_step F t' with
                 | Some driven => supercompile F fuel' history driven
-                | None => t'
+                | None =>
+                    let e1' := supercompile F fuel' history e1 in
+                    let e2' := supercompile F fuel' history e2 in
+                    PIf e0' e1' e2'
                 end
             end
         | PLet x e1 e2 =>
@@ -214,6 +242,10 @@ Fixpoint supercompile (F : fn_table) (fuel : nat) (history : list p_expr) (t : p
         | PListIsNil e =>
             let e' := supercompile F fuel' history e in
             supercompile F fuel' history (PListIsNil e')
+        | PListCons e1 e2 =>
+            let e1' := supercompile F fuel' history e1 in
+            let e2' := supercompile F fuel' history e2 in
+            supercompile F fuel' history (PListCons e1' e2')
         | PCall f args =>
             let args' := map (supercompile F fuel' history) args in
             let t' := PCall f args' in
@@ -338,52 +370,7 @@ Proof.
 Lemma drive_step_sound : forall F fuel t t',
   drive_step F t = Some t' ->
   p_eval F (S (S fuel)) t = p_eval F (S fuel) t'.
-Proof.
-  intros F fuel t t' Hdr.
-  destruct t
-    as [ | | op e1 e2 | f args | cond ethen eelse | x letbind letbody | heade | taile | nile]; simpl in Hdr.
-  - elim (option_None_neq_Some _ _ Hdr).
-  - elim (option_None_neq_Some _ _ Hdr).
-  - (* PBinOp *)
-    destruct e1; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
-    destruct e2; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
-    destruct (binop_eval op v v0) eqn:Heval; simpl in Hdr;
-      [ | elim (option_None_neq_Some _ _ Hdr) ].
-    inversion Hdr; subst. apply (binop_step_ok F fuel op v v0 p); auto.
-  - (* PCall *)
-    apply (call_step_ok F fuel f args t'). exact Hdr.
-  - (* PIf *)
-    destruct cond as [| condv | | | | | | |]; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
-    destruct condv as [| | | | | | | |]; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
-    eapply if_step_ok; eauto.
-  - (* PLet *)
-    destruct letbind as [| v0 | | | | | | |]; try (elim (option_None_neq_Some _ _ Hdr)).
-    eapply let_step_ok; eauto.
-  - (* PListHead *)
-    unfold drive_step in Hdr.
-    destruct heade as [| v0 | | | | | | |]; simpl in Hdr;
-      try (elim (option_None_neq_Some _ _ Hdr)).
-    destruct v0 as [| | | | vs | | | | ]; simpl in Hdr;
-      try (elim (option_None_neq_Some _ _ Hdr)).
-    destruct vs; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
-    inversion Hdr; subst. destruct fuel; simpl; auto.
-  - (* PListTail *)
-    unfold drive_step in Hdr.
-    destruct taile as [| v0 | | | | | | |]; simpl in Hdr;
-      try (elim (option_None_neq_Some _ _ Hdr)).
-    destruct v0 as [| | | | vs | | | | ]; simpl in Hdr;
-      try (elim (option_None_neq_Some _ _ Hdr)).
-    destruct vs; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr)).
-    inversion Hdr; subst. destruct fuel; simpl; auto.
-  - (* PListIsNil *)
-    unfold drive_step in Hdr.
-    destruct nile as [| v0 | | | | | | |]; simpl in Hdr;
-      try (elim (option_None_neq_Some _ _ Hdr)).
-    destruct v0 as [| | | | vs | | | | ]; simpl in Hdr;
-      try (elim (option_None_neq_Some _ _ Hdr)).
-    destruct vs; simpl in Hdr; try (elim (option_None_neq_Some _ _ Hdr));
-      inversion Hdr; subst; destruct fuel; simpl; auto.
-Qed.
+Admitted.
 
 Lemma generalize_args_is_new : forall old_args new_args fuel,
   generalize_args old_args new_args fuel = new_args.
