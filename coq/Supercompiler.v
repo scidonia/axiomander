@@ -88,6 +88,9 @@ Definition drive_step (F : fn_table) (c : ctx) (t : p_expr) : option p_expr :=
       Some (PVal (PLitList (v1 :: vs)))
   | PListCons _ _ => None
   | PCall f args =>
+      if existsb (fun a => match a with PCall _ _ | PIf _ _ _ | PLet _ _ _ => true | _ => false end) args then
+        None
+      else
       match assoc String.eqb F f with
       | Some (params, body) =>
           if forallb is_PVal args then
@@ -295,9 +298,6 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
         | PCall f args =>
             let args' := map (supercompile F fuel' history cx) args in
             let t' := PCall f args' in
-            (** D1 strict whistle with context expansion: reconstruct
-                structural relationships (e.g. xs.t → PListTail(xs))
-                before checking homeomorphic embedding. *)
             let args_expanded := map (ctx_expand_one cx) args' in
             if existsb (fun h => match h with
                                  | PCall fh argsh =>
@@ -307,7 +307,10 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
                                  end) history then
               t'
             else
-              supercompile F fuel' history cx t'
+              match drive_step F cx t' with
+              | Some driven => supercompile F fuel' history cx driven
+              | None => t'
+              end
         end
     end
   end.
