@@ -159,9 +159,6 @@ Fixpoint supercompile (F : fn_table) (fuel : nat) (history : list p_expr) (t : p
     match drive_step F t with
     | Some t' => supercompile F fuel' (t :: history) t'
     | None =>
-      if whistle_dec history t then
-        supercompile F fuel' history (generalize F history t)
-      else
         match t with
         | PVal _ | PVar _ => t
         | PBinOp op e1 e2 =>
@@ -183,7 +180,11 @@ Fixpoint supercompile (F : fn_table) (fuel : nat) (history : list p_expr) (t : p
             supercompile F fuel' history (PListTail e')
         | PCall f args =>
             let args' := map (supercompile F fuel' history) args in
-            supercompile F fuel' history (PCall f args')
+            let t' := PCall f args' in
+            if whistle_dec history t' then
+              supercompile F fuel' history (generalize F history t')
+            else
+              supercompile F fuel' history t'
         end
     end
   end.
