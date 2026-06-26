@@ -18,3 +18,4 @@ dist/
 .axiomander/cache/graph.json
 .axiomander/
 .clinerules
+docs/slides/fluid-supercompiler-slides.pdf
