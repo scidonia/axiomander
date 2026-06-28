@@ -216,7 +216,18 @@ Fixpoint lgg_args (args1 args2 : list p_expr) (n : nat)
   | _, _ => (args1, [], [])
   end.
 
-(** * 5. Generalization *)
+(** * 5. Fold definitions (D1) *)
+
+Record fold_def := MkFoldDef {
+  fd_name   : string;
+  fd_params : list string;
+  fd_body   : p_expr;
+}.
+
+Definition fold_fn_table (defs : list fold_def) : fn_table :=
+  map (fun d => (fd_name d, (fd_params d, fd_body d))) defs.
+
+(** * 6. Generalization *)
 
 Definition generalize_args (old_args new_args : list p_expr) (fuel : nat) : list p_expr :=
   new_args.
@@ -240,30 +251,30 @@ Definition generalize (F : fn_table) (history : list p_expr) (t : p_expr) : p_ex
 (** * 6. The supercompiler with symbolic context *)
 
 Fixpoint supercompile (F : fn_table) (fuel : nat)
-    (history : list p_expr) (cx : ctx) (t : p_expr) : p_expr :=
+    (history : list p_expr) (cx : ctx) (t : p_expr) : list fold_def * p_expr :=
   match fuel with
-  | 0%nat => t
+  | 0%nat => ([], t)
   | S fuel' =>
     match drive_step F cx t with
     | Some t' => supercompile F fuel' (t :: history) cx t'
     | None =>
         match t with
-        | PVal _ | PVar _ => t
+        | PVal _ | PVar _ => ([], t)
         | PBinOp op e1 e2 =>
-            let e1' := supercompile F fuel' history cx e1 in
-            let e2' := supercompile F fuel' history cx e2 in
+            let '(ds1, e1') := supercompile F fuel' history cx e1 in
+            let '(ds2, e2') := supercompile F fuel' history cx e2 in
+            let defs := (ds1 ++ ds2)%list in
             let t' := PBinOp op e1' e2' in
             match drive_step F cx t' with
-            | Some driven => supercompile F fuel' history cx driven
-            | None => t'
+            | Some driven =>
+                let '(ds3, r) := supercompile F fuel' history cx driven in
+                ((defs ++ ds3)%list, r)
+            | None => (defs, t')
             end
         | PIf e0 e1 e2 =>
-            let e0' := supercompile F fuel' history cx e0 in
+            let '(ds0, e0') := supercompile F fuel' history cx e0 in
             match e0' with
              | PListIsNil (PVar x) =>
-                (** Positive supercompilation via context.
-                    Only fire on user-level variables; derived names
-                    (containing '.') are left to the D1 whistle. *)
                 if match String.index 0 "." x with Some _ => false | None => true end then
                   let hname := String.append x ".h" in
                   let tname := String.append x ".t" in
@@ -272,71 +283,98 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
                     ctx_extend tname (PListTail (PVar x))
                       (ctx_extend hname (PListHead (PVar x))
                         (ctx_extend x (PListCons (PVar hname) (PVar tname)) cx)) in
-                  let then' := supercompile F fuel' history cx_then e1 in
-                  let else' := supercompile F fuel' history cx_else e2 in
-                  PIf e0' then' else'
+                  let '(ds_then, then') := supercompile F fuel' history cx_then e1 in
+                  let '(ds_else, else') := supercompile F fuel' history cx_else e2 in
+                  ((ds0 ++ ds_then ++ ds_else)%list, PIf e0' then' else')
                 else
-                  let e1' := supercompile F fuel' history cx e1 in
-                  let e2' := supercompile F fuel' history cx e2 in
-                  PIf e0' e1' e2'
+                  let '(ds1, e1') := supercompile F fuel' history cx e1 in
+                  let '(ds2, e2') := supercompile F fuel' history cx e2 in
+                    ((ds0 ++ ds1 ++ ds2)%list, PIf e0' e1' e2')
             | _ =>
                 let t' := PIf e0' e1 e2 in
                 match drive_step F cx t' with
-                | Some driven => supercompile F fuel' history cx driven
+                | Some driven =>
+                    let '(ds_dr, r) := supercompile F fuel' history cx driven in
+                    ((ds0 ++ ds_dr)%list, r)
                 | None =>
-                    let e1' := supercompile F fuel' history cx e1 in
-                    let e2' := supercompile F fuel' history cx e2 in
-                    PIf e0' e1' e2'
+                    let '(ds1, e1') := supercompile F fuel' history cx e1 in
+                    let '(ds2, e2') := supercompile F fuel' history cx e2 in
+                  ((ds0 ++ ds1 ++ ds2)%list, PIf e0' e1' e2')
                 end
             end
         | PLet x e1 e2 =>
-            let e1' := supercompile F fuel' history cx e1 in
-            let e2' := supercompile F fuel' history cx e2 in
-            PLet x e1' e2'
+            let '(ds1, e1') := supercompile F fuel' history cx e1 in
+            let '(ds2, e2') := supercompile F fuel' history cx e2 in
+            ((ds1 ++ ds2)%list, PLet x e1' e2')
         | PListHead e =>
-            let e' := supercompile F fuel' history cx e in
+            let '(ds, e') := supercompile F fuel' history cx e in
             let t' := PListHead e' in
             match drive_step F cx t' with
-            | Some driven => supercompile F fuel' history cx driven
-            | None => t'
+            | Some driven =>
+                let '(ds2, r) := supercompile F fuel' history cx driven in
+                ((ds ++ ds2)%list, r)
+            | None => (ds, t')
             end
         | PListTail e =>
-            let e' := supercompile F fuel' history cx e in
+            let '(ds, e') := supercompile F fuel' history cx e in
             let t' := PListTail e' in
             match drive_step F cx t' with
-            | Some driven => supercompile F fuel' history cx driven
-            | None => t'
+            | Some driven =>
+                let '(ds2, r) := supercompile F fuel' history cx driven in
+                ((ds ++ ds2)%list, r)
+            | None => (ds, t')
             end
         | PListIsNil e =>
-            let e' := supercompile F fuel' history cx e in
+            let '(ds, e') := supercompile F fuel' history cx e in
             let t' := PListIsNil e' in
             match drive_step F cx t' with
-            | Some driven => supercompile F fuel' history cx driven
-            | None => t'
+            | Some driven =>
+                let '(ds2, r) := supercompile F fuel' history cx driven in
+                ((ds ++ ds2)%list, r)
+            | None => (ds, t')
             end
         | PListCons e1 e2 =>
-            let e1' := supercompile F fuel' history cx e1 in
-            let e2' := supercompile F fuel' history cx e2 in
+            let '(ds1, e1') := supercompile F fuel' history cx e1 in
+            let '(ds2, e2') := supercompile F fuel' history cx e2 in
+            let defs := (ds1 ++ ds2)%list in
             let t' := PListCons e1' e2' in
             match drive_step F cx t' with
-            | Some driven => supercompile F fuel' history cx driven
-            | None => t'
+            | Some driven =>
+                let '(ds3, r) := supercompile F fuel' history cx driven in
+                ((defs ++ ds3)%list, r)
+            | None => (defs, t')
             end
         | PCall f args =>
-            let args' := map (supercompile F fuel' history cx) args in
+            let process_one acc a :=
+              let '(acc_defs, acc_args) := acc in
+              let '(ds_a, a') := supercompile F fuel' history cx a in
+              ((acc_defs ++ ds_a)%list, a' :: acc_args) in
+            let '(ds_args, args'_rev) :=
+              fold_left process_one args ([], []) in
+            let args' := rev args'_rev in
             let t' := PCall f args' in
             let args_expanded := map (ctx_expand_one cx) args' in
+            (** D1 strict whistle: stop when same-function ancestor
+                has structurally smaller args. *)
             if existsb (fun h => match h with
                                  | PCall fh argsh =>
                                      String.eqb f fh
                                      && forallb2 he_dec argsh args_expanded
                                  | _ => false
                                  end) history then
-              t'
+              (** D1 fires: compute LGG of args to create a fold. *)
+              let '(gen_args, _, _) := lgg_args args_expanded args' 0%nat in
+              let fold_name := String.append "fold_" f in
+              let fold_body := PCall f gen_args in
+              let params := map (fun a => match a with PVar v => v | _ => "x"%string end) gen_args in
+              let def := MkFoldDef fold_name params fold_body in
+              ((ds_args ++ [def])%list, t')
             else
               match drive_step F cx t' with
-              | Some driven => supercompile F fuel' history cx driven
-              | None => t'
+              | Some driven =>
+                  let '(ds_dr, r) := supercompile F fuel' history cx driven in
+                  ((ds_args ++ ds_dr)%list, r)
+              | None => (ds_args, t')
               end
         end
     end
@@ -344,6 +382,12 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
 
 (** Entry point: empty context. *)
 Definition scc (F : fn_table) (fuel : nat) (t : p_expr) : p_expr :=
+  let '(defs, t') := supercompile F fuel nil nil t in
+  (** For now, just return the residual; folds are in [defs].
+      A full pipeline would add [defs] to [F] and continue. *)
+  t'.
+
+Definition scc_full (F : fn_table) (fuel : nat) (t : p_expr) : list fold_def * p_expr :=
   supercompile F fuel nil nil t.
 
 (** * 7. Soundness *)
@@ -451,7 +495,7 @@ Lemma drive_step_sound : forall F fuel c t t',
 Admitted.
 
 Lemma supercompile_sound : forall F fuel history cx t,
-  p_eval F fuel t = p_eval F fuel (supercompile F fuel history cx t).
+  p_eval F fuel t = p_eval F fuel (snd (supercompile F fuel history cx t)).
 Admitted.
 
 Lemma generalize_args_is_new : forall old_args new_args fuel,
