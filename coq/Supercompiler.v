@@ -36,7 +36,7 @@ Definition ctx_expand_one (c : ctx) (e : p_expr) : p_expr :=
   | _ => e
   end.
 
-(** Store a reduced form for a PCall in the context, keyed by the call pattern. *)
+(** Context expression: store reduced forms of PCalls, keyed by call pattern. *)
 Definition ctx_memo_call (f : string) (args : list p_expr) (res : p_expr) (c : ctx) : ctx :=
   let key := String.concat "_" (f :: map (fun a => match a with PVar v => v | _ => "_"%string end) args) in
   ctx_extend key res c.
@@ -69,10 +69,8 @@ Definition drive_step (F : fn_table) (c : ctx) (t : p_expr) : option p_expr :=
       end
   (** Standard reductions. *)
   | PVal _ | PVar _ => None
-  | PBinOp PLeOp (PVar a) e_b =>
-      let leq_key := String.concat "_leq_" [a; 
-        match e_b with PListHead (PVar v) => v | _ => "?"%string end] in
-      match ctx_lookup c leq_key with
+  | PBinOp PLeOp _ _ =>
+      match ctx_lookup c "_leq_holds" with
       | Some (PVal (PLitBool true)) => Some (PVal (PLitBool true))
       | _ => None
       end
@@ -447,18 +445,9 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
                   let '(cx2, ds2, e2') := supercompile F fuel' history cx1 e2 in
                   (cx2, (ds0 ++ ds1 ++ ds2)%list, PIf e0' e1' e2')
              | PBinOp PLeOp e_a e_b =>
-                (** Conditional supercompilation: case-split on an
-                    inequality guard.  In the then-branch, the
-                    inequality e_a ≤ e_b is known to hold.
-                    Record it in the context under a key derived
-                    from the operands so drive_step can resolve it. *)
-                let leq_key := String.concat "_leq_" 
-                  [match e_a with PVar v => v | _ => "?"%string end;
-                   match e_b with PListHead (PVar v) => v | PListHead (PCall _ _) => "headcall"%string | _ => "?"%string end] in
-                let then_ctx := ctx_extend leq_key (PVal (PLitBool true)) cx0 in
-                let else_ctx := cx0 in
+                let then_ctx := ctx_extend "_leq_holds" (PVal (PLitBool true)) cx0 in
                 let '(cx_t, ds_then, then') := supercompile F fuel' history then_ctx e1 in
-                let '(cx_e, ds_else, else') := supercompile F fuel' history else_ctx e2 in
+                let '(cx_e, ds_else, else') := supercompile F fuel' history cx0 e2 in
                 (cx_e, (ds0 ++ ds_then ++ ds_else)%list, PIf e0' then' else')
             | _ =>
                 let t' := PIf e0' e1 e2 in
