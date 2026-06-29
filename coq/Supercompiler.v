@@ -373,29 +373,53 @@ Fixpoint replace_calls (fn new_name : string) (e : p_expr) : p_expr :=
 Definition try_fold (F : fn_table) (history : list p_expr) (cx : ctx)
     (t : p_expr) (f : string) (args : list p_expr)
     : option fold_def * p_expr :=
-  let args_full := map (fun a => ctx_expand_n cx a 5) args in
-  let ancestor_args :=
-    fold_left (fun acc h =>
-      match h with
-      | PCall fh argsh =>
-          if (String.eqb f fh && forallb2 he_dec argsh args_full)%bool
-          then Some argsh else acc
-      | _ => acc
-      end) history None in
-  match ancestor_args with
-  | Some argsh =>
-      let '(gen_args, _, _) := lgg_args argsh args 0%nat in
+  let t_expanded := ctx_expand_n cx t 5 in
+  (** Process-tree whistle: check if the current configuration
+      embeds in any history entry. If so, LGG the two full
+      configurations to create a fold. *)
+  match fold_left (fun acc h =>
+    if he_dec h t_expanded then Some h else acc) history None with
+  | Some ancestor =>
+      let '(gen, subst1, _) := lgg_expr ancestor t_expanded 0%nat in
       let fold_name := String.append "fold_" f in
-      (** Drive the ancestor call one step to get the fold body. *)
-      let ancestor_body :=
-        match drive_step F cx (PCall f gen_args) with
-        | Some body => body
-        | None => PCall f gen_args  (* fallback: raw call *)
+      let fold_body :=
+        match gen with
+        | PCall fg gen_args =>
+            match drive_step F cx (PCall fg gen_args) with
+            | Some body => replace_calls fg fold_name body
+            | None => replace_calls fg fold_name gen
+            end
+        | _ => replace_calls f fold_name gen
         end in
-      let fold_body := replace_calls f fold_name ancestor_body in
-      let params := map (fun a => match a with PVar v => v | _ => "p"%string end) gen_args in
-      (Some (MkFoldDef fold_name params fold_body), t)
-  | None => (None, t)
+      let params := map fst subst1 in
+      let residual := PCall fold_name args in
+      (Some (MkFoldDef fold_name params fold_body), residual)
+  | None =>
+      (** D1 strict whistle: same-function ancestor with
+          structurally smaller args. *)
+      let args_full := map (fun a => ctx_expand_n cx a 5) args in
+      let ancestor_args :=
+        fold_left (fun acc h =>
+          match h with
+          | PCall fh argsh =>
+              if (String.eqb f fh && forallb2 he_dec argsh args_full)%bool
+              then Some argsh else acc
+          | _ => acc
+          end) history None in
+      match ancestor_args with
+      | Some argsh =>
+          let '(gen_args, _, _) := lgg_args argsh args 0%nat in
+          let fold_name := String.append "fold_" f in
+          let ancestor_body :=
+            match drive_step F cx (PCall f gen_args) with
+            | Some body => body
+            | None => PCall f gen_args
+            end in
+          let fold_body := replace_calls f fold_name ancestor_body in
+          let params := map (fun a => match a with PVar v => v | _ => "p"%string end) gen_args in
+          (Some (MkFoldDef fold_name params fold_body), PCall fold_name args)
+      | None => (None, t)
+      end
   end.
 
 Fixpoint supercompile (F : fn_table) (fuel : nat)
