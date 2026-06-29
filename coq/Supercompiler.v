@@ -227,6 +227,53 @@ Record fold_def := MkFoldDef {
 Definition fold_fn_table (defs : list fold_def) : fn_table :=
   map (fun d => (fd_name d, (fd_params d, fd_body d))) defs.
 
+(** * 5b. LGG of two full expressions (Glück-style process-tree MSG) *)
+
+Fixpoint lgg_expr (e1 e2 : p_expr) (n : nat)
+    : p_expr * list (string * p_expr) * list (string * p_expr) :=
+  let fresh_name m := "lgg" ++
+    match m with | 0%nat => "0" | 1%nat => "1" | 2%nat => "2" | _ => "3" end in
+  let lgg_fresh := (PVar (fresh_name n), [(fresh_name n, e1)], [(fresh_name n, e2)]) in
+  match e1, e2 with
+  | PVal v1, PVal v2 =>
+      if pl_val_eqb v1 v2 then (PVal v1, [], []) else lgg_fresh
+  | PVar x1, PVar x2 =>
+      if String.eqb x1 x2 then (PVar x1, [], []) else lgg_fresh
+  | PBinOp op1 a1 b1, PBinOp op2 a2 b2 =>
+      if pl_binop_eqb op1 op2 then
+        let '(ga, s1a, s2a) := lgg_expr a1 a2 (S n) in
+        let '(gb, s1b, s2b) := lgg_expr b1 b2 (S (S n)) in
+        (PBinOp op1 ga gb, (s1a ++ s1b)%list, (s2a ++ s2b)%list)
+      else lgg_fresh
+  | PCall f1 args1, PCall f2 args2 =>
+      if String.eqb f1 f2 && Nat.eqb (List.length args1) (List.length args2) then
+        let '(gars, s1, s2) := lgg_args args1 args2 n in
+        (PCall f1 gars, s1, s2)
+      else lgg_fresh
+  | PIf c1 t1 e1, PIf c2 t2 e2 =>
+      let '(gc, s1c, s2c) := lgg_expr c1 c2 n in
+      let '(gt, s1t, s2t) := lgg_expr t1 t2 (S n) in
+      let '(ge, s1e, s2e) := lgg_expr e1 e2 (S (S n)) in
+      (PIf gc gt ge, (s1c ++ s1t ++ s1e)%list, (s2c ++ s2t ++ s2e)%list)
+  | PLet x1 b1 e1, PLet x2 b2 e2 =>
+      if String.eqb x1 x2 then
+        let '(gb, s1b, s2b) := lgg_expr b1 b2 n in
+        let '(ge, s1e, s2e) := lgg_expr e1 e2 (S n) in
+        (PLet x1 gb ge, (s1b ++ s1e)%list, (s2b ++ s2e)%list)
+      else lgg_fresh
+  | PListHead e1, PListHead e2 =>
+      let '(ge, s1, s2) := lgg_expr e1 e2 n in (PListHead ge, s1, s2)
+  | PListTail e1, PListTail e2 =>
+      let '(ge, s1, s2) := lgg_expr e1 e2 n in (PListTail ge, s1, s2)
+  | PListIsNil e1, PListIsNil e2 =>
+      let '(ge, s1, s2) := lgg_expr e1 e2 n in (PListIsNil ge, s1, s2)
+  | PListCons a1 b1, PListCons a2 b2 =>
+      let '(ga, s1a, s2a) := lgg_expr a1 a2 n in
+      let '(gb, s1b, s2b) := lgg_expr b1 b2 (S n) in
+      (PListCons ga gb, (s1a ++ s1b)%list, (s2a ++ s2b)%list)
+  | _, _ => lgg_fresh
+  end.
+
 (** * 6. Generalization *)
 
 Definition generalize_args (old_args new_args : list p_expr) (fuel : nat) : list p_expr :=
@@ -250,6 +297,31 @@ Definition generalize (F : fn_table) (history : list p_expr) (t : p_expr) : p_ex
 
 (** * 6. The supercompiler with symbolic context *)
 
+(** Iteratively expand context until fixpoint or fuel exhausted. *)
+Fixpoint ctx_expand_n (c : ctx) (e : p_expr) (n : nat) : p_expr :=
+  match n with
+  | 0%nat => e
+  | S n' =>
+      let e1 := ctx_expand_one c e in
+      if pexpr_eqb e1 e then e
+      else ctx_expand_n c e1 n'
+  end.
+
+(** Check if [t] embeds in any history entry, and if so, create
+    a fold via LGG. *)
+Definition try_fold (history : list p_expr) (cx : ctx) (t : p_expr) (name_hint : string)
+    : option fold_def * p_expr :=
+  let t_expanded := ctx_expand_n cx t 10%nat in
+  match fold_left (fun acc h =>
+    if he_dec h t_expanded then Some h else acc) history None with
+  | Some ancestor =>
+      let '(gen, subst1, _) := lgg_expr ancestor t_expanded 0%nat in
+      let params := map fst subst1 in
+      let fold_name := String.append "fold_" name_hint in
+      (Some (MkFoldDef fold_name params gen), t)
+  | None => (None, t)
+  end.
+
 Fixpoint supercompile (F : fn_table) (fuel : nat)
     (history : list p_expr) (cx : ctx) (t : p_expr) : list fold_def * p_expr :=
   match fuel with
@@ -265,11 +337,16 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
             let '(ds2, e2') := supercompile F fuel' history cx e2 in
             let defs := (ds1 ++ ds2)%list in
             let t' := PBinOp op e1' e2' in
-            match drive_step F cx t' with
-            | Some driven =>
-                let '(ds3, r) := supercompile F fuel' history cx driven in
-                ((defs ++ ds3)%list, r)
-            | None => (defs, t')
+            let '(fold_opt, t_folded) := try_fold history cx t' "binop" in
+            match fold_opt with
+            | Some d => ((defs ++ [d])%list, t_folded)
+            | None =>
+                match drive_step F cx t_folded with
+                | Some driven =>
+                    let '(ds3, r) := supercompile F fuel' history cx driven in
+                    ((defs ++ ds3)%list, r)
+                | None => (defs, t_folded)
+                end
             end
         | PIf e0 e1 e2 =>
             let '(ds0, e0') := supercompile F fuel' history cx e0 in
@@ -285,64 +362,104 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
                         (ctx_extend x (PListCons (PVar hname) (PVar tname)) cx)) in
                   let '(ds_then, then') := supercompile F fuel' history cx_then e1 in
                   let '(ds_else, else') := supercompile F fuel' history cx_else e2 in
-                  ((ds0 ++ ds_then ++ ds_else)%list, PIf e0' then' else')
+                  let t' := PIf e0' then' else' in
+                  let '(fold_opt, t_folded) := try_fold history cx t' "if" in
+                  match fold_opt with
+                  | Some d => ((ds0 ++ ds_then ++ ds_else ++ [d])%list, t_folded)
+                  | None => ((ds0 ++ ds_then ++ ds_else)%list, t_folded)
+                  end
                 else
                   let '(ds1, e1') := supercompile F fuel' history cx e1 in
                   let '(ds2, e2') := supercompile F fuel' history cx e2 in
-                    ((ds0 ++ ds1 ++ ds2)%list, PIf e0' e1' e2')
+                  let t' := PIf e0' e1' e2' in
+                  let '(fold_opt, t_folded) := try_fold history cx t' "if" in
+                  match fold_opt with
+                  | Some d => ((ds0 ++ ds1 ++ ds2 ++ [d])%list, t_folded)
+                  | None => ((ds0 ++ ds1 ++ ds2)%list, t_folded)
+                  end
             | _ =>
                 let t' := PIf e0' e1 e2 in
-                match drive_step F cx t' with
-                | Some driven =>
-                    let '(ds_dr, r) := supercompile F fuel' history cx driven in
-                    ((ds0 ++ ds_dr)%list, r)
+                let '(fold_opt, t_folded) := try_fold history cx t' "if" in
+                match fold_opt with
+                | Some d => ((ds0 ++ [d])%list, t_folded)
                 | None =>
-                    let '(ds1, e1') := supercompile F fuel' history cx e1 in
-                    let '(ds2, e2') := supercompile F fuel' history cx e2 in
-                  ((ds0 ++ ds1 ++ ds2)%list, PIf e0' e1' e2')
+                    match drive_step F cx t_folded with
+                    | Some driven =>
+                        let '(ds_dr, r) := supercompile F fuel' history cx driven in
+                        ((ds0 ++ ds_dr)%list, r)
+                    | None =>
+                        let '(ds1, e1') := supercompile F fuel' history cx e1 in
+                        let '(ds2, e2') := supercompile F fuel' history cx e2 in
+                        ((ds0 ++ ds1 ++ ds2)%list, PIf e0' e1' e2')
+                    end
                 end
             end
         | PLet x e1 e2 =>
             let '(ds1, e1') := supercompile F fuel' history cx e1 in
             let '(ds2, e2') := supercompile F fuel' history cx e2 in
-            ((ds1 ++ ds2)%list, PLet x e1' e2')
+            let t' := PLet x e1' e2' in
+            let '(fold_opt, t_folded) := try_fold history cx t' "let" in
+            match fold_opt with
+            | Some d => ((ds1 ++ ds2 ++ [d])%list, t_folded)
+            | None => ((ds1 ++ ds2)%list, t_folded)
+            end
         | PListHead e =>
             let '(ds, e') := supercompile F fuel' history cx e in
             let t' := PListHead e' in
-            match drive_step F cx t' with
-            | Some driven =>
-                let '(ds2, r) := supercompile F fuel' history cx driven in
-                ((ds ++ ds2)%list, r)
-            | None => (ds, t')
+            let '(fold_opt, t_folded) := try_fold history cx t' "head" in
+            match fold_opt with
+            | Some d => ((ds ++ [d])%list, t_folded)
+            | None =>
+                match drive_step F cx t_folded with
+                | Some driven =>
+                    let '(ds2, r) := supercompile F fuel' history cx driven in
+                    ((ds ++ ds2)%list, r)
+                | None => (ds, t_folded)
+                end
             end
         | PListTail e =>
             let '(ds, e') := supercompile F fuel' history cx e in
             let t' := PListTail e' in
-            match drive_step F cx t' with
-            | Some driven =>
-                let '(ds2, r) := supercompile F fuel' history cx driven in
-                ((ds ++ ds2)%list, r)
-            | None => (ds, t')
+            let '(fold_opt, t_folded) := try_fold history cx t' "tail" in
+            match fold_opt with
+            | Some d => ((ds ++ [d])%list, t_folded)
+            | None =>
+                match drive_step F cx t_folded with
+                | Some driven =>
+                    let '(ds2, r) := supercompile F fuel' history cx driven in
+                    ((ds ++ ds2)%list, r)
+                | None => (ds, t_folded)
+                end
             end
         | PListIsNil e =>
             let '(ds, e') := supercompile F fuel' history cx e in
             let t' := PListIsNil e' in
-            match drive_step F cx t' with
-            | Some driven =>
-                let '(ds2, r) := supercompile F fuel' history cx driven in
-                ((ds ++ ds2)%list, r)
-            | None => (ds, t')
+            let '(fold_opt, t_folded) := try_fold history cx t' "isnil" in
+            match fold_opt with
+            | Some d => ((ds ++ [d])%list, t_folded)
+            | None =>
+                match drive_step F cx t_folded with
+                | Some driven =>
+                    let '(ds2, r) := supercompile F fuel' history cx driven in
+                    ((ds ++ ds2)%list, r)
+                | None => (ds, t_folded)
+                end
             end
         | PListCons e1 e2 =>
             let '(ds1, e1') := supercompile F fuel' history cx e1 in
             let '(ds2, e2') := supercompile F fuel' history cx e2 in
             let defs := (ds1 ++ ds2)%list in
             let t' := PListCons e1' e2' in
-            match drive_step F cx t' with
-            | Some driven =>
-                let '(ds3, r) := supercompile F fuel' history cx driven in
-                ((defs ++ ds3)%list, r)
-            | None => (defs, t')
+            let '(fold_opt, t_folded) := try_fold history cx t' "cons" in
+            match fold_opt with
+            | Some d => ((defs ++ [d])%list, t_folded)
+            | None =>
+                match drive_step F cx t_folded with
+                | Some driven =>
+                    let '(ds3, r) := supercompile F fuel' history cx driven in
+                    ((defs ++ ds3)%list, r)
+                | None => (defs, t_folded)
+                end
             end
         | PCall f args =>
             let process_one acc a :=
@@ -353,33 +470,16 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
               fold_left process_one args ([], []) in
             let args' := rev args'_rev in
             let t' := PCall f args' in
-            let args_expanded := map (ctx_expand_one cx) args' in
-            (** D1 strict whistle: find ancestor PCall to same function
-                with structurally smaller args, compute LGG, create fold. *)
-            let ancestor_args :=
-              fold_left (fun acc h =>
-                match h with
-                | PCall fh argsh =>
-                    if (String.eqb f fh && forallb2 he_dec argsh args_expanded)%bool
-                    then Some argsh
-                    else acc
-                | _ => acc
-                end) history None in
-            match ancestor_args with
-            | Some argsh =>
-              let '(gen_args, _, _) := lgg_args argsh args' 0%nat in
-              let fold_name := String.append "fold_" f in
-              let fold_body := PCall f gen_args in
-              let params := map (fun a => match a with PVar v => v | _ => "x"%string end) gen_args in
-              let def := MkFoldDef fold_name params fold_body in
-              ((ds_args ++ [def])%list, t')
+            let '(fold_opt, t_folded) := try_fold history cx t' f in
+            match fold_opt with
+            | Some d => ((ds_args ++ [d])%list, t_folded)
             | None =>
-              match drive_step F cx t' with
-              | Some driven =>
-                  let '(ds_dr, r) := supercompile F fuel' history cx driven in
-                  ((ds_args ++ ds_dr)%list, r)
-              | None => (ds_args, t')
-              end
+                match drive_step F cx t_folded with
+                | Some driven =>
+                    let '(ds_dr, r) := supercompile F fuel' history cx driven in
+                    ((ds_args ++ ds_dr)%list, r)
+                | None => (ds_args, t_folded)
+                end
             end
         end
     end
