@@ -69,6 +69,13 @@ Definition drive_step (F : fn_table) (c : ctx) (t : p_expr) : option p_expr :=
       end
   (** Standard reductions. *)
   | PVal _ | PVar _ => None
+  | PBinOp PLeOp (PVar a) e_b =>
+      let leq_key := String.concat "_leq_" [a; 
+        match e_b with PListHead (PVar v) => v | _ => "?"%string end] in
+      match ctx_lookup c leq_key with
+      | Some (PVal (PLitBool true)) => Some (PVal (PLitBool true))
+      | _ => None
+      end
   | PBinOp op (PVal v1) (PVal v2) =>
       option_map (fun v => PVal v) (binop_eval op v1 v2)
   | PBinOp _ _ _ => None
@@ -435,10 +442,24 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
                   let '(cx_t, ds_then, then') := supercompile F fuel' history cx_then e1 in
                   let '(cx_e, ds_else, else') := supercompile F fuel' history cx_else e2 in
                   (cx_e, (ds0 ++ ds_then ++ ds_else)%list, PIf e0' then' else')
-                else
+                 else
                   let '(cx1, ds1, e1') := supercompile F fuel' history cx0 e1 in
                   let '(cx2, ds2, e2') := supercompile F fuel' history cx1 e2 in
                   (cx2, (ds0 ++ ds1 ++ ds2)%list, PIf e0' e1' e2')
+             | PBinOp PLeOp e_a e_b =>
+                (** Conditional supercompilation: case-split on an
+                    inequality guard.  In the then-branch, the
+                    inequality e_a ≤ e_b is known to hold.
+                    Record it in the context under a key derived
+                    from the operands so drive_step can resolve it. *)
+                let leq_key := String.concat "_leq_" 
+                  [match e_a with PVar v => v | _ => "?"%string end;
+                   match e_b with PListHead (PVar v) => v | PListHead (PCall _ _) => "headcall"%string | _ => "?"%string end] in
+                let then_ctx := ctx_extend leq_key (PVal (PLitBool true)) cx0 in
+                let else_ctx := cx0 in
+                let '(cx_t, ds_then, then') := supercompile F fuel' history then_ctx e1 in
+                let '(cx_e, ds_else, else') := supercompile F fuel' history else_ctx e2 in
+                (cx_e, (ds0 ++ ds_then ++ ds_else)%list, PIf e0' then' else')
             | _ =>
                 let t' := PIf e0' e1 e2 in
                 match drive_step F cx0 t' with
