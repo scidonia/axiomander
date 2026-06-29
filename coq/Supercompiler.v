@@ -331,10 +331,30 @@ Fixpoint ctx_expand_n (c : ctx) (e : p_expr) (bound : nat) : p_expr :=
       end
   end.
 
+(** Replace all calls to function [fn] with calls to [new_name] in [e]. *)
+Fixpoint replace_calls (fn new_name : string) (e : p_expr) : p_expr :=
+  match e with
+  | PVal _ | PVar _ => e
+  | PBinOp op e1 e2 => PBinOp op (replace_calls fn new_name e1) (replace_calls fn new_name e2)
+  | PCall g args =>
+      let args' := map (replace_calls fn new_name) args in
+      if String.eqb g fn then PCall new_name args'
+      else PCall g args'
+  | PIf e0 e1 e2 => PIf (replace_calls fn new_name e0) (replace_calls fn new_name e1) (replace_calls fn new_name e2)
+  | PLet x e1 e2 => PLet x (replace_calls fn new_name e1) (replace_calls fn new_name e2)
+  | PListHead e => PListHead (replace_calls fn new_name e)
+  | PListTail e => PListTail (replace_calls fn new_name e)
+  | PListIsNil e => PListIsNil (replace_calls fn new_name e)
+  | PListCons e1 e2 => PListCons (replace_calls fn new_name e1) (replace_calls fn new_name e2)
+  end.
+
 (** Check if [t] represents a structural recurrence — only fire
     when some history entry is a PCall to the SAME function with
-    structurally smaller args (D1 condition). *)
-Definition try_fold (history : list p_expr) (cx : ctx) (t : p_expr) (f : string) (args : list p_expr)
+    structurally smaller args (D1 condition).
+    Creates a fold with the driven-and-replaced ancestor body,
+    and returns [fold_f(args)] as the residual. *)
+Definition try_fold (F : fn_table) (history : list p_expr) (cx : ctx)
+    (t : p_expr) (f : string) (args : list p_expr)
     : option fold_def * p_expr :=
   let args_full := map (fun a => ctx_expand_n cx a 5) args in
   let ancestor_args :=
@@ -347,11 +367,18 @@ Definition try_fold (history : list p_expr) (cx : ctx) (t : p_expr) (f : string)
       end) history None in
   match ancestor_args with
   | Some argsh =>
-      let '(gen_args, subst1, _) := lgg_args argsh args 0%nat in
-      let params := map fst subst1 in
-      let fold_body := PCall f gen_args in
+      let '(gen_args, _, _) := lgg_args argsh args 0%nat in
       let fold_name := String.append "fold_" f in
-      (Some (MkFoldDef fold_name params fold_body), t)
+      (** Drive the ancestor call one step to get the fold body. *)
+      let ancestor_body :=
+        match drive_step F cx (PCall f gen_args) with
+        | Some body => body
+        | None => PCall f gen_args  (* fallback: raw call *)
+        end in
+      let fold_body := replace_calls f fold_name ancestor_body in
+      let params := map (fun a => match a with PVar v => v | _ => "p"%string end) gen_args in
+      let residual := PCall fold_name args in
+      (Some (MkFoldDef fold_name params fold_body), residual)
   | None => (None, t)
   end.
 
@@ -465,7 +492,7 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
               fold_left process_one args (cx, [], []) in
             let args' := rev args'_rev in
             let t' := PCall f args' in
-            let '(fold_opt, t_folded) := try_fold history cx_args t' f args' in
+            let '(fold_opt, t_folded) := try_fold F history cx_args t' f args' in
             match fold_opt with
             | Some d => (cx_args, (ds_args ++ [d])%list, t_folded)
             | None =>
