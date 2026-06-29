@@ -100,7 +100,17 @@ Definition drive_step (F : fn_table) (c : ctx) (t : p_expr) : option p_expr :=
   | PListCons _ _ => None
   | PCall f args =>
       if existsb (fun a => negb (is_value_or_var a)) args then
-        None
+        let memo_key (g : string) (gargs : list p_expr) :=
+          String.concat "_" (g :: map (fun a => match a with PVar v => v | _ => "?"%string end) gargs) in
+        if forallb (fun a => is_value_or_var a ||
+          match a with PCall g gargs => match ctx_lookup c (memo_key g gargs) with Some _ => true | _ => false end | _ => false end) args then
+          match assoc String.eqb F f with
+          | Some (params, body) => 
+              if forallb is_PVal args then Some (subst_many (combine params (map (fun a => match a with PVal v => v | _ => PLitUnit end) args)) body)
+              else Some (subst_many_expr (combine params args) body)
+          | None => None
+          end
+        else None
       else
       match assoc String.eqb F f with
       | Some (params, body) =>
