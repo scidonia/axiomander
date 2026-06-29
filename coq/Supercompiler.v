@@ -17,9 +17,8 @@ Definition ctx_lookup (c : ctx) (x : string) : option p_expr :=
 Definition ctx_extend (x : string) (v : p_expr) (c : ctx) : ctx :=
   (x, v) :: c.
 
-(** Context expansion: replace PVar y with its context image
-    if it maps to a projection (PListHead/PListTail), one level.
-    Used to restore structural relationships for the D1 whistle. *)
+(** Context expansion: replace PVar y with its context image,
+    or a PCall expression with its reduced form. *)
 Definition ctx_expand_one (c : ctx) (e : p_expr) : p_expr :=
   match e with
   | PVar y =>
@@ -28,8 +27,19 @@ Definition ctx_expand_one (c : ctx) (e : p_expr) : p_expr :=
       | Some (PListTail (PVar z)) => PListTail (PVar z)
       | _ => e
       end
+  | PCall f args =>
+      let key := String.concat "_" (f :: map (fun a => match a with PVar v => v | _ => "_"%string end) args) in
+      match ctx_lookup c key with
+      | Some v => v
+      | None => e
+      end
   | _ => e
   end.
+
+(** Store a reduced form for a PCall in the context, keyed by the call pattern. *)
+Definition ctx_memo_call (f : string) (args : list p_expr) (res : p_expr) (c : ctx) : ctx :=
+  let key := String.concat "_" (f :: map (fun a => match a with PVar v => v | _ => "_"%string end) args) in
+  ctx_extend key res c.
 
 (** * 1. Driving — one-step symbolic reduction, context-aware *)
 
@@ -351,7 +361,14 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
   | 0%nat => (cx, [], t)
   | S fuel' =>
     match drive_step F cx t with
-    | Some t' => supercompile F fuel' (t :: history) cx t'
+    | Some t' =>
+        let '(cx', defs, r) := supercompile F fuel' (t :: history) cx t' in
+        (** Memoize: store the reduced form if [t] is a PCall. *)
+        let cx'' := match t with
+          | PCall f args => ctx_memo_call f args r cx'
+          | _ => cx'
+          end in
+        (cx'', defs, r)
     | None =>
         match t with
         | PVal _ | PVar _ => (cx, [], t)
@@ -455,7 +472,8 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
                 match drive_step F cx_args t_folded with
                 | Some driven =>
                     let '(cx_dr, ds_dr, r) := supercompile F fuel' history cx_args driven in
-                    (cx_dr, (ds_args ++ ds_dr)%list, r)
+                    let cx_memo := ctx_memo_call f args' r cx_dr in
+                    (cx_memo, (ds_args ++ ds_dr)%list, r)
                 | None => (cx_args, ds_args, t_folded)
                 end
             end
