@@ -354,28 +354,33 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
             let args' := rev args'_rev in
             let t' := PCall f args' in
             let args_expanded := map (ctx_expand_one cx) args' in
-            (** D1 strict whistle: stop when same-function ancestor
-                has structurally smaller args. *)
-            if existsb (fun h => match h with
-                                 | PCall fh argsh =>
-                                     String.eqb f fh
-                                     && forallb2 he_dec argsh args_expanded
-                                 | _ => false
-                                 end) history then
-              (** D1 fires: compute LGG of args to create a fold. *)
-              let '(gen_args, _, _) := lgg_args args_expanded args' 0%nat in
+            (** D1 strict whistle: find ancestor PCall to same function
+                with structurally smaller args, compute LGG, create fold. *)
+            let ancestor_args :=
+              fold_left (fun acc h =>
+                match h with
+                | PCall fh argsh =>
+                    if (String.eqb f fh && forallb2 he_dec argsh args_expanded)%bool
+                    then Some argsh
+                    else acc
+                | _ => acc
+                end) history None in
+            match ancestor_args with
+            | Some argsh =>
+              let '(gen_args, _, _) := lgg_args argsh args' 0%nat in
               let fold_name := String.append "fold_" f in
               let fold_body := PCall f gen_args in
               let params := map (fun a => match a with PVar v => v | _ => "x"%string end) gen_args in
               let def := MkFoldDef fold_name params fold_body in
               ((ds_args ++ [def])%list, t')
-            else
+            | None =>
               match drive_step F cx t' with
               | Some driven =>
                   let '(ds_dr, r) := supercompile F fuel' history cx driven in
                   ((ds_args ++ ds_dr)%list, r)
               | None => (ds_args, t')
               end
+            end
         end
     end
   end.
