@@ -447,8 +447,9 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
                   (cx2, (ds0 ++ ds1 ++ ds2)%list, PIf e0' e1' e2')
              | PBinOp PLeOp e_a e_b =>
                 let then_ctx := ctx_extend "_leq_holds" (PVal (PLitBool true)) cx0 in
+                let else_ctx := ctx_extend "_gt_holds" (PVal (PLitBool true)) cx0 in
                 let '(cx_t, ds_then, then') := supercompile F fuel' history then_ctx e1 in
-                let '(cx_e, ds_else, else') := supercompile F fuel' history cx0 e2 in
+                let '(cx_e, ds_else, else') := supercompile F fuel' history else_ctx e2 in
                 (cx_e, (ds0 ++ ds_then ++ ds_else)%list, PIf e0' then' else')
             | _ =>
                 let t' := PIf e0' e1 e2 in
