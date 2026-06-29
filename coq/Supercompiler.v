@@ -82,6 +82,8 @@ Definition drive_step (F : fn_table) (c : ctx) (t : p_expr) : option p_expr :=
   | PIf _ _ _ => None
   | PLet x (PVal v) e2 => Some (subst x v e2)
   | PLet _ _ _ => None
+  | PListHead (PIf c t e) =>
+      Some (PIf c (PListHead t) (PListHead e))
   | PListHead (PListCons h _) => Some h
   | PListHead (PVal v) =>
       match v with
@@ -89,6 +91,8 @@ Definition drive_step (F : fn_table) (c : ctx) (t : p_expr) : option p_expr :=
       | _ => None
       end
   | PListHead _ => None
+  | PListTail (PIf c t e) =>
+      Some (PIf c (PListTail t) (PListTail e))
   | PListTail (PListCons _ t) => Some t
   | PListTail (PVal v) =>
       match v with
@@ -96,6 +100,8 @@ Definition drive_step (F : fn_table) (c : ctx) (t : p_expr) : option p_expr :=
       | _ => None
       end
   | PListTail _ => None
+  | PListIsNil (PIf c t e) =>
+      Some (PIf c (PListIsNil t) (PListIsNil e))
   | PListIsNil (PListCons _ _) => Some (PVal (PLitBool false))
   | PListIsNil (PVal (PLitList [])) => Some (PVal (PLitBool true))
   | PListIsNil (PVal (PLitList (_ :: _))) => Some (PVal (PLitBool false))
@@ -104,28 +110,24 @@ Definition drive_step (F : fn_table) (c : ctx) (t : p_expr) : option p_expr :=
       Some (PVal (PLitList (v1 :: vs)))
   | PListCons _ _ => None
   | PCall f args =>
-      if existsb (fun a => negb (is_value_or_var a)) args then
-        let memo_key (g : string) (gargs : list p_expr) :=
-          String.concat "_" (g :: map (fun a => match a with PVar v => v | _ => "?"%string end) gargs) in
-        if forallb (fun a => is_value_or_var a ||
-          match a with PCall g gargs => match ctx_lookup c (memo_key g gargs) with Some _ => true | _ => false end | _ => false end) args then
-          match assoc String.eqb F f with
-          | Some (params, body) => 
-              if forallb is_PVal args then Some (subst_many (combine params (map (fun a => match a with PVal v => v | _ => PLitUnit end) args)) body)
-              else Some (subst_many_expr (combine params args) body)
-          | None => None
-          end
-        else None
-      else
-      match assoc String.eqb F f with
-      | Some (params, body) =>
-          if forallb is_PVal args then
-            let vs := map (fun a => match a with PVal v => v | _ => PLitUnit end) args in
-            Some (subst_many (combine params vs) body)
-          else
-            Some (subst_many_expr (combine params args) body)
-      | None => None
-      end
+      let memo_key (g : string) (gargs : list p_expr) :=
+        String.concat "_" (g :: map (fun a => match a with PVar v => v | _ => "?"%string end) gargs) in
+      let is_safe (a : p_expr) := is_value_or_var a ||
+        match a with
+        | PCall g gargs => match ctx_lookup c (memo_key g gargs) with Some _ => true | _ => false end
+        | _ => false
+        end in
+      if forallb is_safe args then
+        match assoc String.eqb F f with
+        | Some (params, body) =>
+            if forallb is_PVal args then
+              let vs := map (fun a => match a with PVal v => v | _ => PLitUnit end) args in
+              Some (subst_many (combine params vs) body)
+            else
+              Some (subst_many_expr (combine params args) body)
+        | None => None
+        end
+      else None
   end.
 
 (** * 2. Homeomorphic embedding (the whistle) *)
@@ -392,8 +394,7 @@ Definition try_fold (F : fn_table) (history : list p_expr) (cx : ctx)
         end in
       let fold_body := replace_calls f fold_name ancestor_body in
       let params := map (fun a => match a with PVar v => v | _ => "p"%string end) gen_args in
-      let residual := PCall fold_name args in
-      (Some (MkFoldDef fold_name params fold_body), residual)
+      (Some (MkFoldDef fold_name params fold_body), t)
   | None => (None, t)
   end.
 
