@@ -429,12 +429,37 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
   | S fuel' =>
     match drive_step F cx t with
     | Some t' =>
-        let '(cx', defs, r) := supercompile F fuel' (t' :: t :: history) cx t' in
-        let cx'' := match t with
-          | PCall f args => ctx_memo_call f args r cx'
-          | _ => cx'
-          end in
-        (cx'', defs, r)
+        (** Process-tree whistle after driving: if the driven form
+            embeds in a history ancestor, create a fold via LGG
+            and stop.  Otherwise push and continue. *)
+        let t_expanded := ctx_expand_n cx t' 5 in
+        match fold_left (fun acc h =>
+          let h_expanded := ctx_expand_n cx h 5 in
+          if he_dec h_expanded t_expanded then Some h_expanded else acc) history None with
+        | Some ancestor =>
+            let '(gen, subst1, _) := lgg_expr ancestor t_expanded 0%nat in
+            let fold_name := match t with PCall f _ => String.append "fold_" f | _ => "fold_config"%string end in
+            let fold_body :=
+              match gen with
+              | PCall fg gen_args =>
+                  match drive_step F cx (PCall fg gen_args) with
+                  | Some body => replace_calls fg fold_name body
+                  | None => replace_calls fg fold_name gen
+                  end
+              | _ => replace_calls (match t with PCall f _ => f | _ => "?"%string end) fold_name gen
+              end in
+            let params := map fst subst1 in
+            let fold_call := match t with PCall f args => PCall fold_name args | _ => PCall fold_name [] end in
+            let cx_out := match t with PCall f a => ctx_memo_call fold_name a gen cx | _ => cx end in
+            (cx_out, [MkFoldDef fold_name params fold_body], fold_call)
+        | None =>
+            let '(cx', defs, r) := supercompile F fuel' (t' :: t :: history) cx t' in
+            let cx'' := match t with
+              | PCall f args => ctx_memo_call f args r cx'
+              | _ => cx'
+              end in
+            (cx'', defs, r)
+        end
     | None =>
         match t with
         | PVal _ | PVar _ => (cx, [], t)
