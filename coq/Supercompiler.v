@@ -586,7 +586,7 @@ Definition scc (F : fn_table) (fuel : nat) (t : p_expr) : p_expr :=
       match assoc String.eqb F f with
       | Some (params, body) =>
           let inlined := subst_many_expr (combine params args) body in
-          let '(_, _, t') := supercompile F fuel [t] nil inlined in
+          let '(_, _, t') := supercompile F fuel (inlined :: t :: nil) nil inlined in
           t'
       | None =>
           let '(_, _, t') := supercompile F fuel nil nil t in
@@ -603,7 +603,7 @@ Definition scc_full (F : fn_table) (fuel : nat) (t : p_expr) : list fold_def * p
       match assoc String.eqb F f with
       | Some (params, body) =>
           let inlined := subst_many_expr (combine params args) body in
-          let '(_, defs, t') := supercompile F fuel [t] nil inlined in
+          let '(_, defs, t') := supercompile F fuel (inlined :: t :: nil) nil inlined in
           (defs, t')
       | None =>
           let '(_, defs, t') := supercompile F fuel nil nil t in
