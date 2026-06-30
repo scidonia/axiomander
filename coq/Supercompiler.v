@@ -374,11 +374,11 @@ Definition try_fold (F : fn_table) (history : list p_expr) (cx : ctx)
     (t : p_expr) (f : string) (args : list p_expr)
     : option fold_def * p_expr :=
   let t_expanded := ctx_expand_n cx t 5 in
-  (** Process-tree whistle: check if the current configuration
-      embeds in any history entry. If so, LGG the two full
-      configurations to create a fold. *)
+  (** Process-tree whistle: expand both current and ancestor
+      configurations through the context, then check embedding. *)
   match fold_left (fun acc h =>
-    if he_dec h t_expanded then Some h else acc) history None with
+    let h_expanded := ctx_expand_n cx h 5 in
+    if he_dec h_expanded t_expanded then Some h_expanded else acc) history None with
   | Some ancestor =>
       let '(gen, subst1, _) := lgg_expr ancestor t_expanded 0%nat in
       let fold_name := String.append "fold_" f in
@@ -429,8 +429,7 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
   | S fuel' =>
     match drive_step F cx t with
     | Some t' =>
-        let '(cx', defs, r) := supercompile F fuel' (t :: history) cx t' in
-        (** Memoize: store the reduced form if [t] is a PCall. *)
+        let '(cx', defs, r) := supercompile F fuel' (t' :: t :: history) cx t' in
         let cx'' := match t with
           | PCall f args => ctx_memo_call f args r cx'
           | _ => cx'
