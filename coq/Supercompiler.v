@@ -370,14 +370,22 @@ Fixpoint replace_calls (fn new_name : string) (e : p_expr) : p_expr :=
     structurally smaller args (D1 condition).
     Creates a fold with the driven-and-replaced ancestor body,
     and returns [fold_f(args)] as the residual. *)
+(** PVar-only expansion to fixpoint: applies ctx_expand_one repeatedly. *)
+Fixpoint ctx_expand_fix (c : ctx) (e : p_expr) (n : nat) : p_expr :=
+  match n with
+  | 0%nat => e
+  | S n' => let e1 := ctx_expand_one c e in
+           if pexpr_eqb e1 e then e else ctx_expand_fix c e1 n'
+  end.
+
 Definition try_fold (F : fn_table) (history : list p_expr) (cx : ctx)
     (t : p_expr) (f : string) (args : list p_expr)
     : option fold_def * p_expr :=
-  let t_expanded := ctx_expand_n cx t 5 in
+  let t_expanded := ctx_expand_fix cx t 10 in
   (** Process-tree whistle: expand both current and ancestor
       configurations through the context, then check embedding. *)
   match fold_left (fun acc h =>
-    let h_expanded := ctx_expand_n cx h 5 in
+    let h_expanded := ctx_expand_fix cx h 10 in
     if he_dec h_expanded t_expanded then Some h_expanded else acc) history None with
   | Some ancestor =>
       let '(gen, subst1, _) := lgg_expr ancestor t_expanded 0%nat in
@@ -397,7 +405,7 @@ Definition try_fold (F : fn_table) (history : list p_expr) (cx : ctx)
   | None =>
       (** D1 strict whistle: same-function ancestor with
           structurally smaller args. *)
-      let args_full := map (fun a => ctx_expand_n cx a 5) args in
+      let args_full := map (fun a => ctx_expand_fix cx a 10) args in
       let ancestor_args :=
         fold_left (fun acc h =>
           match h with
@@ -432,9 +440,9 @@ Fixpoint supercompile (F : fn_table) (fuel : nat)
         (** Process-tree whistle after driving: if the driven form
             embeds in a history ancestor, create a fold via LGG
             and stop.  Otherwise push and continue. *)
-        let t_expanded := ctx_expand_n cx t' 5 in
+        let t_expanded := ctx_expand_fix cx t' 10 in
         match fold_left (fun acc h =>
-          let h_expanded := ctx_expand_n cx h 5 in
+          let h_expanded := ctx_expand_fix cx h 10 in
           if he_dec h_expanded t_expanded then Some h_expanded else acc) history None with
         | Some ancestor =>
             let '(gen, subst1, _) := lgg_expr ancestor t_expanded 0%nat in
