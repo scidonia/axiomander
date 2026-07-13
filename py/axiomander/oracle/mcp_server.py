@@ -5829,22 +5829,9 @@ def _cli(argv: list[str] | None = None):
     ):
         """Verify a function with caching (Iris backend)."""
         source = _Path(file).read_text()
-        import time as _time, ast as _ast
+        import time as _time
         t0 = _time.monotonic()
-        try:
-            status = _verify_function_full(source, function, hint)
-        except (ModuleNotFoundError, ImportError):
-            # imp_ir unavailable — use Iris-only path
-            tree = _ast.parse(source)
-            func_node = None
-            for n in _ast.walk(tree):
-                if isinstance(n, _ast.FunctionDef) and n.name == function:
-                    func_node = n; break
-            if func_node is None:
-                status = None
-            else:
-                from .contract_linter import ContractLinter, AssertInfo
-                status = _try_iris_backend(source, function, tree, func_node, [], hint)
+        status = _verify_function_full(source, function, hint)
         if status is None:
             from .reporting import ProofLevel, Action
             status = GoalStatus(name=function, goal_statement="",
