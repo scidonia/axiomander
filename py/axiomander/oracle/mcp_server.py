@@ -5829,14 +5829,12 @@ def _cli(argv: list[str] | None = None):
     ):
         """Verify a function with caching (Iris backend)."""
         source = _Path(file).read_text()
-        import time as _time
+        import time as _time, ast as _ast
+        from .iris_pipeline import verify_iris_safe
+        tree = _ast.parse(source)
+        table = _build_iris_callee_table(tree, function)
         t0 = _time.monotonic()
-        status = _verify_function_full(source, function, hint)
-        if status is None:
-            from .reporting import ProofLevel, Action
-            status = GoalStatus(name=function, goal_statement="",
-                              level=ProofLevel.UNPROVED,
-                              suggested_action=Action.REFACTOR)
+        status = verify_iris_safe(source, function, table, use_cache=True)
         cache_ms = (_time.monotonic() - t0) * 1000.0
         cached = cache_ms < 50
         from .reporting import PipelineReport
