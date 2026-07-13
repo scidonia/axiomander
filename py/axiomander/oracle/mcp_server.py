@@ -1184,8 +1184,6 @@ def _build_iris_callee_table(tree: ast.AST, target_func: str) -> dict:
         if not isinstance(node, _ast.FunctionDef):
             continue
         name = node.name
-        if name == target_func:
-            continue
 
         params = [a.arg for a in node.args.args]
         if not params:
@@ -1220,27 +1218,35 @@ def _trace_return_value(func_node: ast.FunctionDef,
                         params: list[str]) -> str | None:
     """Trace `return X` to the expression assigned to X.
 
-    Handles the simple contract-body pattern: `X = expr; ...; return X`.
+    Handles two patterns:
+    1. Simple: `return <expr>` directly (including `return []`, `return f(x)`)
+    2. Named: `X = expr; ...; return X`
+
     Returns the Python expression text with parameter names intact."""
     import ast as _ast
-    # Find return statement
-    ret_var: str | None = None
-    for stmt in _ast.walk(func_node):
-        if isinstance(stmt, _ast.Return) and isinstance(stmt.value, _ast.Name):
-            ret_var = stmt.value.id
-            break
-    if ret_var is None:
+
+    # Collect all return statements
+    returns = [stmt for stmt in _ast.walk(func_node)
+               if isinstance(stmt, _ast.Return) and stmt.value is not None]
+    if not returns:
         return None
 
-    # Find assignment to return variable
-    for stmt in _ast.walk(func_node):
-        if (isinstance(stmt, _ast.Assign)
-                and len(stmt.targets) == 1
-                and isinstance(stmt.targets[0], _ast.Name)
-                and stmt.targets[0].id == ret_var):
-            return _ast.unparse(stmt.value).strip()
+    # Try the simple pattern first: `return X` where X is a Name
+    for ret in returns:
+        if isinstance(ret.value, _ast.Name):
+            ret_var = ret.value.id
+            # Find assignment to return variable
+            for stmt in _ast.walk(func_node):
+                if (isinstance(stmt, _ast.Assign)
+                        and len(stmt.targets) == 1
+                        and isinstance(stmt.targets[0], _ast.Name)
+                        and stmt.targets[0].id == ret_var):
+                    return _ast.unparse(stmt.value).strip()
+            # No assignment found, return the name itself
+            return ret_var
 
-    return None
+    # Fallback: return the first return expression directly
+    return _ast.unparse(returns[0].value).strip()
 
 
 def _try_iris_backend(source: str, func_name: str, tree: ast.AST,
