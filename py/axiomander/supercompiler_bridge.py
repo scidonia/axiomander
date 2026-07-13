@@ -62,6 +62,8 @@ def expr_to_p_expr(expr: Expr) -> Optional[str]:
         return _compile_implies(expr)  # type: ignore[attr-defined]
     elif k == 'len':
         return _compile_len(expr)  # type: ignore[attr-defined]
+    elif k == 'predicate_call':
+        return _compile_predicate_call(expr)  # type: ignore[attr-defined]
 
     return None
 
@@ -185,6 +187,21 @@ def _compile_len(expr) -> Optional[str]:
     return f"(PBinOp PLenOp {var} (PVal PLitUnit))"
 
 
+def _compile_predicate_call(expr) -> Optional[str]:
+    """Compile a PredicateCallExpr to a PCall node for the supercompiler."""
+    name: str = getattr(expr, "name", "")
+    if not name:
+        return None
+    args = getattr(expr, "args", [])
+    arg_strs = []
+    for a in args:
+        s = expr_to_p_expr(a)
+        if s is None:
+            return None
+        arg_strs.append(s)
+    return f'(PCall "{name}"%string [{"; ".join(arg_strs)}])'
+
+
 # ── Supercompiler invocation ───────────────────────────────────────
 
 def _find_project_root() -> Path:
@@ -221,7 +238,7 @@ def supercompile_p_expr(p_expr_str: str, fn_table: str = "nil", fuel: int = 500)
 Require Import SCoqShared.Supercompiler SCoqShared.LambdaA.
 Open Scope Z_scope.
 
-Compute (supercompile {fn_table} {fuel} nil ({p_expr_str}))."""
+Compute (scc {fn_table} {fuel} ({p_expr_str}))."""
 
     with tempfile.NamedTemporaryFile(
         mode='w', suffix='.v', delete=False, dir=root
