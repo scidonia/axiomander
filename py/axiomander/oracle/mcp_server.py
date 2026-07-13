@@ -1452,8 +1452,15 @@ def _verify_function(source: str, func_name: str, hint: str | None = None) -> Go
             suggestion_text=f"Resource contract ({classification.value}) — Iris backend prototype.",
         )
 
-    # Generate IMP via PyIR -> ImpIR
-    imp_body, imp_ir = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
+    # Generate IMP via PyIR -> ImpIR (skip if module unavailable)
+    try:
+        imp_body, imp_ir = _gen_imp_body(tree, func_node, contract_map=_build_contract_map(tree))
+    except (ModuleNotFoundError, ImportError):
+        return GoalStatus(name=func_name, goal_statement="",
+                          level=ProofLevel.UNPROVED,
+                          error_detail="IMP backend unavailable (missing imp_ir module)",
+                          suggested_action=Action.ADD_LEMMA,
+                          suggestion_text="IMP backend not installed. Use Iris backend.")
 
     # Ghost vars make staged proofs complex; the WP + frame conditions
     # already prove variable preservation without ghost snapshots.
@@ -5822,11 +5829,24 @@ def _cli(argv: list[str] | None = None):
     ):
         """Verify a function with caching (Iris backend)."""
         source = _Path(file).read_text()
-        import time as _time
+        import time as _time, ast as _ast
         t0 = _time.monotonic()
-        status = _verify_function_full(source, function, hint)
+        try:
+            status = _verify_function_full(source, function, hint)
+        except (ModuleNotFoundError, ImportError):
+            # imp_ir unavailable — use Iris-only path
+            tree = _ast.parse(source)
+            func_node = None
+            for n in _ast.walk(tree):
+                if isinstance(n, _ast.FunctionDef) and n.name == function:
+                    func_node = n; break
+            if func_node is None:
+                status = None
+            else:
+                from .contract_linter import ContractLinter, AssertInfo
+                status = _try_iris_backend(source, function, tree, func_node, [], hint)
         if status is None:
-            from .pipeline import ProofLevel, Action
+            from .reporting import ProofLevel, Action
             status = GoalStatus(name=function, goal_statement="",
                               level=ProofLevel.UNPROVED,
                               suggested_action=Action.REFACTOR)
