@@ -164,8 +164,10 @@ def extract_contracts(
         return compile_precondition_fluid(node, _fluid_ctx)
 
     def _post(node, ret_var, result_kind, ghost_resolver):
+        lm_post = dict(lm)
+        lm_post["result"] = "v"
         ctx = LowerCtx(gamma=_fluid_ctx.gamma, post_var=ret_var,
-                       post_bound="z", list_model=lm)
+                       post_bound="v", list_model=lm_post)
         return compile_postcondition_fluid(node, ctx, result_kind=result_kind or "int")
 
     body = list(fn_node.body)

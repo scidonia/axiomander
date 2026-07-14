@@ -387,7 +387,7 @@ def _index(n, ps, pv):
     container = _var(Var(n.name), ps, pv)
     # nth returns the sn_val at index; extract Z for int lists
     return (
-        f"(match nth {idx} ({container}) (LitInt 0) with "
+        f"(match nth (Z.to_nat ({idx})) ({container}) (LitInt 0) with "
         f"| LitInt v => v "
         f"| _ => 0 "
         f"end)"
