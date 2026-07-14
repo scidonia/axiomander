@@ -195,10 +195,15 @@ class LowerCtx:
     post_var: str = ""
     post_bound: str = "z"
     list_model: dict[str, str] = field(default_factory=dict)
+    list_elem_types: dict[str, ListElemTy] = field(default_factory=dict)
 
     def typ(self, name: str) -> Ty:
         """Return the type of a variable, or UNKNOWN if untyped."""
         return self.gamma.get(name, Ty.UNKNOWN)
+
+    def elem_typ(self, name: str) -> ListElemTy:
+        """Return the element type of a list variable, or None."""
+        return self.list_elem_types.get(name)
 
     def bind(self, name: str, ty: Ty) -> "LowerCtx":
         """Return a child context with `name : ty` added.
@@ -549,12 +554,22 @@ def _lower_all(node: AllExpr, ctx: LowerCtx, **_kw: object) -> CoqTerm:
         return CoqTerm(
             f"(forall ({node.var} : Z), {lo} <= {node.var} < {hi} -> {p})",
             Ty.PROP)
-    # List quantifier: forallb (fun _v => match _v with LitInt n => body n | _ => false end) M_xs = true
+    # List quantifier: forallb over sn_val list with element-type-aware extraction
     list_name = ctx.list_model.get(node.lst, node.lst)
+    elem_ty = ctx.elem_typ(node.lst)
     body = lower(node.pred, child_ctx, bool_mode=True)
     unwrapped = body.text.replace(node.var, "n")
+    # Pick pattern match based on element type
+    if elem_ty is Ty.STR:
+        extract = "LitString n"
+    elif elem_ty is Ty.FLOAT:
+        extract = "LitFloat n"
+    elif elem_ty is Ty.BOOL:
+        extract = "LitBool n"
+    else:
+        extract = "LitInt n"  # default for int / unknown
     lam = (f"(fun (_v : sn_val) => match _v with "
-           f"LitInt n => {unwrapped} | _ => false end)")
+           f"{extract} => {unwrapped} | _ => false end)")
     return CoqTerm(
         f"(forallb {lam} {list_name} = true)", Ty.PROP)
 
@@ -577,12 +592,21 @@ def _lower_any(node: AnyExpr, ctx: LowerCtx, **_kw: object) -> CoqTerm:
         return CoqTerm(
             f"(exists ({node.var} : Z), {lo} <= {node.var} < {hi} /\\ {p})",
             Ty.PROP)
-    # List quantifier: existsb (fun _v => match _v with LitInt n => body n | _ => false end) M_xs = true
+    # List quantifier: existsb with element-type-aware extraction
     list_name = ctx.list_model.get(node.lst, node.lst)
+    elem_ty = ctx.elem_typ(node.lst)
     body = lower(node.pred, child_ctx, bool_mode=True)
     unwrapped = body.text.replace(node.var, "n")
+    if elem_ty is Ty.STR:
+        extract = "LitString n"
+    elif elem_ty is Ty.FLOAT:
+        extract = "LitFloat n"
+    elif elem_ty is Ty.BOOL:
+        extract = "LitBool n"
+    else:
+        extract = "LitInt n"
     lam = (f"(fun (_v : sn_val) => match _v with "
-           f"LitInt n => {unwrapped} | _ => false end)")
+           f"{extract} => {unwrapped} | _ => false end)")
     return CoqTerm(
         f"(existsb {lam} {list_name} = true)", Ty.PROP)
 

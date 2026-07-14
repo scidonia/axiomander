@@ -161,7 +161,7 @@ def _binop(n, ps, pv):
     # Short-circuit: if either operand is an opaque DB observer, the whole
     # comparison is unknowable from local state; compile to True (identity).
     if _opaque_p(n.left) or _opaque_p(n.right):
-        return "True"
+        return "False"
     # --- Float-aware comparison / arithmetic ---
     is_float = _float_p(n.left) or _float_p(n.right)
     if is_float:
@@ -255,7 +255,7 @@ def _all(n, ps, pv):
             f"match _v with LitInt _z => {p_subst} | _ => false end) "
             f"{lst_var} = true)"
         )
-    return "True"
+    return "False"
 
 
 def _any(n, ps, pv):
@@ -285,7 +285,7 @@ def _any(n, ps, pv):
             f"match _v with LitInt _z => {p_subst} | _ => false end) "
             f"{lst_var} = true)"
         )
-    return "True"
+    return "False"
 
 
 def _slice_len(n, ps, pv):
@@ -358,7 +358,7 @@ def _is_valid(n, ps, pv):
     from axiomander.oracle.shape_ir import lookup_shape, flat_fields
     shape = lookup_shape(n.model_type)
     if not shape:
-        return "True"
+        return "False"
     parts: list[str] = []
     for flat_key, f in flat_fields(shape, n.obj):
         key_scoped = f's "{flat_key}"%string'
@@ -378,7 +378,7 @@ def _is_shape(n, ps, pv):
     """is_shape(obj, Type) — structural check.  For Iris, models are
     always well-typed at the sn_val level; field existence is enforced
     by the type system.  Compile to True."""
-    return "True"
+    return "False"
 
 
 def _index(n, ps, pv):
@@ -394,8 +394,15 @@ def _index(n, ps, pv):
     )
 
 
+def _conservative(n, ps, pv):
+    """Return False for unsupported IR nodes — conservative: fails the
+    proof obligation rather than silently accepting the contract."""
+    return "False"
+
+
 def _placeholder(n, ps, pv):
-    return "True"
+    # Keep for backward compat — maps to conservative
+    return _conservative(n, ps, pv)
 
 
 def _field_access(n, ps, pv):
