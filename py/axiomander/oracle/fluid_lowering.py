@@ -723,11 +723,11 @@ def _lower_index(node, ctx: LowerCtx, **_kw: object) -> CoqTerm:
 
 
 def _lower_sum(node, ctx: LowerCtx, **_kw: object) -> CoqTerm:
-    """Sum over a named list: sum(xs) or sum(model)."""
+    """Sum over a named list: sum(xs) or fold_left Z.add 0 model."""
     name: str = node.name
     model = ctx.list_model.get(name, name)
     return CoqTerm(
-        f"Z.of_nat (List.fold_left Z.add {model} 0)",
+        f"(List.fold_left Z.add 0 {model})",
         Ty.INT)
 
 
