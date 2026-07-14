@@ -84,7 +84,7 @@ def iris_prop(node: Expr, *,
         "tuple": _placeholder, "dict": _placeholder, "set": _placeholder,
         "implies": _implies, "raises": _placeholder,
         "is_shape": _is_shape, "is_valid": _is_valid,
-        "list_eq": _placeholder, "re_match": _re_match,
+        "list_eq": _list_eq, "re_match": _re_match,
         "string_contains": _string_contains,
         "string_eq": _string_eq,
         "hex_string": _hex_string,
@@ -391,6 +391,15 @@ def _index(n, ps, pv):
         f"| LitInt v => v "
         f"| _ => 0 "
         f"end)"
+    )
+
+
+def _list_eq(n, ps, pv):
+    """result == [] or result != [] — length comparison on model list."""
+    container = _var(Var(n.name), ps, pv)
+    op = "=" if n.op == "=" else "<>"
+    return (
+        f"(Z.of_nat (List.length ({container})) {op} {n.n_elements})"
     )
 
 

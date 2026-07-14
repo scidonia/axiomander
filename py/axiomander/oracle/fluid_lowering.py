@@ -754,10 +754,13 @@ def _lower_set(node, ctx: LowerCtx, **_kw: object) -> CoqTerm:
 
 
 def _lower_list_eq(node, ctx: LowerCtx, **_kw: object) -> CoqTerm:
-    """List equality: len(result) == n_elements (existing semantics)."""
+    """List equality: len(result) == n_elements."""
     op_str = "<>" if node.op == "<>" else "="
-    name = ctx.post_bound if (node.name == ctx.post_var
-                               or node.name == "result") else node.name
+    # Resolve the list variable: use list_model for postcondition result
+    if node.name == ctx.post_var or node.name == "result":
+        name = ctx.list_model.get("result", "v")
+    else:
+        name = node.name
     return CoqTerm(
         f"(Z.of_nat (List.length {name}) {op_str} {node.n_elements})", Ty.PROP)
 
