@@ -77,7 +77,7 @@ def iris_prop(node: Expr, *,
         "var": _var, "int": _int_lit, "bool": _bool_lit,
         "binop": _binop, "logical": _logical,
         "len": lambda n, ps, pv: _list_len(n, ps, pv, lm),
-        "index": _placeholder, "dict_len": _placeholder,
+        "index": _index, "dict_len": _placeholder,
         "dict_count": _placeholder, "all": _all, "any": _any,
         "slice_len": _slice_len, "min": _min, "max": _max,
         "sum": _placeholder, "float": _float, "strlit": _str_lit,
@@ -379,6 +379,19 @@ def _is_shape(n, ps, pv):
     always well-typed at the sn_val level; field existence is enforced
     by the type system.  Compile to True."""
     return "True"
+
+
+def _index(n, ps, pv):
+    """lst[i] — list index lookup via nth on model list."""
+    idx = iris_prop(n.index, param_set=ps, post_var=pv)
+    container = _var(Var(n.name), ps, pv)
+    # nth returns the sn_val at index; extract Z for int lists
+    return (
+        f"(match nth {idx} ({container}) (LitInt 0) with "
+        f"| LitInt v => v "
+        f"| _ => 0 "
+        f"end)"
+    )
 
 
 def _placeholder(n, ps, pv):
