@@ -545,31 +545,39 @@ _FLOAT_ARITH: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 def _lower_all(node: AllExpr, ctx: LowerCtx, **_kw: object) -> CoqTerm:
-    child_ctx = ctx.bind(node.var, Ty.INT)
     # Range quantifier: forall (v : Z), lo <= v < hi -> P
     if node.lower is not None and node.upper is not None:
+        child_ctx = ctx.bind(node.var, Ty.INT)
         lo = lower(node.lower, child_ctx).text
         hi = lower(node.upper, child_ctx).text
         p = lower(node.pred, child_ctx).text
         return CoqTerm(
             f"(forall ({node.var} : Z), {lo} <= {node.var} < {hi} -> {p})",
             Ty.PROP)
-    # List quantifier: forallb over sn_val list with element-type-aware extraction
+    # List quantifier: forallb over sn_val list
     list_name = ctx.list_model.get(node.lst, node.lst)
     elem_ty = ctx.elem_typ(node.lst)
-    body = lower(node.pred, child_ctx, bool_mode=True)
-    unwrapped = body.text.replace(node.var, "n")
-    # Pick pattern match based on element type
-    if elem_ty is Ty.STR:
-        extract = "LitString n"
-    elif elem_ty is Ty.FLOAT:
-        extract = "LitFloat n"
-    elif elem_ty is Ty.BOOL:
-        extract = "LitBool n"
+    if elem_ty is not None:
+        # Known element type — extract via pattern matching
+        child_ctx = ctx.bind(node.var, Ty.INT)
+        body = lower(node.pred, child_ctx, bool_mode=True)
+        unwrapped = body.text.replace(node.var, "n")
+        if elem_ty is Ty.STR:
+            extract = "LitString n"
+        elif elem_ty is Ty.FLOAT:
+            extract = "LitFloat n"
+        elif elem_ty is Ty.BOOL:
+            extract = "LitBool n"
+        else:
+            extract = "LitInt n"
+        lam = (f"(fun (_v : sn_val) => match _v with "
+               f"{extract} => {unwrapped} | _ => false end)")
     else:
-        extract = "LitInt n"  # default for int / unknown
-    lam = (f"(fun (_v : sn_val) => match _v with "
-           f"{extract} => {unwrapped} | _ => false end)")
+        # Unknown element type — keep as sn_val, let predicate dispatch
+        child_ctx = ctx.bind(node.var, Ty.UNKNOWN)
+        body = lower(node.pred, child_ctx, bool_mode=True)
+        unwrapped = body.text.replace(node.var, "_v")
+        lam = f"(fun (_v : sn_val) => {unwrapped})"
     return CoqTerm(
         f"(forallb {lam} {list_name} = true)", Ty.PROP)
 
@@ -592,21 +600,28 @@ def _lower_any(node: AnyExpr, ctx: LowerCtx, **_kw: object) -> CoqTerm:
         return CoqTerm(
             f"(exists ({node.var} : Z), {lo} <= {node.var} < {hi} /\\ {p})",
             Ty.PROP)
-    # List quantifier: existsb with element-type-aware extraction
+    # List quantifier: existsb over sn_val list
     list_name = ctx.list_model.get(node.lst, node.lst)
     elem_ty = ctx.elem_typ(node.lst)
-    body = lower(node.pred, child_ctx, bool_mode=True)
-    unwrapped = body.text.replace(node.var, "n")
-    if elem_ty is Ty.STR:
-        extract = "LitString n"
-    elif elem_ty is Ty.FLOAT:
-        extract = "LitFloat n"
-    elif elem_ty is Ty.BOOL:
-        extract = "LitBool n"
+    if elem_ty is not None:
+        child_ctx = ctx.bind(node.var, Ty.INT)
+        body = lower(node.pred, child_ctx, bool_mode=True)
+        unwrapped = body.text.replace(node.var, "n")
+        if elem_ty is Ty.STR:
+            extract = "LitString n"
+        elif elem_ty is Ty.FLOAT:
+            extract = "LitFloat n"
+        elif elem_ty is Ty.BOOL:
+            extract = "LitBool n"
+        else:
+            extract = "LitInt n"
+        lam = (f"(fun (_v : sn_val) => match _v with "
+               f"{extract} => {unwrapped} | _ => false end)")
     else:
-        extract = "LitInt n"
-    lam = (f"(fun (_v : sn_val) => match _v with "
-           f"{extract} => {unwrapped} | _ => false end)")
+        child_ctx = ctx.bind(node.var, Ty.UNKNOWN)
+        body = lower(node.pred, child_ctx, bool_mode=True)
+        unwrapped = body.text.replace(node.var, "_v")
+        lam = f"(fun (_v : sn_val) => {unwrapped})"
     return CoqTerm(
         f"(existsb {lam} {list_name} = true)", Ty.PROP)
 
