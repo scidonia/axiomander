@@ -244,7 +244,18 @@ def _all(n, ps, pv):
         lo = iris_prop(n.lower, param_set=inner_ps, post_var=pv)
         hi = iris_prop(n.upper, param_set=inner_ps, post_var=pv)
         return f"(forall ({n.var} : Z), {lo} <= {n.var} < {hi} -> {p})"
-    return "True"  # phase 3: forall over lists in Iris
+    if n.lst:
+        # Resolve the container variable through the full iris pipeline
+        lst_var = iris_prop(Var(n.lst), param_set=ps, post_var=pv)
+        # Replace bound variable with local binder _v (word-boundary safe)
+        import re
+        p_subst = re.sub(rf'\b{n.var}\b', '_v', p)
+        return (
+            f"(forallb (fun (_v : sn_val) => "
+            f"match _v with LitInt _z => {p_subst} | _ => false end) "
+            f"{lst_var} = true)"
+        )
+    return "True"
 
 
 def _any(n, ps, pv):
@@ -264,7 +275,17 @@ def _any(n, ps, pv):
         hi = iris_prop(n.upper, param_set=inner_ps, post_var=pv)
         p = iris_prop(n.pred, param_set=inner_ps, post_var=pv)
         return f"(exists ({n.var} : Z), {lo} <= {n.var} < {hi} /\\ {p})"
-    return "True"  # phase 3: exists over lists in Iris
+    if n.lst:
+        import re
+        p = iris_prop(n.pred, param_set=inner_ps, post_var=pv)
+        lst_var = iris_prop(Var(n.lst), param_set=ps, post_var=pv)
+        p_subst = re.sub(rf'\b{n.var}\b', '_v', p)
+        return (
+            f"(existsb (fun (_v : sn_val) => "
+            f"match _v with LitInt _z => {p_subst} | _ => false end) "
+            f"{lst_var} = true)"
+        )
+    return "True"
 
 
 def _slice_len(n, ps, pv):
