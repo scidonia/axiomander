@@ -513,7 +513,7 @@ def _is_structural(ty: Ty) -> bool:
 def _structural_cmp(op: str, l_text: str, r_text: str,
                     bool_mode: bool) -> CoqTerm:
     neg = "negb " if op == "<>" else ""
-    inner = f"(sn_val_eqb {l_text} {r_text})"
+    inner = f"(sn_val_eqb_full {l_text} {r_text})"
     if bool_mode:
         return CoqTerm(f"{neg}{inner}" if neg else inner, Ty.BOOL)
     eq_op = "<>" if op == "<>" else "="

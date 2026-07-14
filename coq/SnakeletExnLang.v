@@ -210,6 +210,30 @@ Definition sn_val_eqb (a b : sn_val) : bool :=
   | _, _ => false
   end.
 
+(** Full structural comparison for compound sn_val types (lists,
+    tuples).  Used in contract value comparisons.  Dicts and sets
+    are omitted — they use set-bag semantics which need a more
+    sophisticated comparison. *)
+Fixpoint sn_val_eqb_full (a b : sn_val) : bool :=
+  match a, b with
+  | LitInt n1, LitInt n2 => Z.eqb n1 n2
+  | LitBool b1, LitBool b2 => Bool.eqb b1 b2
+  | LitString s1, LitString s2 => String.eqb s1 s2
+  | LitFloat f1, LitFloat f2 => PrimFloat.eqb f1 f2
+  | LitUnit, LitUnit => true
+  | LitList vs1, LitList vs2 =>
+      (fix go xs ys := match xs, ys with
+       | [], [] => true
+       | x::xs', y::ys' => sn_val_eqb_full x y && go xs' ys'
+       | _, _ => false end) vs1 vs2
+  | LitTuple vs1, LitTuple vs2 =>
+      (fix go xs ys := match xs, ys with
+       | [], [] => true
+       | x::xs', y::ys' => sn_val_eqb_full x y && go xs' ys'
+       | _, _ => false end) vs1 vs2
+  | _, _ => false
+  end.
+
 (** * Dictionary / model field projection.
 
     [dict_lookup d k] walks the key-value list of an immutable [LitDict]

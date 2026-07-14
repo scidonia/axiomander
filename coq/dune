@@ -1,7 +1,7 @@
 (rocq.theory
   (name SCoqShared)
   (package axiomander)
-  (theories Stdlib)
+  (theories Stdlib stdpp)
   (synopsis "Shared Coq modules (Iris backend)")
   (modules LambdaA Supercompiler ListPredicates RegMatch DictModel
-   PExprToProp))
+   PExprToProp SnakeletExnLang))
