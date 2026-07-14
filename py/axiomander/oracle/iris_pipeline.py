@@ -105,7 +105,7 @@ def extract_contracts(
         pre-configured for the postcondition (for subsequent callee use).
     """
     params = [a.arg for a in fn_node.args.args]
-    param_type_hint = _param_type_map(fn_node)
+    param_type_hint, elem_type_hints = _param_type_map(fn_node)
     float_params = {p for p, t in param_type_hint.items() if t == "float"}
     string_params = {p for p, t in param_type_hint.items() if t in ("str", "string")}
     # Detect return type: if returns a model (shape-registered type), use
@@ -137,7 +137,7 @@ def extract_contracts(
 
     # --- Fluid lowerer: build LowerCtx from param type hints ---
     from axiomander.oracle.fluid_lowering import (
-        LowerCtx, Ty,
+        LowerCtx, Ty, ListElemTy,
         lower as _fluid_lower,
         compile_precondition_fluid,
         compile_postcondition_fluid,
@@ -150,7 +150,13 @@ def extract_contracts(
               "list": Ty.LIST, "dict": Ty.DICT, "set": Ty.SET,
               "tuple": Ty.TUPLE}.get(t, Ty.INT)
         gamma[p] = ty
-    _fluid_ctx = LowerCtx(gamma=gamma, list_model=lm)
+    # Convert element type hints from strings to Ty
+    _elem_ty_map: dict[str, ListElemTy] = {}
+    for name, et in elem_type_hints.items():
+        _elem_ty_map[name] = {"int": Ty.INT, "float": Ty.FLOAT,
+                              "bool": Ty.BOOL, "str": Ty.STR}.get(et or "", None)
+    _fluid_ctx = LowerCtx(gamma=gamma, list_model=lm,
+                          list_elem_types=_elem_ty_map)
 
     def _prop(node, *, post_var="", post_bound="z", list_model_override=None):
         ctx = _fluid_ctx
@@ -167,7 +173,7 @@ def extract_contracts(
         lm_post = dict(lm)
         lm_post["result"] = "v"
         ctx = LowerCtx(gamma=_fluid_ctx.gamma, post_var=ret_var,
-                       post_bound="v", list_model=lm_post)
+                       post_bound="z", list_model=lm_post)
         return compile_postcondition_fluid(node, ctx, result_kind=result_kind or "int")
 
     body = list(fn_node.body)
@@ -1163,24 +1169,34 @@ def _fold(stmts: list[PyStmt], lw: IrisLowerer,
 
 # -- Parameter substitution -------------------------------------------------
 
-def _param_type_map(fn_node: ast.FunctionDef) -> dict[str, str]:
-    """Extract {param_name: python_type_name} from function annotations."""
+def _param_type_map(fn_node: ast.FunctionDef) -> tuple[dict[str, str], dict[str, Optional[str]]]:
+    """Extract {param_name: python_type_name} and {param_name: elem_type}
+    from function annotations.  Returns (types, elem_types)."""
     from axiomander.oracle.shape_ir import lookup_shape
     out: dict[str, str] = {}
+    elem_types: dict[str, Optional[str]] = {}
     for a in fn_node.args.args:
         if a.annotation:
             if isinstance(a.annotation, ast.Name):
                 ptype = a.annotation.id
-                # Shape registry lookup: model types get their class name
-                # so the lowerer can find field definitions.
                 if lookup_shape(ptype) is not None:
-                    out[a.arg] = ptype  # keep class name for shape lookup
+                    out[a.arg] = ptype
                 else:
                     out[a.arg] = ptype
             elif isinstance(a.annotation, ast.Subscript):
                 if isinstance(a.annotation.value, ast.Name):
-                    out[a.arg] = a.annotation.value.id
-    return out
+                    base = a.annotation.value.id
+                    out[a.arg] = base
+                    # Extract element type from list[int], set[int], etc.
+                    if base in ("list", "set", "tuple") and hasattr(a.annotation, 'slice'):
+                        sl = a.annotation.slice
+                        if isinstance(sl, ast.Name):
+                            elem_types[a.arg] = sl.id
+                        elif isinstance(sl, ast.Subscript):
+                            # nested e.g. list[list[int]]
+                            if isinstance(sl.value, ast.Name):
+                                elem_types[a.arg] = sl.value.id
+    return out, elem_types
 
 
 def _subst_params(e: SExpr, params: set[str], bound: set[str],
@@ -1693,7 +1709,7 @@ def python_to_iris_proof(source: str,
     # Body: PyIR -> SnakeletIR -> ANF
     fn = PyIRTranslator().translate_function(target)
 
-    param_types = _param_type_map(target)
+    param_types, _ = _param_type_map(target)
     lw = IrisLowerer(loc_map={}, func_name=fn.name, dict_params=user_dict,
                       list_params=ann_list_params,
                       param_types=param_types)
